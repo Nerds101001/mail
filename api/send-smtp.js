@@ -49,6 +49,9 @@ module.exports = async (req, res) => {
       port: parseInt(port),
       secure: !!secure, // true for 465, false for other ports
       auth: { user, pass },
+      tls: {
+        rejectUnauthorized: false // Often required for shared hosting SMTP
+      }
     });
 
     const htmlBody = buildHtmlBody(body, leadId, appUrl);

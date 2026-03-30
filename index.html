@@ -934,11 +934,11 @@ function openEmailModal(idx){
 
 async function generateForModal(){
   const l=leads[modalLeadIndex];
-  if(!settings.claudeKey){ notify('Set Claude API key in Settings','error'); return; }
+  if(!settings.openaiKey){ notify('Set OpenAI API key in Settings','error'); return; }
   const btn=document.getElementById('gen-btn');
   btn.innerHTML='<span class="spinner"></span> Generating...'; btn.disabled=true;
   try {
-    const email=await generateAIEmail(l.name, l.company||'your company', settings.claudeKey);
+    const email=await generateAIEmail(l.name, l.company||'your company', settings.openaiKey);
     modalEmailBody=email;
     document.getElementById('modal-body').textContent=email;
   } catch(e){ notify('AI generation failed: '+e.message,'error'); }
