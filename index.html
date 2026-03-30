@@ -475,7 +475,36 @@ let modalEmailSubject = '';
 
 function save(){
   localStorage.setItem('crm_leads', JSON.stringify(leads));
+  localStorage.setItem('crm_settings', JSON.stringify(settings));
+  localStorage.setItem('crm_profiles', JSON.stringify(profiles));
   localStorage.setItem('crm_activity', JSON.stringify(activityLog.slice(-100)));
+  pushDataToRedis();
+}
+
+async function pushDataToRedis(){
+  if(window.location.protocol === 'file:') return;
+  try {
+    await fetch('/api/save-crm-data', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ leads, profiles, settings, activity: activityLog.slice(-100) })
+    });
+  } catch(e) { console.warn('Redis sync failed', e); }
+}
+
+async function loadData(){
+  if(window.location.protocol === 'file:') return;
+  try {
+    const res = await fetch('/api/get-crm-data');
+    if(res.ok){
+      const data = await res.json();
+      if(data.leads?.length) leads = data.leads;
+      if(data.profiles?.length) profiles = data.profiles;
+      if(Object.keys(data.settings||{}).length) settings = data.settings;
+      if(data.activity?.length) activityLog = data.activity;
+      renderLeads(); renderProfiles(); updateTopBar();
+    }
+  } catch(e) { console.warn('Redis load failed', e); }
 }
 
 // Handle Gmail Callback
@@ -492,8 +521,20 @@ if(urlParams.get('gmail') === 'connected'){
 
 function saveSettings(){
   settings.openaiKey = document.getElementById('openai-key').value.trim();
-  localStorage.setItem('crm_settings', JSON.stringify(settings));
+  save();
   notify('Settings saved', 'success');
+}
+
+async function checkApiEnv(){
+  try {
+    const res = await fetch('/api/gmail-auth');
+    if(!res.ok){
+      const data = await res.json();
+      if(data.error?.includes('Missing')){
+        notify('Warning: Vercel Env Vars (GOOGLE_CLIENT_ID/APP_URL) not set. Gmail Auth will fail.', 'error');
+      }
+    }
+  } catch(e){}
 }
 
 /************************************************************
@@ -651,7 +692,7 @@ function addSmtpProfile(){
     type: 'smtp', active: true,
     name, host, port, user, pass, secure
   });
-  localStorage.setItem('crm_profiles', JSON.stringify(profiles));
+  save();
   closeModal('addSmtpModal');
   renderProfiles();
   notify('SMTP Profile added','success');
@@ -660,14 +701,14 @@ function addSmtpProfile(){
 
 function toggleProfile(i){
   profiles[i].active = !profiles[i].active;
-  localStorage.setItem('crm_profiles', JSON.stringify(profiles));
+  save();
   renderProfiles();
 }
 
 function deleteProfile(i){
   if(!confirm('Delete this profile?')) return;
   profiles.splice(i,1);
-  localStorage.setItem('crm_profiles', JSON.stringify(profiles));
+  save();
   renderProfiles();
 }
 
@@ -1343,7 +1384,7 @@ function handleOAuthRedirect(){
     const account=params.get('account');
     if(!profiles.find(p=>p.user===account && p.type==='gmail')){
       profiles.push({ id:'gmail_'+Date.now(), type:'gmail', active:true, name:'Gmail Account', user:account });
-      localStorage.setItem('crm_profiles', JSON.stringify(profiles));
+      save();
       notify(`Connected Gmail: ${account}`,'success');
       logActivity(`Gmail connected: ${account}`);
     }
@@ -1361,6 +1402,8 @@ function handleOAuthRedirect(){
  INIT
 ************************************************************/
 handleOAuthRedirect();
+loadData();
+checkApiEnv();
 updateTopBar();
 refreshDashboard();
 </script>
