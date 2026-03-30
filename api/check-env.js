@@ -6,7 +6,7 @@ module.exports = async (req, res) => {
     APP_URL: !!process.env.APP_URL,
     UPSTASH_REDIS_REST_URL: !!process.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: !!process.env.UPSTASH_REDIS_REST_TOKEN,
-    NVIDIA_API_KEY: !!process.env.OPENAI_API_KEY // Optional if using UI key
+    NVIDIA_API_KEY: !!process.env.NVIDIA_API_KEY // Primary source
   };
 
   const missing = Object.keys(envs).filter(k => !envs[k]);

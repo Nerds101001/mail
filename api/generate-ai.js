@@ -4,7 +4,7 @@ module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   
   const { name, company, apiKey } = req.body;
-  const key = apiKey || process.env.OPENAI_API_KEY; // Reusing naming for compatibility
+  const key = apiKey || process.env.NVIDIA_API_KEY; 
 
   if (!key) return res.status(400).json({ error: 'NVIDIA API Key missing' });
 
