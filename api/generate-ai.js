@@ -3,10 +3,18 @@
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   
-  const { name, company, apiKey } = req.body;
+  const { name, company, apiKey, customPrompt } = req.body;
   const key = apiKey || process.env.NVIDIA_API_KEY; 
 
   if (!key) return res.status(400).json({ error: 'NVIDIA API Key missing' });
+
+  let prompt = `Write a professional, 100-word cold email for ${name} from ${company}. 
+            Subject should be about ERP/SaaS solutions from Enginerds Tech Solution. 
+            Do not include a subject line, body only.`;
+  
+  if(customPrompt) {
+    prompt += `\n\nAdditional Instructions: ${customPrompt}`;
+  }
 
   try {
     const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
@@ -20,9 +28,7 @@ module.exports = async (req, res) => {
         messages: [
           {
             role: "user",
-            content: `Write a professional, 100-word cold email for ${name} from ${company}. 
-            Subject should be about ERP/SaaS solutions from Enginerds Tech Solution. 
-            Do not include a subject line, body only.`
+            content: prompt
           }
         ],
         temperature: 0.7,

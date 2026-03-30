@@ -257,16 +257,33 @@ select option{background:var(--card);}
     <div class="card">
       <div class="card-header">Campaign Config</div>
       <div class="form-group" style="margin-bottom:12px;"><label>Batch Limit</label><input type="number" id="cfg-batch" value="30" min="1"/></div>
-      <div class="form-group" style="margin-bottom:12px;"><label>Follow-up 1 Delay (days)</label><input type="number" id="cfg-fu1" value="2" min="1"/></div>
-      <div class="form-group" style="margin-bottom:12px;"><label>Follow-up 2 Delay (days)</label><input type="number" id="cfg-fu2" value="5" min="1"/></div>
-      <div class="form-group" style="margin-bottom:12px;"><label>Sender Name</label><input type="text" id="cfg-sender" value="Pawan Kumar - Enginerds Tech Solution"/></div>
+      <div class="form-group" style="margin-bottom:12px;">
+        <label>Target Group (Leads Selection)</label>
+        <select id="cfg-target-group">
+          <option value="all">All Contacts</option>
+          <option value="valid" selected>VALID Only</option>
+          <option value="followup">FOLLOW-UP Only</option>
+          <option value="selected">Selected Leads (from table)</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:12px;">
+        <label>Active Senders (Round-Robin)</label>
+        <div id="cfg-sender-list" style="display:flex;flex-direction:column;gap:4px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;max-height:100px;overflow-y:auto;border:1px solid var(--border);">
+          <!-- Dynamic checkboxes -->
+          <div style="font-size:11px;color:var(--muted);">Syncing profiles...</div>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:12px;"><label>Sender Name Display</label><input type="text" id="cfg-sender" value="Pawan Kumar - Enginerds Tech Solution"/></div>
       <div class="form-group"><label>Reply-to Email</label><input type="text" id="cfg-replyto" value="contact@enginerds.in"/></div>
     </div>
     <div class="card">
       <div class="card-header">Email Preview</div>
       <div class="form-row">
         <div class="form-group"><label>Name</label><input type="text" id="prev-name" placeholder="John Doe"/></div>
-        <div class="form-group"><label>Company</label><input type="text" id="prev-company" placeholder="Acme Corp"/></div>
+      </div>
+      <div class="form-group" style="margin-bottom:12px;">
+        <label>Custom AI Generation Instructions (Prompt)</label>
+        <textarea id="ai-prompt-cmd" style="width:100%;height:60px;font-size:12px;padding:8px;" placeholder="e.g. Focus on our 15% discount, mention their industry..."></textarea>
       </div>
       <button class="btn btn-blue btn-sm" onclick="previewEmail()" style="margin-bottom:12px;">✦ Generate Preview</button>
       <div class="preview-subject" id="prev-subject">Subject will appear here</div>
@@ -589,17 +606,20 @@ function updateGmailBadge(){
 /************************************************************
  NAVIGATION
 ************************************************************/
-function showPage(name){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
-  document.getElementById('page-'+name).classList.add('active');
-  document.getElementById('nav-'+name).classList.add('active');
-  if(name==='dashboard') refreshDashboard();
-  if(name==='leads') renderLeads();
-  if(name==='pipeline') renderPipeline();
-  if(name==='tracking'){ syncTracking(); renderTracking(); }
-  if(name==='campaign') checkCampaignReady();
-  if(name==='settings'){ 
+function showPage(p){
+  document.querySelectorAll('.page').forEach(pg=>pg.classList.remove('active'));
+  document.getElementById('page-'+p).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(ni=>ni.classList.remove('active'));
+  document.getElementById('nav-'+p).classList.add('active');
+  if(p==='dashboard') refreshDashboard();
+  if(p==='leads') renderLeads();
+  if(p==='campaign'){ 
+    renderLeads(); // For count updates
+    updateSenderListUI();
+  }
+  if(p==='pipeline') renderPipeline();
+  if(p==='tracking') renderTracking();
+  if(p==='settings'){ 
     document.getElementById('openai-key').value=settings.openaiKey||''; 
     document.getElementById('show-app-url').textContent=window.location.origin; 
     renderProfiles();
@@ -1042,11 +1062,11 @@ async function sendEmailFromModal(){
 /************************************************************
  AI EMAIL
 ************************************************************/
-async function generateAIEmail(name, company, apiKey){
+async function generateAIEmail(name, company, apiKey, customPrompt=''){
   const res=await fetch('/api/generate-ai',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({ name, company, apiKey })
+    body:JSON.stringify({ name, company, apiKey, customPrompt })
   });
   const data=await res.json();
   if(!res.ok) throw new Error(data.error || 'AI generation failed');
@@ -1081,15 +1101,29 @@ async function previewEmail(){
  CAMPAIGN RUNNER
 ************************************************************/
 async function runCampaign(){
-  const activeProfiles = profiles.filter(p=>p.active);
-  if(!activeProfiles.length){ notify('No active sender profiles! Add SMTP or Gmail in Settings.','error'); return; }
+  const targetGroup = document.getElementById('cfg-target-group').value;
+  const selectedSenderUsers = Array.from(document.querySelectorAll('.camp-sender-check:checked')).map(cb=>cb.value);
+  const activeProfiles = profiles.filter(p=>p.active && selectedSenderUsers.includes(p.user));
   
-  const ids = JSON.parse(localStorage.getItem('crm_camp_leads')||'[]');
-  const toProcess = leads.filter(l => ids.includes(l.id) && (['VALID','SENT','FOLLOW-UP'].includes(l.status)||(l.stage&&l.stage<='2')));
-  if(!toProcess.length){ notify('No leads ready for campaign','info'); return; }
+  if(!activeProfiles.length){ notify('Select at least one active sender profile!','error'); return; }
+  
+  let toProcess = [];
+  if(targetGroup === 'all'){
+    toProcess = leads.slice();
+  } else if(targetGroup === 'valid'){
+    toProcess = leads.filter(l => l.status === 'VALID');
+  } else if(targetGroup === 'followup'){
+    toProcess = leads.filter(l => l.status === 'FOLLOW-UP');
+  } else if(targetGroup === 'selected'){
+    const ids = Array.from(document.querySelectorAll('.lead-check:checked')).map(cb=>cb.value);
+    toProcess = leads.filter(l => ids.includes(l.id));
+  }
+  
+  if(!toProcess.length){ notify('No leads found for the selected Target Group','info'); return; }
   
   const log = document.getElementById('camp-log');
-  const btn = document.getElementById('camp-run-btn');
+  const btn = document.getElementById('camp-btn');
+  const customPrompt = document.getElementById('ai-prompt-cmd').value.trim();
   btn.innerHTML = '<span class="spinner"></span> Running...'; btn.disabled = true;
   log.innerHTML = '<div style="color:var(--muted);font-size:12px;">Starting campaign...</div>';
   
@@ -1143,7 +1177,7 @@ async function runCampaign(){
     else if(l.status==='VALID'){
       let body=defaultEmailBody(l.name, l.company||'your company');
       if(settings.openaiKey){
-        try{ body=await generateAIEmail(l.name, l.company||'your company', settings.openaiKey); }
+        try{ body=await generateAIEmail(l.name, l.company||'your company', settings.openaiKey, customPrompt); }
         catch(e){ addCampLog(log,`AI failed for ${l.name}: ${e.message}`,'red'); }
       }
       const ok=await sendEmail(l, generateSubject(l.company||'your company'), body, senderName, replyTo, profile);
