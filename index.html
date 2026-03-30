@@ -326,15 +326,15 @@ select option{background:var(--card);}
         <div style="font-size:12px;color:var(--muted);margin-top:10px;">After connecting, you'll be redirected back automatically.</div>
       </div>
     </div>
-    <!-- OpenAI (ChatGPT) -->
+    <!-- NVIDIA NIM AI -->
     <div class="card">
-      <div class="card-header">OpenAI (ChatGPT) Integration</div>
+      <div class="card-header">NVIDIA NIM AI Integration</div>
       <div class="form-group" style="margin-bottom:14px;">
-        <label>OpenAI API Key</label>
-        <input type="password" id="openai-key" placeholder="sk-..."/>
+        <label>NVIDIA API Key</label>
+        <input type="password" id="openai-key" placeholder="nvapi-..."/>
       </div>
       <button class="btn btn-primary" onclick="saveSettings()">Save Key</button>
-      <div style="font-size:12px;color:var(--muted);margin-top:10px;">Enables AI-personalized cold emails via GPT-4o. Stored in your browser only.</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:10px;">Enables high-performance AI email personalization via NVIDIA NIM (GPT-OSS-120B).</div>
     </div>
   </div>
 
@@ -987,7 +987,7 @@ function openEmailModal(idx){
 
 async function generateForModal(){
   const l=leads[modalLeadIndex];
-  if(!settings.openaiKey){ notify('Set OpenAI API key in Settings','error'); return; }
+  if(!settings.openaiKey){ notify('Set NVIDIA API key in Settings','error'); return; }
   const btn=document.getElementById('gen-btn');
   btn.innerHTML='<span class="spinner"></span> Generating...'; btn.disabled=true;
   try {
@@ -1043,18 +1043,14 @@ async function sendEmailFromModal(){
  AI EMAIL
 ************************************************************/
 async function generateAIEmail(name, company, apiKey){
-  const res=await fetch('https://api.openai.com/v1/chat/completions',{
+  const res=await fetch('/api/generate-ai',{
     method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
-    body:JSON.stringify({
-      model:'gpt-4o',
-      messages:[{role:'user',content:`Write a personalized cold email for ${name} from ${company}. Sell ERP & SaaS services from Enginerds Tech Solution. Under 100 words, natural and professional. No subject line — body only.`}],
-      max_tokens:300
-    })
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ name, company, apiKey })
   });
-  if(!res.ok){ const e=await res.json(); throw new Error(e.error?.message||'OpenAI error'); }
   const data=await res.json();
-  return data.choices[0].message.content;
+  if(!res.ok) throw new Error(data.error || 'AI generation failed');
+  return data.content;
 }
 
 function generateSubject(company){ return `Quick idea to improve ${company} operations`; }
