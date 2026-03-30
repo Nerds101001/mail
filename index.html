@@ -367,6 +367,7 @@ select option{background:var(--card);}
           UPSTASH_REDIS_REST_TOKEN=...
         </code>
       </div>
+      <div id="env-warning-list"></div>
     </div>
   </div>
 
@@ -527,11 +528,22 @@ function saveSettings(){
 
 async function checkApiEnv(){
   try {
-    const res = await fetch('/api/gmail-auth');
-    if(!res.ok){
+    const res = await fetch('/api/check-env');
+    if(res.ok){
       const data = await res.json();
-      if(data.error?.includes('Missing')){
-        notify('Warning: Vercel Env Vars (GOOGLE_CLIENT_ID/APP_URL) not set. Gmail Auth will fail.', 'error');
+      if(!data.ok){
+        notify('⚠️ Critical setup missing: Click "Settings" to see required environment variables.', 'error');
+        if(document.getElementById('env-warning-list')){
+          document.getElementById('env-warning-list').innerHTML = `
+            <div class="warn-box" style="margin-top:16px;background:rgba(255,87,87,0.1);border:1px solid var(--accent2);">
+              <b>⚠️ Missing Vercel Configuration:</b>
+              <ul style="margin:8px 0 0 16px;padding:0;font-size:12px;">
+                ${data.missing.map(m=>`<li><code>${m}</code></li>`).join('')}
+              </ul>
+              <div style="margin-top:8px;font-size:11px;color:var(--muted);">Add these in Vercel > Settings > Environment Variables, then redeploy.</div>
+            </div>
+          `;
+        }
       }
     }
   } catch(e){}
