@@ -1,30 +1,36 @@
-// api/send-smtp.js
-// Sends email via standard SMTP using nodemailer
-// Supports tracking pixel and click redirects
-
 const nodemailer = require('nodemailer');
+const { get } = require('./_redis');
 
-// ─── Build tracked HTML body ──────────────────────────────────────────────
-function buildHtmlBody(plainText, leadId, appUrl) {
+// ─── Build tracked "Real Mail" HTML body ─────────────────────────────────────
+function buildHtmlBody(plainText, leadId, email, appUrl) {
+  // 1. Basic text processing
   const htmlText = plainText
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/\n/g, "<br>");
 
-  const trackingPixel = `<img src="${appUrl}/api/track/open?id=${leadId}" width="1" height="1" style="display:none;visibility:hidden;" alt=""/>`;
-
+  // 2. Click tracking (minimal)
   const trackedText = htmlText.replace(
     /https?:\/\/[^\s<"]+/g,
     (url) => `<a href="${appUrl}/api/track/click?id=${leadId}&url=${encodeURIComponent(url)}">${url}</a>`
   );
 
+  // 3. Open tracking pixel (invisible)
+  const trackingPixel = `<img src="${appUrl}/api/track/open?id=${leadId}" width="1" height="1" style="display:none;"/>`;
+
+  // 4. Subtle Unsubscribe link
+  const unsubscribeLink = `<div style="margin-top:40px; padding-top:10px; border-top:1px solid #eee; font-size:11px; color:#999;">
+    If you'd rather not receive these emails, you can <a href="${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}" style="color:#999; text-decoration:underline;">unsubscribe</a>.
+  </div>`;
+
+  // 5. Clean, left-aligned structure
   return `
 <!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"/></head>
-<body style="font-family:Arial,sans-serif;font-size:14px;color:#333;line-height:1.6;max-width:600px;margin:0 auto;padding:20px;">
-  <div>${trackedText}</div>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.5; color: #333; margin: 0; padding: 20px; text-align: left;">
+  <div style="max-width: 100%;">${trackedText}</div>
+  ${unsubscribeLink}
   ${trackingPixel}
 </body>
 </html>`;
@@ -41,20 +47,25 @@ module.exports = async (req, res) => {
     return res.status(400).json({ error: "Missing required fields: leadId, to, subject, body, smtpConfig" });
   }
 
-  const { host, port, user, pass, secure } = smtpConfig;
-
   try {
+    // 1. HARD CHECK: Check if the user is in the unsubscribe list
+    const isUnsubscribed = await get(`unsub:${to}`);
+    if (isUnsubscribed === "true") {
+      console.log(`Skipping SMTP send to unsubscribed email: ${to}`);
+      return res.status(200).json({ success: false, skipped: true, reason: "UNSUBSCRIBED" });
+    }
+
+    const { host, port, user, pass, secure } = smtpConfig;
+
     const transporter = nodemailer.createTransport({
       host,
       port: parseInt(port),
-      secure: !!secure, // true for 465, false for other ports
+      secure: !!secure,
       auth: { user, pass },
-      tls: {
-        rejectUnauthorized: false // Often required for shared hosting SMTP
-      }
+      tls: { rejectUnauthorized: false }
     });
 
-    const htmlBody = buildHtmlBody(body, leadId, appUrl);
+    const htmlBody = buildHtmlBody(body, leadId, to, appUrl);
 
     const info = await transporter.sendMail({
       from: `"${senderName}" <${user}>`,
