@@ -95,6 +95,11 @@ tr:hover td{background:rgba(255,255,255,0.02);}
 .badge-high{background:rgba(255,77,109,0.12);color:var(--accent2);}
 .badge-medium{background:rgba(255,179,71,0.12);color:var(--accent4);}
 .badge-low{background:rgba(107,114,128,0.2);color:var(--muted);}
+.badge-bounced{background:rgba(255,77,109,0.15);color:var(--accent2);border:1px solid rgba(255,77,109,0.2);}
+.badge-complaint{background:rgba(255,179,71,0.15);color:var(--accent4);border:1px solid rgba(255,179,71,0.2);}
+.badge-unsubscribed{background:rgba(107,114,128,0.1);color:var(--muted);border:1px solid var(--border);}
+.tag{display:inline-flex;align-items:center;padding:2px 6px;border-radius:4px;font-size:10px;font-family:var(--mono);background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--muted);margin:1px;}
+.tag-category{background:rgba(0,229,160,0.1);color:var(--accent);border-color:rgba(0,229,160,0.2);}
 
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;}
 .form-group{display:flex;flex-direction:column;gap:6px;}
@@ -225,7 +230,7 @@ select option{background:var(--card);}
   </div>
   <div class="table-wrap">
     <table>
-      <thead><tr><th><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)"/></th><th>Name</th><th>Email</th><th>Company</th><th>Role</th><th>Status</th><th>Stage</th><th>Priority</th><th>Score</th><th>Last Sent</th><th>Actions</th></tr></thead>
+      <thead><tr><th><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)"/></th><th>Name</th><th>Email</th><th>Company</th><th>Category &amp; Tags</th><th>Status</th><th>Score</th><th>Last Sent</th><th>Actions</th></tr></thead>
       <tbody id="leads-tbody"></tbody>
     </table>
   </div>
@@ -256,15 +261,31 @@ select option{background:var(--card);}
   <div class="grid2">
     <div class="card">
       <div class="card-header">Campaign Config</div>
-      <div class="form-group" style="margin-bottom:12px;"><label>Batch Limit</label><input type="number" id="cfg-batch" value="30" min="1"/></div>
+      <div class="form-row">
+        <div class="form-group"><label>Batch Limit</label><input type="number" id="cfg-batch" value="30" min="1"/></div>
+        <div class="form-group"><label>Rate Limit (secs between emails)</label><input type="number" id="cfg-rate-limit" value="5" min="0" max="60"/></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>FU1 Wait (Days)</label><input type="number" id="cfg-fu1" value="2" min="1"/></div>
+        <div class="form-group"><label>FU2 Wait (Days)</label><input type="number" id="cfg-fu2" value="4" min="1"/></div>
+      </div>
       <div class="form-group" style="margin-bottom:12px;">
         <label>Target Group (Leads Selection)</label>
-        <select id="cfg-target-group">
+        <select id="cfg-target-group" onchange="toggleCampFilters()">
           <option value="all">All Contacts</option>
           <option value="valid" selected>VALID Only</option>
           <option value="followup">FOLLOW-UP Only</option>
+          <option value="category">Specific Category</option>
+          <option value="tag">Specific Tag</option>
           <option value="selected">Selected Leads (from table)</option>
         </select>
+      </div>
+      <div id="cfg-filter-detail" style="display:none;margin-bottom:12px;">
+        <label id="cfg-filter-label">Select Value</label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="cfg-filter-value" placeholder="Enter Category or Tag..."/>
+          <button class="btn btn-ghost btn-sm" onclick="previewTargetList()">🔍 Preview</button>
+        </div>
       </div>
       <div class="form-group" style="margin-bottom:12px;">
         <label>Active Senders (Round-Robin)</label>
@@ -280,6 +301,7 @@ select option{background:var(--card);}
       <div class="card-header">Email Preview</div>
       <div class="form-row">
         <div class="form-group"><label>Name</label><input type="text" id="prev-name" placeholder="John Doe"/></div>
+        <div class="form-group"><label>A/B Subject (Alt)</label><input type="text" id="cfg-subject-alt" placeholder="Idea for [Company] (A/B Test)"/></div>
       </div>
       <div class="form-group" style="margin-bottom:12px;">
         <label>Custom AI Generation Instructions (Prompt)</label>
@@ -354,7 +376,6 @@ select option{background:var(--card);}
       <div style="font-size:12px;color:var(--muted);margin-top:10px;">Enables high-performance AI email personalization via NVIDIA NIM (GPT-OSS-120B).</div>
     </div>
   </div>
-
   <!-- Sender Profiles (Multi-Account) -->
   <div class="card" style="margin-top:16px;">
     <div class="card-header">Sender Profiles (Multi-Account / Round-Robin)</div>
@@ -363,6 +384,7 @@ select option{background:var(--card);}
       <div id="profile-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;"></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:16px;">
         <button class="btn btn-blue btn-sm" onclick="openModal('addSmtpModal')">+ Add SMTP Account</button>
+        <button class="btn btn-primary btn-sm" style="--accent:#ff9900;" onclick="openModal('addSesModal')">+ Add Amazon SES</button>
         <a href="/api/gmail-auth" class="btn btn-google btn-sm">Connect Gmail API</a>
       </div>
     </div>
@@ -415,6 +437,12 @@ select option{background:var(--card);}
     <div class="form-row">
       <div class="form-group"><label>Company (optional)</label><input type="text" id="add-company" placeholder="Auto-detected"/></div>
       <div class="form-group"><label>Role</label><select id="add-role"><option>GENERAL</option><option>FOUNDER</option><option>SALES</option><option>HR</option><option>CTO</option><option>CFO</option></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Category</label><input type="text" id="add-category" list="category-list" placeholder="e.g. SaaS, E-commerce"/>
+        <datalist id="category-list"><option value="SaaS"/><option value="E-commerce"/><option value="Marketing"/><option value="Enterprise"/></datalist>
+      </div>
+      <div class="form-group"><label>Tags (comma separated)</label><input type="text" id="add-tags" placeholder="VIP, New, Confirmed"/></div>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px;">
       <button class="btn btn-ghost" onclick="closeModal('addLeadModal')">Cancel</button>
@@ -472,7 +500,26 @@ select option{background:var(--card);}
     <div style="display:flex;justify-content:flex-end;gap:10px;">
       <button class="btn btn-ghost" onclick="closeModal('addSmtpModal')">Cancel</button>
       <button class="btn btn-blue btn-sm" id="test-smtp-btn" onclick="testSmtpConnection()">⚡ Test Connection</button>
-      <button class="btn btn-primary" onclick="addSmtpProfile()">Save Profile</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD SES MODAL -->
+<div class="modal-overlay" id="addSesModal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">ADD AMAZON SES ACCOUNT</div><button class="modal-close" onclick="closeModal('addSesModal')">✕</button></div>
+    <div class="form-group" style="margin-bottom:12px;"><label>Profile Name (e.g. AWS Production)</label><input type="text" id="ses-name" placeholder="SES Marketing"/></div>
+    <div class="form-row">
+      <div class="form-group"><label>AWS Region</label><select id="ses-region"><option value="us-east-1">us-east-1 (N. Virginia)</option><option value="us-west-2">us-west-2 (Oregon)</option><option value="eu-west-1">eu-west-1 (Ireland)</option><option value="ap-south-1">ap-south-1 (Mumbai)</option></select></div>
+      <div class="form-group"><label>Verified Sender Email</label><input type="email" id="ses-sender" placeholder="verified@domain.com"/></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Access Key ID</label><input type="text" id="ses-key" placeholder="AKIA..."/></div>
+      <div class="form-group"><label>Secret Access Key</label><input type="password" id="ses-secret"/></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
+      <button class="btn btn-ghost" onclick="closeModal('addSesModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="addSesProfile()">Save SES Profile</button>
     </div>
   </div>
 </div>
@@ -490,6 +537,25 @@ let activityLog = JSON.parse(localStorage.getItem('crm_activity')||'[]');
 let modalLeadIndex = -1;
 let modalEmailBody = '';
 let modalEmailSubject = '';
+
+async function previewEmail(){
+  const name = document.getElementById('prev-name').value || 'John Doe';
+  const company = document.getElementById('prev-company') ? document.getElementById('prev-company').value : 'Acme Corp';
+  const customPrompt = document.getElementById('ai-prompt-cmd').value;
+  const btn = event ? event.target : document.querySelector('button[onclick="previewEmail()"]');
+  
+  if(!settings.openaiKey){ notify('Please add your AI API Key in Settings first.','warn'); return; }
+  
+  btn.innerHTML = '<span class="spinner"></span> Generating...'; btn.disabled = true;
+  try {
+    const body = await generateAIEmail(name, company, settings.openaiKey, customPrompt);
+    document.getElementById('prev-subject').textContent = generateSubject(company);
+    document.getElementById('prev-body').innerHTML = body.replace(/\n/g, '<br>');
+  } catch(e) {
+    notify('Preview failed: ' + e.message, 'error');
+  }
+  btn.innerHTML = '✦ Generate Preview'; btn.disabled = false;
+}
 
 function save(){
   localStorage.setItem('crm_leads', JSON.stringify(leads));
@@ -520,7 +586,7 @@ async function loadData(){
       if(data.profiles?.length) profiles = data.profiles;
       if(Object.keys(data.settings||{}).length) settings = data.settings;
       if(data.activity?.length) activityLog = data.activity;
-      renderLeads(); renderProfiles(); updateTopBar();
+      renderLeads(); renderProfiles(); updateSenderListUI(); refreshDashboard();
     }
   } catch(e) { console.warn('Redis load failed', e); }
 }
@@ -624,6 +690,49 @@ function showPage(p){
     document.getElementById('show-app-url').textContent=window.location.origin; 
     renderProfiles();
   }
+  updateSenderListUI(); // Always refresh to be safe
+}
+
+function toggleCampFilters(){
+  const val = document.getElementById('cfg-target-group').value;
+  const detail = document.getElementById('cfg-filter-detail');
+  const label = document.getElementById('cfg-filter-label');
+  if(val === 'category' || val === 'tag'){
+    detail.style.display = 'block';
+    label.textContent = val === 'category' ? 'Select Category' : 'Select Tag';
+  } else {
+    detail.style.display = 'none';
+  }
+}
+
+function getFilteredLeads(){
+  const targetGroup = document.getElementById('cfg-target-group').value;
+  const filterVal = document.getElementById('cfg-filter-value').value.trim().toLowerCase();
+  
+  if(targetGroup === 'all') return leads.slice();
+  if(targetGroup === 'valid') return leads.filter(l => l.status === 'VALID');
+  if(targetGroup === 'followup') return leads.filter(l => l.status === 'FOLLOW-UP');
+  if(targetGroup === 'category') return leads.filter(l => (l.category||'').toLowerCase() === filterVal);
+  if(targetGroup === 'tag') return leads.filter(l => (l.tags||[]).some(t => t.toLowerCase() === filterVal));
+  if(targetGroup === 'selected'){
+    const idxs = Array.from(document.querySelectorAll('.lead-check:checked')).map(cb=>parseInt(cb.dataset.idx));
+    return idxs.map(i => leads[i]);
+  }
+  return [];
+}
+
+function previewTargetList(){
+  const targets = getFilteredLeads();
+  const log = document.getElementById('camp-log');
+  if(!targets.length){ notify('No leads match this filter','info'); return; }
+  
+  log.innerHTML = `<div style="background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;margin-bottom:10px;border:1px solid var(--border);">
+    <b style="color:var(--accent);">Target List Preview (${targets.length} leads):</b>
+    <div style="max-height:150px;overflow-y:auto;margin-top:8px;font-size:11px;">
+      ${targets.map(t=>`<div>${t.name} &lt;${t.email}&gt; [${t.category||'General'}]</div>`).join('')}
+    </div>
+  </div>` + log.innerHTML;
+  notify(`Selected ${targets.length} leads for preview`,'info');
 }
 
 function checkCampaignReady(){
@@ -651,6 +760,7 @@ function renderProfiles(){
       </div>
       <div style="display:flex;gap:6px;">
         ${p.type==='smtp' ? `<button class="btn btn-blue btn-sm" onclick="testExistingSmtp(${i})" title="Test Connection">⚡ Test</button>` : ''}
+        ${p.type==='ses' ? `<button class="btn btn-blue btn-sm" style="--accent3:#ff9900;--accent:#ff9900;" onclick="notify('SES live status check not yet implemented','info')" title="Check Status">✓ Ready</button>` : ''}
         <button class="btn btn-ghost btn-sm" onclick="deleteProfile(${i})" style="color:var(--accent2);border-color:rgba(255,179,71,0.2);">✕</button>
       </div>
     </div>
@@ -729,6 +839,27 @@ function addSmtpProfile(){
   renderProfiles();
   notify('SMTP Profile added','success');
   ['smtp-name','smtp-host','smtp-user','smtp-pass'].forEach(id=>document.getElementById(id).value='');
+}
+
+function addSesProfile(){
+  const name = document.getElementById('ses-name').value.trim();
+  const region = document.getElementById('ses-region').value;
+  const senderEmail = document.getElementById('ses-sender').value.trim();
+  const accessKeyId = document.getElementById('ses-key').value.trim();
+  const secretAccessKey = document.getElementById('ses-secret').value;
+
+  if(!name || !senderEmail || !accessKeyId || !secretAccessKey){ notify('All fields required','error'); return; }
+
+  profiles.push({
+    id: 'profile_'+Date.now(),
+    type: 'ses', active: true,
+    name, region, senderEmail, accessKeyId, secretAccessKey, user: senderEmail
+  });
+  save();
+  closeModal('addSesModal');
+  renderProfiles();
+  notify('Amazon SES Profile added','success');
+  ['ses-name','ses-sender','ses-key','ses-secret'].forEach(id=>document.getElementById(id).value='');
 }
 
 function toggleProfile(i){
@@ -917,6 +1048,8 @@ function addLead(){
     stage: document.getElementById('add-stage').value||'',
     company: document.getElementById('add-company').value.trim(),
     role: document.getElementById('add-role').value,
+    category: document.getElementById('add-category').value.trim() || 'General',
+    tags: document.getElementById('add-tags').value.split(',').map(t=>t.trim()).filter(Boolean),
     opens:0, clicks:0, score:40, lastSent:'',
     domain:'', priority:'LOW', createdAt: new Date().toISOString()
   };
@@ -953,10 +1086,13 @@ function renderLeads(){
         <td style="font-weight:600;">${l.name||'—'}</td>
         <td style="font-family:var(--mono);font-size:12px;">${l.email}</td>
         <td>${l.company||'—'}</td>
-        <td>${l.role||'—'}</td>
+        <td>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;">
+            <span class="tag tag-category">${l.category||'General'}</span>
+            ${(l.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('')}
+          </div>
+        </td>
         <td><span class="badge badge-${(l.status||'').toLowerCase().replace('-','')}">${l.status||'—'}</span></td>
-        <td style="font-family:var(--mono);">${l.stage||'—'}</td>
-        <td><span class="badge badge-${(l.priority||'low').toLowerCase()}">${l.priority||'LOW'}</span></td>
         <td style="font-family:var(--mono);color:var(--accent);">${l.score||0}</td>
         <td style="font-family:var(--mono);font-size:11px;">${ls}</td>
         <td style="display:flex;gap:4px;">
@@ -1101,24 +1237,11 @@ async function previewEmail(){
  CAMPAIGN RUNNER
 ************************************************************/
 async function runCampaign(){
-  const targetGroup = document.getElementById('cfg-target-group').value;
   const selectedSenderUsers = Array.from(document.querySelectorAll('.camp-sender-check:checked')).map(cb=>cb.value);
   const activeProfiles = profiles.filter(p=>p.active && selectedSenderUsers.includes(p.user));
-  
   if(!activeProfiles.length){ notify('Select at least one active sender profile!','error'); return; }
-  
-  let toProcess = [];
-  if(targetGroup === 'all'){
-    toProcess = leads.slice();
-  } else if(targetGroup === 'valid'){
-    toProcess = leads.filter(l => l.status === 'VALID');
-  } else if(targetGroup === 'followup'){
-    toProcess = leads.filter(l => l.status === 'FOLLOW-UP');
-  } else if(targetGroup === 'selected'){
-    const ids = Array.from(document.querySelectorAll('.lead-check:checked')).map(cb=>cb.value);
-    toProcess = leads.filter(l => ids.includes(l.id));
-  }
-  
+
+  const toProcess = getFilteredLeads();
   if(!toProcess.length){ notify('No leads found for the selected Target Group','info'); return; }
   
   const log = document.getElementById('camp-log');
@@ -1127,13 +1250,14 @@ async function runCampaign(){
   btn.innerHTML = '<span class="spinner"></span> Running...'; btn.disabled = true;
   log.innerHTML = '<div style="color:var(--muted);font-size:12px;">Starting campaign...</div>';
   
-  const senderName=document.getElementById('cfg-sender').value;
-  const replyTo=document.getElementById('cfg-replyto').value;
-  const fu1Days=parseInt(document.getElementById('cfg-fu1').value);
-  const fu2Days=parseInt(document.getElementById('cfg-fu2').value);
+  const senderName = document.getElementById('cfg-sender').value;
+  const replyTo = document.getElementById('cfg-replyto').value;
+  const fu1Days = parseInt(document.getElementById('cfg-fu1').value||0);
+  const fu2Days = parseInt(document.getElementById('cfg-fu2').value||0);
+  const rateLimit = parseInt(document.getElementById('cfg-rate-limit').value || 5);
+  const subjectAlt = document.getElementById('cfg-subject-alt').value.trim();
   
   let processed=0;
-  let profileIdx = 0; // For Round Robin
 
   for(let i=0; i<toProcess.length; i++){
     const l = toProcess[i];
@@ -1145,18 +1269,21 @@ async function runCampaign(){
     document.getElementById('camp-status').textContent = `Processing: ${l.name}`;
 
     // Pick profile (Round Robin)
-    const profile = activeProfiles[profileIdx % activeProfiles.length];
+    const profile = activeProfiles[processed % activeProfiles.length];
+
+    // A/B Subject Logic
+    let subject = generateSubject(l.company||'your company');
+    if(subjectAlt && processed % 2 === 1) subject = subjectAlt.replace('[Company]', l.company||'your company');
 
     // FOLLOW-UP 2
     if(l.stage==='2' && l.lastSent){
       const diff = (Date.now() - new Date(l.lastSent))/(864e5);
       if(diff >= fu2Days){
         const body = `Hi ${l.name},\n\nThis is my last follow-up. If the timing isn't right, no worries at all — but if you're open to a quick chat about improving operations at ${l.company||'your company'}, I'd love to connect.\n\nThanks,\nPawan`;
-        const ok = await sendEmail(l, 'One last thought — Enginerds', body, senderName, replyTo, profile);
+        const ok = await sendEmail(l, subject, body, senderName, replyTo, profile);
         if(ok){
           leads[idx].status='SENT'; leads[idx].stage='3'; leads[idx].lastSent=new Date().toISOString();
           addCampLog(log,`FU2 sent via ${profile.name} → ${l.name}`,'yellow'); processed++;
-          profileIdx++;
         }
       }
     }
@@ -1165,11 +1292,10 @@ async function runCampaign(){
       const diff=(Date.now()-new Date(l.lastSent))/(864e5);
       if(diff>=fu1Days){
         const body=`Hi ${l.name},\n\nJust checking in — did you get a chance to look at my previous email about streamlining operations at ${l.company||'your company'}?\n\nHappy to hop on a quick call if helpful.\n\nRegards,\nPawan`;
-        const ok = await sendEmail(l, 'Following up — Enginerds Tech', body, senderName, replyTo, profile);
+        const ok = await sendEmail(l, subject, body, senderName, replyTo, profile);
         if(ok){
           leads[idx].stage='2'; leads[idx].lastSent=new Date().toISOString(); leads[idx].status='FOLLOW-UP';
           addCampLog(log,`FU1 sent via ${profile.name} → ${l.name}`,'blue'); processed++;
-          profileIdx++;
         }
       }
     }
@@ -1180,18 +1306,20 @@ async function runCampaign(){
         try{ body=await generateAIEmail(l.name, l.company||'your company', settings.openaiKey, customPrompt); }
         catch(e){ addCampLog(log,`AI failed for ${l.name}: ${e.message}`,'red'); }
       }
-      const ok=await sendEmail(l, generateSubject(l.company||'your company'), body, senderName, replyTo, profile);
+      const ok=await sendEmail(l, subject, body, senderName, replyTo, profile);
       if(ok){
         leads[idx].status='SENT'; leads[idx].stage='1';
         leads[idx].lastSent=new Date().toISOString(); leads[idx].lastEmail=body;
         addCampLog(log,`✓ Sent via ${profile.name} → ${l.name}`,'green');
         logActivity(`Campaign: Sent to ${l.name} via ${profile.name}`); processed++;
-        profileIdx++;
       } else {
         addCampLog(log,`✗ Failed (${profile.name}) → ${l.name}`,'red');
       }
     }
-    save(); await sleep(500);
+    save(); 
+    // SES-grade Rate Limiting
+    if(toProcess.length > 1 && i < toProcess.length - 1) await sleep(rateLimit * 1000);
+    else await sleep(500); 
   }
 
   document.getElementById('camp-status').textContent=`Done — ${processed} emails processed`;
@@ -1201,9 +1329,13 @@ async function runCampaign(){
 
 async function sendEmail(lead, subject, body, senderName, replyTo, profile){
   try {
-    const endpoint = profile.type === 'gmail' ? '/api/send-email' : '/api/send-smtp';
+    let endpoint = '/api/send-smtp';
+    if(profile.type === 'gmail') endpoint = '/api/send-email';
+    if(profile.type === 'ses') endpoint = '/api/send-ses';
+
     const payload = { leadId:lead.id, to:lead.email, subject, body, senderName, replyTo };
     if(profile.type === 'smtp') payload.smtpConfig = profile;
+    if(profile.type === 'ses') payload.sesConfig = profile;
 
     const res = await fetch(endpoint, {
       method:'POST',

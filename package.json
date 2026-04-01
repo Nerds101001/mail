@@ -8,6 +8,7 @@
     "deploy": "vercel --prod"
   },
   "dependencies": {
+    "@aws-sdk/client-ses": "^3.1020.0",
     "googleapis": "^140.0.0",
     "nodemailer": "^6.9.13"
   },
