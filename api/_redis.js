@@ -1,48 +1,90 @@
-// api/_redis.js — Upstash Redis REST client
-// Uses POST body for SET to handle large values (tokens, JSON blobs)
+// api/_redis.js — Key-value store backed by Neon Postgres
+// Drops in as a Redis replacement with the same get/set/incr/del API
+// Uses DATABASE_URL env var (auto-set by Vercel Neon integration)
 
-const BASE  = process.env.UPSTASH_REDIS_REST_URL;
-const TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const { neon } = require("@neondatabase/serverless");
 
-async function redis(command, ...args) {
-  if (!BASE || !TOKEN) throw new Error("Redis env vars not configured");
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
-  try {
-    // Use POST with JSON body — handles large values, no URL length limit
-    const res = await fetch(`${BASE}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify([command, ...args]),
-      signal: controller.signal,
-    });
-    if (!res.ok) throw new Error(`Redis HTTP ${res.status}`);
-    const data = await res.json();
-    return data.result;
-  } finally {
-    clearTimeout(timer);
-  }
+function getDb() {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL not configured");
+  return neon(url);
 }
 
-async function get(key)   { return redis("GET", key); }
+// Ensure the kv table exists (runs once per cold start, idempotent)
+let tableReady = false;
+async function ensureTable() {
+  if (tableReady) return;
+  const sql = getDb();
+  await sql`
+    CREATE TABLE IF NOT EXISTS kv_store (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      expires_at BIGINT DEFAULT NULL
+    )
+  `;
+  tableReady = true;
+}
+
+async function get(key) {
+  await ensureTable();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT value FROM kv_store
+    WHERE key = ${key}
+      AND (expires_at IS NULL OR expires_at > ${Date.now()})
+  `;
+  return rows[0]?.value ?? null;
+}
+
 async function set(key, value, exSeconds = null) {
-  if (exSeconds) return redis("SET", key, String(value), "EX", exSeconds);
-  return redis("SET", key, String(value));
+  await ensureTable();
+  const sql = getDb();
+  const expiresAt = exSeconds ? Date.now() + exSeconds * 1000 : null;
+  await sql`
+    INSERT INTO kv_store (key, value, expires_at)
+    VALUES (${key}, ${String(value)}, ${expiresAt})
+    ON CONFLICT (key) DO UPDATE
+      SET value = EXCLUDED.value,
+          expires_at = EXCLUDED.expires_at
+  `;
+  return "OK";
 }
-async function incr(key)  { return redis("INCR", key); }
-async function del(key)   { return redis("DEL",  key); }
+
+async function incr(key) {
+  await ensureTable();
+  const sql = getDb();
+  const rows = await sql`
+    INSERT INTO kv_store (key, value, expires_at)
+    VALUES (${key}, '1', NULL)
+    ON CONFLICT (key) DO UPDATE
+      SET value = (CAST(kv_store.value AS BIGINT) + 1)::TEXT
+    RETURNING value
+  `;
+  return parseInt(rows[0].value);
+}
+
+async function del(key) {
+  await ensureTable();
+  const sql = getDb();
+  await sql`DELETE FROM kv_store WHERE key = ${key}`;
+  return 1;
+}
 
 async function hset(hash, field, value) {
-  return redis("HSET", hash, field, String(value));
+  return set(`${hash}:${field}`, value);
 }
+
 async function hgetall(hash) {
-  const raw = await redis("HGETALL", hash);
-  if (!raw || !Array.isArray(raw)) return {};
+  await ensureTable();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT key, value FROM kv_store
+    WHERE key LIKE ${hash + ":%"}
+      AND (expires_at IS NULL OR expires_at > ${Date.now()})
+  `;
   const obj = {};
-  for (let i = 0; i < raw.length; i += 2) obj[raw[i]] = raw[i + 1];
+  const prefix = hash + ":";
+  rows.forEach(r => { obj[r.key.slice(prefix.length)] = r.value; });
   return obj;
 }
 
