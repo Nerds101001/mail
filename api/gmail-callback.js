@@ -51,11 +51,16 @@ module.exports = async (req, res) => {
     });
     const profile = await profileRes.json();
 
-    // Store tokens in Redis (no expiry — refresh_token is permanent until revoked)
+    // Store tokens in Redis
     await set("gmail:access_token", tokens.access_token);
-    await set("gmail:refresh_token", tokens.refresh_token);
+    await set("gmail:refresh_token", tokens.refresh_token || "");
     await set("gmail:email", profile.email);
-    await set("gmail:expires_at", Date.now() + tokens.expires_in * 1000);
+    await set("gmail:expires_at", String(Date.now() + (tokens.expires_in || 3600) * 1000));
+
+    // Verify it saved
+    const { get } = require("./_redis");
+    const saved = await get("gmail:email");
+    console.log("Gmail email saved:", saved, "| Expected:", profile.email);
 
     // Redirect back to the app with success flag
     res.redirect(`${appUrl}/?gmail=connected&account=${encodeURIComponent(profile.email)}`);
