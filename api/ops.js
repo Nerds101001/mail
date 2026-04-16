@@ -44,32 +44,14 @@ module.exports = async (req, res) => {
     if (!ids) return res.json({});
     const leadIds = ids.split(",").filter(Boolean);
     const results = await Promise.all(leadIds.map(async lid => {
-      // Get from kv_store (both legacy and new two-step writes to same key)
       const [opens, clicks] = await Promise.all([
         get(`track:open:${lid}`).catch(()=>null),
         get(`track:click:${lid}`).catch(()=>null),
       ]);
-      // Also count from events table for accuracy
-      let evOpens = 0, evClicks = 0;
-      try {
-        const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
-        if (dbUrl) {
-          const { neon } = require("@neondatabase/serverless");
-          const sql = neon(dbUrl);
-          const rows = await sql`
-            SELECT event_type, COUNT(*)::int as cnt FROM tracking_events
-            WHERE lead_id = ${lid} GROUP BY event_type
-          `;
-          rows.forEach(r => {
-            if (r.event_type === 'open') evOpens = r.cnt;
-            if (r.event_type === 'click') evClicks = r.cnt;
-          });
-        }
-      } catch(e) {}
       return {
         id: lid,
-        opens:  Math.max(parseInt(opens)||0, evOpens),
-        clicks: Math.max(parseInt(clicks)||0, evClicks)
+        opens: parseInt(opens) || 0,
+        clicks: parseInt(clicks) || 0
       };
     }));
     const stats = {};
@@ -81,8 +63,8 @@ module.exports = async (req, res) => {
   if (type === "events") {
     const { leadId } = req.query;
     try {
-      const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
-      const sql = require("@neondatabase/serverless").neon(dbUrl);
+      await require("./_redis").get("init"); // Ensure tables exist
+      const sql = require("./_redis.js").getDb();
       const rows = await sql`
         SELECT event_type, ip, user_agent, target_url, created_at
         FROM tracking_events
@@ -92,6 +74,7 @@ module.exports = async (req, res) => {
       `;
       return res.json({ events: rows });
     } catch(e) {
+      console.error("Events error:", e.message);
       return res.json({ events: [] });
     }
   }

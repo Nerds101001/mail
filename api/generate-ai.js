@@ -20,31 +20,33 @@ module.exports = async (req, res) => {
   ].filter(Boolean).join(", ");
 
   const system = `You are a conversion-focused cold email expert for Enginerds Tech Solution (ERP & SaaS).
-Your emails must:
-1. Address the recipient's specific pain points and operational inefficiencies
-2. Show ROI and transparent value — not vague promises
-3. Sound like a real person, not a marketing template
-4. Create urgency through insight, not pressure
-5. Be conversational and direct
+STRICT RULES — violating these will cause the email to fail:
+1. ONLY use the exact name, company, and industry provided. NEVER invent names, cities, locations, or details.
+2. If company name is provided, use it exactly. If not, say "your business" — never make up a name.
+3. If recipient name is provided, use it. If not, use "Hi there" — never invent a name.
+4. Write like a real person sending a personal email — NOT a marketing template.
+5. NO placeholder text like [City], [Location], [Name] — use real values or omit entirely.
+6. Keep it conversational, direct, under 120 words.
 Respond ONLY with valid JSON array.`;
 
-  const user = `Write ${variantCount} different cold email variant(s) for this prospect:
+  const user = `Write ${variantCount} cold email variant(s) for this prospect:
 ${context}
-${customPrompt ? `\nSpecial focus: ${customPrompt}` : ""}
+${customPrompt ? `\nFocus: ${customPrompt}` : ""}
 
-Each variant must:
-- Have a UNIQUE subject line (max 9 words, no spam words, mention company or pain point)
-- Body: 3-4 short paragraphs with \\n\\n between them
-- Paragraph 1: Personalized opener referencing their company/industry specifically
-- Paragraph 2: Identify a specific operational flaw or inefficiency they likely face
-- Paragraph 3: How Enginerds solves it with transparent ROI (e.g. "reduce manual work by 60%", "real-time visibility")
-- Paragraph 4: Simple CTA — one question or meeting request
+CRITICAL — use ONLY the data above. Do NOT invent any names, locations, or details not provided.
+If company is "Nerds" or unclear, write "your business" instead of making up a company name.
+
+Each variant:
+- subject: max 9 words, reference their actual company/industry, no spam words
+- body: 3 short paragraphs separated by \\n\\n
+  Para 1: Personal opener using their REAL name and REAL company only
+  Para 2: Identify a specific pain point for their industry (${context.includes('Industry') ? context.split('Industry:')[1]?.split('\n')[0]?.trim() : 'their sector'})
+  Para 3: How Enginerds solves it + one clear CTA
 - Sign off: "Best regards,\\nPawan Kumar\\nEnginerds Tech Solution"
-- NO bullet points, NO generic phrases like "I hope this finds you well"
-- Each variant must be COMPLETELY different in angle and approach
+- NO bullet points, NO [placeholders], NO invented details
 
-Return ONLY this JSON (array of ${variantCount} objects):
-[{"subject":"...","body":"..."}${variantCount > 1 ? ',{"subject":"...","body":"..."}' : ''}]`;
+Return ONLY this JSON array:
+[{"subject":"...","body":"..."}]`;
 
   try {
     const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {

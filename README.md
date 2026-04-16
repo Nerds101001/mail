@@ -33,13 +33,13 @@ lead-engine/
 
 ## Step-by-Step Deployment
 
-### STEP 1 — Set up Upstash Redis (free, 2 min)
-Used to store Gmail tokens and email tracking data.
+### STEP 1 — Set up Neon Postgres (free, 2 min)
+Used to store CRM data and email tracking events.
 
-1. Go to **https://upstash.com** → Sign up free
-2. Click **Create Database** → choose region closest to you
-3. Copy **REST URL** and **REST Token** from the dashboard
-4. Save these — you'll need them in Step 4
+1. Go to **https://neon.tech** → Sign up free
+2. Create a new project → choose region closest to your Vercel deployment
+3. Copy the **Direct Connection (DATABASE_URL)** or **Pooled Connection (POSTGRES_URL)**
+4. Save this — you'll need it in Step 4
 
 ---
 
@@ -90,8 +90,8 @@ Go to your Vercel project → **Settings → Environment Variables** → add all
 | `GOOGLE_CLIENT_ID` | `123456-abc.apps.googleusercontent.com` | Google Cloud Console (Step 2) |
 | `GOOGLE_CLIENT_SECRET` | `GOCSPX-xxxxx` | Google Cloud Console (Step 2) |
 | `APP_URL` | `https://your-app.vercel.app` | Your Vercel deployment URL |
-| `UPSTASH_REDIS_REST_URL` | `https://xxx.upstash.io` | Upstash dashboard (Step 1) |
-| `UPSTASH_REDIS_REST_TOKEN` | `AXxx...` | Upstash dashboard (Step 1) |
+| `DATABASE_URL` | `postgres://...` | Neon Dashboard (Step 1) |
+| `POSTGRES_URL` | `postgres://...` | Neon Dashboard (Step 1 - Pooled) |
 
 After adding all vars → **Redeploy** (Vercel dashboard → Deployments → Redeploy latest)
 

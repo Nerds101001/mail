@@ -12,13 +12,27 @@ function getDb() {
 let tableReadyPromise = null;
 function ensureTable() {
   if (!tableReadyPromise) {
-    tableReadyPromise = getDb()`
-      CREATE TABLE IF NOT EXISTS kv_store (
-        key        TEXT PRIMARY KEY,
-        value      TEXT NOT NULL,
-        expires_at BIGINT DEFAULT NULL
-      )
-    `.catch(e => { tableReadyPromise = null; throw e; });
+    tableReadyPromise = (async () => {
+      const sql = getDb();
+      await sql`
+        CREATE TABLE IF NOT EXISTS kv_store (
+          key        TEXT PRIMARY KEY,
+          value      TEXT NOT NULL,
+          expires_at BIGINT DEFAULT NULL
+        )
+      `;
+      await sql`
+        CREATE TABLE IF NOT EXISTS tracking_events (
+          id           SERIAL PRIMARY KEY,
+          lead_id      TEXT NOT NULL,
+          event_type   TEXT NOT NULL,
+          ip           TEXT,
+          user_agent   TEXT,
+          target_url   TEXT,
+          created_at   BIGINT NOT NULL
+        )
+      `;
+    })().catch(e => { tableReadyPromise = null; throw e; });
   }
   return tableReadyPromise;
 }
@@ -86,4 +100,13 @@ async function hgetall(hash) {
   return obj;
 }
 
-module.exports = { get, set, incr, del, hset, hgetall };
+async function logEvent({ lead_id, event_type, ip, user_agent, target_url = null }) {
+  await ensureTable();
+  const sql = getDb();
+  await sql`
+    INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, created_at)
+    VALUES (${lead_id}, ${event_type}, ${ip}, ${user_agent}, ${target_url}, ${Date.now()})
+  `;
+}
+
+module.exports = { get, set, incr, del, hset, hgetall, logEvent, getDb };
