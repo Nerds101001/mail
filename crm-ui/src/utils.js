@@ -11,11 +11,13 @@ export const enrichLead = (l) => {
   if (typos[domain]) l.status = 'TYPO'
   const disposable = ['mailinator.com','10minutemail.com','temp-mail.org','guerrillamail.com']
   if (disposable.includes(domain)) l.status = 'DISPOSABLE'
+  // Tag personal/role-based for info only — still set to VALID so campaign sends to them
   const personal = ['gmail.com','yahoo.com','outlook.com','hotmail.com','icloud.com','aol.com','live.com']
-  if (personal.includes(domain) && !['DISPOSABLE','TYPO'].includes(l.status)) l.status = 'PERSONAL'
+  if (personal.includes(domain) && !['DISPOSABLE','TYPO'].includes(l.status)) l.emailType = 'PERSONAL'
   const roles = ['info','admin','support','sales','contact','hr','office','hello','marketing','team','jobs','billing']
-  if (roles.includes(user) && !['PERSONAL','DISPOSABLE','TYPO'].includes(l.status)) l.status = 'ROLE-BASED'
-  if (!['SENT','REPLIED','FOLLOW-UP','INVALID','DUPLICATE','ROLE-BASED','PERSONAL','DISPOSABLE','TYPO','INVALID-LENGTH','UNSUBSCRIBED'].includes(l.status)) l.status = 'VALID'
+  if (roles.includes(user) && !['DISPOSABLE','TYPO'].includes(l.status)) l.emailType = l.emailType || 'ROLE-BASED'
+  // Only block truly invalid emails — personal and role-based are sendable
+  if (!['SENT','REPLIED','FOLLOW-UP','INVALID','DUPLICATE','DISPOSABLE','TYPO','INVALID-LENGTH','UNSUBSCRIBED'].includes(l.status)) l.status = 'VALID'
 
   if (!l.company && domain) l.company = (domain.split('.')[0] || '').toUpperCase()
   if (!l.role) {

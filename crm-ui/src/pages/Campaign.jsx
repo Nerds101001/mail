@@ -158,7 +158,6 @@ export default function Campaign() {
         const ok = await sendOne(l, `Quick follow-up — ${l.company||'your company'}`, body, profile)
         if (ok) { updatedLeads[leadIdx] = {...updatedLeads[leadIdx], stage:'2', lastSent:new Date().toISOString(), status:'FOLLOW-UP', pipelineStage:'CONTACTED'}; addLog(`FU1 → ${l.name}`, 'info'); processed++ }
       } else if (['VALID','PERSONAL','ROLE-BASED','TYPO'].includes(l.status) || cfg.target === 'all' || cfg.target === 'hot') {
-        // Skip already sent, replied, or unsubscribed
         if (['UNSUBSCRIBED','NOT-INTERESTED'].includes(l.pipelineStage)) continue;
         let subject = '', body = ''
         try { const r = await getContent(l, variantPool); subject = r.subject; body = r.body } catch(e) { addLog(`Content failed for ${l.name}: ${e.message}`, 'error'); continue }
