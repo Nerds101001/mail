@@ -84,12 +84,25 @@ export default function Campaign() {
       const res = await fetch('/api/generate-ai', { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ name:'[Name]', company:'[Company]', role:'[Role]', category: cfg.filterVal || 'Business', apiKey:settings.openaiKey, customPrompt:aiPrompt, count: variantCount }) })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
+      if (!res.ok) {
+        // Check if there's a fallback variant
+        if (data.fallback) {
+          toast('AI generation failed, using template', 'warn')
+          const v = data.variants || [data.fallback]
+          setVariants(v)
+          setVariantIdx(0)
+          return
+        }
+        throw new Error(data.error)
+      }
       const v = data.variants || [{ subject: data.subject, body: data.body }]
       setVariants(v)
       setVariantIdx(0)
       toast(`Generated ${v.length} email variants ✓`, 'success')
-    } catch(e) { toast('Generation failed: '+e.message, 'error') }
+    } catch(e) { 
+      toast('Generation failed: '+e.message, 'error')
+      console.error('AI generation error:', e)
+    }
     setGenLoading(false)
   }
 

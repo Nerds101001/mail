@@ -1,7 +1,8 @@
 // api/track/click.js — Email click tracking
-// Writes to DB FIRST (Vercel kills async after res.redirect), then redirects
+// Writes to BOTH DB and Redis for dual tracking
 
 const { neon } = require("@neondatabase/serverless");
+const { incr } = require("../_redis");
 
 function isSafeUrl(u) {
   try { const p = new URL(u).protocol; return p === "http:" || p === "https:"; } catch { return false; }
@@ -13,6 +14,10 @@ module.exports = async (req, res) => {
 
   if (id) {
     try {
+      // Update Redis counter (for fast stats retrieval)
+      await incr(`track:click:${id}`).catch(e => console.error("Redis incr failed:", e.message));
+
+      // Also write to database for detailed event log
       const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
       if (dbUrl) {
         const sql = neon(dbUrl);
@@ -21,12 +26,9 @@ module.exports = async (req, res) => {
 
         await sql.transaction([
           sql`CREATE TABLE IF NOT EXISTS tracking_events (id SERIAL PRIMARY KEY, lead_id TEXT NOT NULL, event_type TEXT NOT NULL, ip TEXT, user_agent TEXT, target_url TEXT, created_at BIGINT NOT NULL)`,
-          sql`CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT NOT NULL, expires_at BIGINT DEFAULT NULL)`,
           sql`INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, created_at) VALUES (${id}, 'click', ${ip}, ${ua}, ${decoded}, ${Date.now()})`,
-          sql`INSERT INTO kv_store (key, value, expires_at) VALUES (${"track:click:" + id}, '1', NULL) ON CONFLICT (key) DO UPDATE SET value = (CAST(kv_store.value AS BIGINT) + 1)::TEXT`,
         ]).catch(async () => {
           await sql`INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, created_at) VALUES (${id}, 'click', ${ip}, ${ua}, ${decoded}, ${Date.now()})`.catch(()=>{});
-          await sql`INSERT INTO kv_store (key, value, expires_at) VALUES (${"track:click:" + id}, '1', NULL) ON CONFLICT (key) DO UPDATE SET value = (CAST(kv_store.value AS BIGINT) + 1)::TEXT`.catch(()=>{});
         });
       }
     } catch(e) {
