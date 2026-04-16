@@ -33,11 +33,14 @@ module.exports = async (req, res) => {
 
   // ── LOAD ALL ─────────────────────────────────────────────────────────
   if (type === "load" && req.method === "GET") {
-    const [leads, profiles, settings, activity, clients, deals] = await Promise.all([
+    const [leads, profiles, settings, activity, clients, deals, apikey] = await Promise.all([
       safeGet("crm:leads", []), safeGet("crm:profiles", []), safeGet("crm:settings", {}),
       safeGet("crm:activity", []), safeGet("crm:clients", []), safeGet("crm:deals", []),
+      get("crm:apikey").catch(() => null),
     ]);
-    return res.json({ leads, profiles, settings, activity, clients, deals });
+    // Merge apikey back into settings so frontend always has it
+    const mergedSettings = apikey ? { ...settings, openaiKey: apikey } : settings;
+    return res.json({ leads, profiles, settings: mergedSettings, activity, clients, deals });
   }
 
   // ── SAVE ALL ─────────────────────────────────────────────────────────
@@ -47,6 +50,8 @@ module.exports = async (req, res) => {
       leads    !== undefined ? safeSet("crm:leads",    leads) : null,
       profiles !== undefined ? safeSet("crm:profiles", sanitizeProfiles(profiles)) : null,
       settings !== undefined ? safeSet("crm:settings", (({openaiKey,...s})=>s)(settings||{})) : null,
+      // Save API key separately — encrypted-ish via its own key
+      settings?.openaiKey    ? safeSet("crm:apikey",   settings.openaiKey) : null,
       activity !== undefined ? safeSet("crm:activity", activity) : null,
       clients  !== undefined ? safeSet("crm:clients",  clients) : null,
       deals    !== undefined ? safeSet("crm:deals",    deals) : null,

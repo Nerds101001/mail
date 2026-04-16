@@ -44,11 +44,33 @@ module.exports = async (req, res) => {
     if (!ids) return res.json({});
     const leadIds = ids.split(",").filter(Boolean);
     const results = await Promise.all(leadIds.map(async lid => {
+      // Get from kv_store (both legacy and new two-step writes to same key)
       const [opens, clicks] = await Promise.all([
         get(`track:open:${lid}`).catch(()=>null),
         get(`track:click:${lid}`).catch(()=>null),
       ]);
-      return { id: lid, opens: parseInt(opens)||0, clicks: parseInt(clicks)||0 };
+      // Also count from events table for accuracy
+      let evOpens = 0, evClicks = 0;
+      try {
+        const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+        if (dbUrl) {
+          const { neon } = require("@neondatabase/serverless");
+          const sql = neon(dbUrl);
+          const rows = await sql`
+            SELECT event_type, COUNT(*)::int as cnt FROM tracking_events
+            WHERE lead_id = ${lid} GROUP BY event_type
+          `;
+          rows.forEach(r => {
+            if (r.event_type === 'open') evOpens = r.cnt;
+            if (r.event_type === 'click') evClicks = r.cnt;
+          });
+        }
+      } catch(e) {}
+      return {
+        id: lid,
+        opens:  Math.max(parseInt(opens)||0, evOpens),
+        clicks: Math.max(parseInt(clicks)||0, evClicks)
+      };
     }));
     const stats = {};
     results.forEach(({id,opens,clicks}) => { stats[id]={opens,clicks}; });

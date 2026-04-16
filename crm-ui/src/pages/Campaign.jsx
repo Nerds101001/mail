@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react'
 import { useCRM } from '../store'
 import { Btn, Card, PageHeader, toast } from '../components/ui'
-import { Play, Zap, PenLine, Paperclip, RefreshCw, Eye, ChevronLeft, ChevronRight } from 'lucide-react'
+import RichEditor, { htmlToPlain } from '../components/RichEditor'
+import { Play, Zap, PenLine, Paperclip, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react'
 
 export default function Campaign() {
   const { leads, setLeads, profiles, settings, logActivity } = useCRM()
@@ -99,8 +100,18 @@ export default function Campaign() {
       if (profile.type === 'smtp') payload.smtpConfig = profile
       if (profile.type === 'gmail') payload.gmailUser = profile.user
       const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
-      return res.ok
-    } catch { return false }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        addLog(`Send error for ${lead.name}: ${err.error || res.status}`, 'error')
+        return false
+      }
+      const data = await res.json()
+      if (data.skipped) { addLog(`Skipped ${lead.name} — unsubscribed`, 'warn'); return false }
+      return true
+    } catch(e) {
+      addLog(`Network error for ${lead.name}: ${e.message}`, 'error')
+      return false
+    }
   }
 
   function addLog(msg, type='info') {
@@ -289,17 +300,19 @@ export default function Campaign() {
               <div><label className="label">Subject Line</label>
                 <input className="input" value={customSubj} onChange={e=>setCustomSubj(e.target.value)} placeholder="Quick idea for [Company]" />
               </div>
-              <div><label className="label">Email Body</label>
-                <textarea ref={bodyRef} className="input resize-y min-h-[140px] font-mono text-sm" value={customBody} onChange={e=>setCustomBody(e.target.value)} placeholder={"Hi [Name],\n\n...\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution"} />
+              <div>
+                <label className="label">Email Body</label>
+                <RichEditor
+                  value={customBody}
+                  onChange={html => setCustomBody(htmlToPlain(html))}
+                  placeholder={"Hi [Name],\n\n...\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution"}
+                  minHeight={160}
+                />
               </div>
               <div className="flex gap-2 flex-wrap">
                 {['[Name]','[Company]','[Role]'].map(v => (
-                  <button key={v} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded-md transition-colors" onClick={() => {
-                    const ta = bodyRef.current; if(!ta) return
-                    const pos = ta.selectionStart; const val = ta.value
-                    setCustomBody(val.slice(0,pos)+v+val.slice(pos))
-                    setTimeout(()=>{ ta.focus(); ta.selectionStart=ta.selectionEnd=pos+v.length },0)
-                  }}>+{v}</button>
+                  <button key={v} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded-md transition-colors"
+                    onClick={() => setCustomBody(b => b + v)}>+{v}</button>
                 ))}
               </div>
             </div>
