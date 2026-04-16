@@ -20,18 +20,19 @@ function daysSince(d) { if(!d) return null; return Math.floor((Date.now()-new Da
 
 module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
+  const path = req.url.split("?")[0];
   const { type, ids, id, url } = req.query;
 
-  // ── OPEN TRACKING PIXEL ───────────────────────────────────────────────
-  if (type === "open") {
+  // ── OPEN TRACKING PIXEL (via /api/track/open?id=... rewrite) ─────────
+  if (path === "/api/track/open" || type === "open") {
     if (id) { try { await incr(`track:open:${id}`); } catch(e) {} }
     res.setHeader("Content-Type", "image/gif");
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
     return res.send(PIXEL);
   }
 
-  // ── CLICK REDIRECT ────────────────────────────────────────────────────
-  if (type === "click") {
+  // ── CLICK REDIRECT (via /api/track/click?id=...&url=... rewrite) ─────
+  if (path === "/api/track/click" || type === "click") {
     if (id) { try { await incr(`track:click:${id}`); } catch(e) {} }
     const decoded = decodeURIComponent(url || "");
     try { const u = new URL(decoded); if (["http:","https:"].includes(u.protocol)) return res.redirect(decoded); } catch(e) {}

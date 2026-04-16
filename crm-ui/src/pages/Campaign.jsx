@@ -7,7 +7,7 @@ import { Play, Zap, PenLine } from 'lucide-react'
 export default function Campaign() {
   const { leads, setLeads, profiles, settings, logActivity, pushToRedis } = useCRM()
   const [mode, setMode]         = useState('ai') // 'ai' | 'custom'
-  const [cfg, setCfg]           = useState({ batch:30, rate:5, fu1:2, fu2:4, target:'valid', filterVal:'', sender:'Pawan Kumar - Enginerds Tech Solution', replyTo:'contact@enginerds.in', subjectAlt:'' })
+  const [cfg, setCfg] = useState({ batch:30, rate:2, fu1:2, fu2:4, target:'valid', filterVal:'', sender:'Pawan Kumar - Enginerds Tech Solution', replyTo:'contact@enginerds.in', subjectAlt:'' })
   const [aiPrompt, setAiPrompt] = useState('')
   const [customSubj, setCustomSubj] = useState('')
   const [customBody, setCustomBody] = useState('')

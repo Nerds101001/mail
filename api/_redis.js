@@ -1,28 +1,26 @@
-// api/_redis.js — Key-value store backed by Neon Postgres
-// Drops in as a Redis replacement with the same get/set/incr/del API
-// Uses DATABASE_URL env var (auto-set by Vercel Neon integration)
-
+// api/_redis.js — Key-value store backed by Neon Postgres (pooled connection)
 const { neon } = require("@neondatabase/serverless");
 
 function getDb() {
-  const url = process.env.DATABASE_URL;
+  // Use pooled connection URL if available (POSTGRES_URL is the pooled one from Vercel Neon)
+  const url = process.env.POSTGRES_URL || process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL not configured");
   return neon(url);
 }
 
-// Ensure the kv table exists (runs once per cold start, idempotent)
-let tableReady = false;
-async function ensureTable() {
-  if (tableReady) return;
-  const sql = getDb();
-  await sql`
-    CREATE TABLE IF NOT EXISTS kv_store (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      expires_at BIGINT DEFAULT NULL
-    )
-  `;
-  tableReady = true;
+// Table is created once — cache the promise so it only runs once per instance
+let tableReadyPromise = null;
+function ensureTable() {
+  if (!tableReadyPromise) {
+    tableReadyPromise = getDb()`
+      CREATE TABLE IF NOT EXISTS kv_store (
+        key        TEXT PRIMARY KEY,
+        value      TEXT NOT NULL,
+        expires_at BIGINT DEFAULT NULL
+      )
+    `.catch(e => { tableReadyPromise = null; throw e; });
+  }
+  return tableReadyPromise;
 }
 
 async function get(key) {
@@ -32,6 +30,7 @@ async function get(key) {
     SELECT value FROM kv_store
     WHERE key = ${key}
       AND (expires_at IS NULL OR expires_at > ${Date.now()})
+    LIMIT 1
   `;
   return rows[0]?.value ?? null;
 }
@@ -44,8 +43,7 @@ async function set(key, value, exSeconds = null) {
     INSERT INTO kv_store (key, value, expires_at)
     VALUES (${key}, ${String(value)}, ${expiresAt})
     ON CONFLICT (key) DO UPDATE
-      SET value = EXCLUDED.value,
-          expires_at = EXCLUDED.expires_at
+      SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at
   `;
   return "OK";
 }
