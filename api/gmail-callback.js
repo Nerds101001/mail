@@ -10,7 +10,8 @@ const { set } = require("./_redis");
 
 module.exports = async (req, res) => {
   const { code, error } = req.query;
-  const appUrl = process.env.APP_URL;
+  let appUrl = (process.env.APP_URL || '').replace(/^["']|["']$/g, '').trim();
+  if (appUrl && !appUrl.startsWith('http')) appUrl = 'https://' + appUrl;
 
   // If user denied access
   if (error) {

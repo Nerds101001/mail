@@ -6,7 +6,9 @@
 
 module.exports = async (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
-  const appUrl = process.env.APP_URL;
+  // Strip any accidental quotes and ensure https:// prefix
+  let appUrl = (process.env.APP_URL || '').replace(/^["']|["']$/g, '').trim();
+  if (appUrl && !appUrl.startsWith('http')) appUrl = 'https://' + appUrl;
 
   if (!clientId || !appUrl) {
     return res.status(500).json({ error: "Missing GOOGLE_CLIENT_ID or APP_URL env vars" });
@@ -21,7 +23,6 @@ module.exports = async (req, res) => {
     // Send + Read scopes for Gmail
     scope: [
       "https://www.googleapis.com/auth/gmail.send",
-      "https://www.googleapis.com/auth/gmail.readonly",
       "https://www.googleapis.com/auth/userinfo.email",
     ].join(" "),
     access_type: "offline",   // gets refresh_token so we don't need to re-auth
