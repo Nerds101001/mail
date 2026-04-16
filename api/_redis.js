@@ -1,5 +1,5 @@
-// api/_redis.js — Upstash Redis REST client with error handling
-// Env vars: UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN
+// api/_redis.js — Upstash Redis REST client
+// Uses POST body for SET to handle large values (tokens, JSON blobs)
 
 const BASE  = process.env.UPSTASH_REDIS_REST_URL;
 const TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -7,10 +7,16 @@ const TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 async function redis(command, ...args) {
   if (!BASE || !TOKEN) throw new Error("Redis env vars not configured");
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
+  const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const res = await fetch(`${BASE}/${[command, ...args].join("/")}`, {
-      headers: { Authorization: `Bearer ${TOKEN}` },
+    // Use POST with JSON body — handles large values, no URL length limit
+    const res = await fetch(`${BASE}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify([command, ...args]),
       signal: controller.signal,
     });
     if (!res.ok) throw new Error(`Redis HTTP ${res.status}`);
@@ -21,23 +27,22 @@ async function redis(command, ...args) {
   }
 }
 
-async function get(key)                        { return redis("GET",  encodeURIComponent(key)); }
-async function set(key, value, exSeconds=null) {
-  if (exSeconds) return redis("SET", encodeURIComponent(key), encodeURIComponent(value), "EX", exSeconds);
-  return redis("SET", encodeURIComponent(key), encodeURIComponent(value));
+async function get(key)   { return redis("GET", key); }
+async function set(key, value, exSeconds = null) {
+  if (exSeconds) return redis("SET", key, String(value), "EX", exSeconds);
+  return redis("SET", key, String(value));
 }
-async function incr(key)  { return redis("INCR", encodeURIComponent(key)); }
-async function del(key)   { return redis("DEL",  encodeURIComponent(key)); }
+async function incr(key)  { return redis("INCR", key); }
+async function del(key)   { return redis("DEL",  key); }
 
-// HSET / HGET for structured per-lead event logs
 async function hset(hash, field, value) {
-  return redis("HSET", encodeURIComponent(hash), encodeURIComponent(field), encodeURIComponent(value));
+  return redis("HSET", hash, field, String(value));
 }
 async function hgetall(hash) {
-  const raw = await redis("HGETALL", encodeURIComponent(hash));
+  const raw = await redis("HGETALL", hash);
   if (!raw || !Array.isArray(raw)) return {};
   const obj = {};
-  for (let i = 0; i < raw.length; i += 2) obj[decodeURIComponent(raw[i])] = decodeURIComponent(raw[i+1]);
+  for (let i = 0; i < raw.length; i += 2) obj[raw[i]] = raw[i + 1];
   return obj;
 }
 
