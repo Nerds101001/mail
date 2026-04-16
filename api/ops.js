@@ -55,6 +55,25 @@ module.exports = async (req, res) => {
     return res.json(stats);
   }
 
+  // ── TRACKING EVENTS (detailed log) ───────────────────────────────────
+  if (type === "events") {
+    const { leadId } = req.query;
+    try {
+      const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+      const sql = require("@neondatabase/serverless").neon(dbUrl);
+      const rows = await sql`
+        SELECT event_type, ip, user_agent, target_url, created_at
+        FROM tracking_events
+        WHERE lead_id = ${leadId}
+        ORDER BY created_at DESC
+        LIMIT 50
+      `;
+      return res.json({ events: rows });
+    } catch(e) {
+      return res.json({ events: [] });
+    }
+  }
+
   // ── GMAIL STATUS ──────────────────────────────────────────────────────
   if (type === "gmail-status") {
     try {

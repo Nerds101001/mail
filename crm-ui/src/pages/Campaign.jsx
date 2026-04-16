@@ -1,26 +1,32 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useCRM } from '../store'
-import { enrichLead } from '../utils'
 import { Btn, Card, PageHeader, toast } from '../components/ui'
-import { Play, Zap, PenLine } from 'lucide-react'
+import { Play, Zap, PenLine, Paperclip, RefreshCw, Eye, ChevronLeft, ChevronRight } from 'lucide-react'
 
 export default function Campaign() {
-  const { leads, setLeads, profiles, settings, logActivity, pushToRedis } = useCRM()
-  const [mode, setMode]         = useState('ai') // 'ai' | 'custom'
-  const [cfg, setCfg] = useState({ batch:30, rate:2, fu1:2, fu2:4, target:'valid', filterVal:'', sender:'Pawan Kumar - Enginerds Tech Solution', replyTo:'contact@enginerds.in', subjectAlt:'' })
-  const [aiPrompt, setAiPrompt] = useState('')
+  const { leads, setLeads, profiles, settings, logActivity } = useCRM()
+  const [mode, setMode]       = useState('ai')
+  const [cfg, setCfg]         = useState({ batch:30, rate:2, fu1:2, fu2:4, target:'valid', filterVal:'', sender:'Pawan Kumar - Enginerds Tech Solution', replyTo:'contact@enginerds.in' })
+  const [aiPrompt, setAiPrompt]     = useState('')
+  const [variantCount, setVariantCount] = useState(5)
+  const [variants, setVariants]     = useState([]) // [{subject, body}]
+  const [variantIdx, setVariantIdx] = useState(0)
   const [customSubj, setCustomSubj] = useState('')
   const [customBody, setCustomBody] = useState('')
-  const [prevSubj, setPrevSubj] = useState('Subject will appear here')
-  const [prevBody, setPrevBody] = useState('Click Generate Preview...')
+  const [attachments, setAttachments] = useState([{ type:'link', label:'', url:'' }])
   const [running, setRunning]   = useState(false)
   const [progress, setProgress] = useState(0)
   const [status, setStatus]     = useState('Ready to launch')
   const [log, setLog]           = useState([])
   const [genLoading, setGenLoading] = useState(false)
+  const [previewMode, setPreviewMode] = useState(false)
+  const bodyRef = useRef(null)
 
   const activeProfiles = profiles.filter(p => p.active)
   const [selectedSenders, setSelectedSenders] = useState(new Set(profiles.filter(p=>p.active).map(p=>p.user||p.email||'')))
+
+  // Current preview variant
+  const currentVariant = variants[variantIdx] || { subject: 'Subject will appear here', body: 'Click Generate Variants...' }
 
   function getTargets() {
     const fv = cfg.filterVal.trim().toLowerCase()
@@ -33,19 +39,57 @@ export default function Campaign() {
     return []
   }
 
-  async function getContent(lead) {
+  // Build attachment footer text
+  function buildAttachmentText() {
+    const valid = attachments.filter(a => a.url && a.label)
+    if (!valid.length) return ''
+    return '\n\n' + valid.map(a => `📎 ${a.label}: ${a.url}`).join('\n')
+  }
+
+  async function getContent(lead, variantPool) {
     if (mode === 'custom') {
       if (!customSubj || !customBody) throw new Error('Custom mode: subject and body required')
       const r = s => s.replace(/\[Name\]/g, lead.name||'').replace(/\[Company\]/g, lead.company||'').replace(/\[Role\]/g, lead.role||'')
-      return { subject: r(customSubj), body: r(customBody) }
+      return { subject: r(customSubj), body: r(customBody) + buildAttachmentText() }
     }
+    // Use pre-generated variant pool (round-robin)
+    if (variantPool && variantPool.length > 0) {
+      const v = variantPool[Math.floor(Math.random() * variantPool.length)]
+      // Personalize the variant for this specific lead
+      const personalize = s => s
+        .replace(/\[Name\]/g, lead.name||'').replace(/\[Company\]/g, lead.company||'')
+        .replace(/\[Role\]/g, lead.role||'').replace(/their company/gi, lead.company||'your company')
+        .replace(/the company/gi, lead.company||'your company')
+      return { subject: personalize(v.subject), body: personalize(v.body) + buildAttachmentText() }
+    }
+    // Fallback: generate on the fly
     if (settings.openaiKey) {
-      const res = await fetch('/api/generate-ai', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:lead.name, company:lead.company||'their company', role:lead.role||'', category:lead.category||'', apiKey:settings.openaiKey, customPrompt:aiPrompt }) })
+      const res = await fetch('/api/generate-ai', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ name:lead.name, company:lead.company||'their company', role:lead.role||'', category:lead.category||'', apiKey:settings.openaiKey, customPrompt:aiPrompt, count:1 }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      return data
+      return { subject: data.subject, body: data.body + buildAttachmentText() }
     }
-    return { subject: `Quick idea for ${lead.company||'your company'}`, body: `Hi ${lead.name},\n\nI came across ${lead.company||'your company'} and was impressed by what you're building. At Enginerds Tech Solution, we specialize in ERP & SaaS solutions.\n\nWould you be open to a quick 15-minute call?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution` }
+    return {
+      subject: `Quick idea for ${lead.company||'your company'}`,
+      body: `Hi ${lead.name},\n\nI came across ${lead.company||'your company'} and noticed an opportunity to streamline your operations. At Enginerds Tech Solution, we help businesses like yours eliminate manual processes and gain real-time visibility.\n\nWould you be open to a quick 15-minute call this week?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution` + buildAttachmentText()
+    }
+  }
+
+  async function generateVariants() {
+    if (!settings.openaiKey) { toast('Set NVIDIA API key in Settings', 'error'); return }
+    setGenLoading(true)
+    try {
+      const res = await fetch('/api/generate-ai', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ name:'[Name]', company:'[Company]', role:'[Role]', category: cfg.filterVal || 'Business', apiKey:settings.openaiKey, customPrompt:aiPrompt, count: variantCount }) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      const v = data.variants || [{ subject: data.subject, body: data.body }]
+      setVariants(v)
+      setVariantIdx(0)
+      toast(`Generated ${v.length} email variants ✓`, 'success')
+    } catch(e) { toast('Generation failed: '+e.message, 'error') }
+    setGenLoading(false)
   }
 
   async function sendOne(lead, subject, body, profile) {
@@ -53,7 +97,7 @@ export default function Campaign() {
       const endpoint = profile.type === 'gmail' ? '/api/send-email' : '/api/send-smtp'
       const payload = { leadId:lead.id, to:lead.email, subject, body, senderName:cfg.sender, replyTo:cfg.replyTo }
       if (profile.type === 'smtp') payload.smtpConfig = profile
-      if (profile.type === 'gmail') payload.gmailUser = profile.user // multi-Gmail support
+      if (profile.type === 'gmail') payload.gmailUser = profile.user
       const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
       return res.ok
     } catch { return false }
@@ -70,9 +114,20 @@ export default function Campaign() {
     const targets = getTargets().slice(0, cfg.batch)
     if (!targets.length) { toast('No leads for selected group', 'info'); return }
 
+    // Pre-generate variant pool if AI mode and key available
+    let variantPool = variants.length > 0 ? variants : []
+    if (mode === 'ai' && settings.openaiKey && variantPool.length === 0) {
+      addLog('Pre-generating email variants...', 'info')
+      try {
+        const res = await fetch('/api/generate-ai', { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ name:'[Name]', company:'[Company]', role:'[Role]', category: cfg.filterVal || 'Business', apiKey:settings.openaiKey, customPrompt:aiPrompt, count: Math.min(variantCount, 5) }) })
+        const data = await res.json()
+        if (res.ok) { variantPool = data.variants || [{ subject: data.subject, body: data.body }]; setVariants(variantPool) }
+      } catch(e) { addLog('Variant pre-gen failed, will generate per-lead', 'warn') }
+    }
+
     setRunning(true); setLog([]); setProgress(0)
     let processed = 0
-    // Track all updated leads to save at end
     const updatedLeads = [...leads]
 
     for (let i = 0; i < targets.length; i++) {
@@ -81,29 +136,19 @@ export default function Campaign() {
       const pct = Math.round(((i+1)/targets.length)*100)
       setProgress(pct); setStatus(`Processing: ${l.name}`)
       const profile = senderProfiles[processed % senderProfiles.length]
-
       const daysSince = d => d ? Math.floor((Date.now()-new Date(d))/86400000) : 0
 
       if (l.stage === '2' && l.lastSent && daysSince(l.lastSent) >= cfg.fu2) {
-        const body = `Hi ${l.name},\n\nThis is my last follow-up. If the timing isn't right, no worries — but if you're open to a quick chat, I'd love to connect.\n\nThanks,\nPawan Kumar\nEnginerds Tech Solution`
-        const ok = await sendOne(l, `Quick idea for ${l.company||'your company'}`, body, profile)
-        if (ok) {
-          updatedLeads[leadIdx] = {...updatedLeads[leadIdx], status:'SENT', stage:'3', lastSent:new Date().toISOString()}
-          addLog(`FU2 sent → ${l.name}`, 'warn'); processed++
-        }
+        const body = `Hi ${l.name},\n\nThis is my last follow-up. If the timing isn't right, no worries — but if you're open to a quick chat about improving operations at ${l.company||'your company'}, I'd love to connect.\n\nThanks,\nPawan Kumar\nEnginerds Tech Solution` + buildAttachmentText()
+        const ok = await sendOne(l, `Following up one last time — ${l.company||'your company'}`, body, profile)
+        if (ok) { updatedLeads[leadIdx] = {...updatedLeads[leadIdx], status:'SENT', stage:'3', lastSent:new Date().toISOString()}; addLog(`FU2 → ${l.name}`, 'warn'); processed++ }
       } else if (l.stage === '1' && l.lastSent && daysSince(l.lastSent) >= cfg.fu1) {
-        const body = `Hi ${l.name},\n\nJust checking in — did you get a chance to look at my previous email?\n\nHappy to hop on a quick call.\n\nRegards,\nPawan Kumar\nEnginerds Tech Solution`
-        const ok = await sendOne(l, `Following up — ${l.company||'your company'}`, body, profile)
-        if (ok) {
-          updatedLeads[leadIdx] = {...updatedLeads[leadIdx], stage:'2', lastSent:new Date().toISOString(), status:'FOLLOW-UP', pipelineStage:'CONTACTED'}
-          addLog(`FU1 sent → ${l.name}`, 'info'); processed++
-        }
+        const body = `Hi ${l.name},\n\nJust checking in — did you get a chance to look at my previous email about streamlining operations at ${l.company||'your company'}?\n\nHappy to hop on a quick call.\n\nRegards,\nPawan Kumar\nEnginerds Tech Solution` + buildAttachmentText()
+        const ok = await sendOne(l, `Quick follow-up — ${l.company||'your company'}`, body, profile)
+        if (ok) { updatedLeads[leadIdx] = {...updatedLeads[leadIdx], stage:'2', lastSent:new Date().toISOString(), status:'FOLLOW-UP', pipelineStage:'CONTACTED'}; addLog(`FU1 → ${l.name}`, 'info'); processed++ }
       } else if (l.status === 'VALID') {
-        let subject = `Quick idea for ${l.company||'your company'}`
-        let body = ''
-        try { const r = await getContent(l); subject = r.subject; body = r.body } catch(e) { addLog(`Content failed for ${l.name}: ${e.message}`, 'error') }
-        if (cfg.subjectAlt && processed % 2 === 1) subject = cfg.subjectAlt.replace('[Company]', l.company||'your company')
-        if (!body) { addLog(`Skipped ${l.name} — no content`, 'warn'); continue }
+        let subject = '', body = ''
+        try { const r = await getContent(l, variantPool); subject = r.subject; body = r.body } catch(e) { addLog(`Content failed for ${l.name}: ${e.message}`, 'error'); continue }
         const ok = await sendOne(l, subject, body, profile)
         if (ok) {
           updatedLeads[leadIdx] = {...updatedLeads[leadIdx], status:'SENT', stage:'1', lastSent:new Date().toISOString(), lastEmail:body, pipelineStage:'CONTACTED'}
@@ -111,39 +156,17 @@ export default function Campaign() {
           logActivity(`Campaign: Sent to ${l.name}`); processed++
         } else { addLog(`✗ Failed → ${l.name}`, 'error') }
       }
-      if (i < targets.length - 1) await new Promise(r => setTimeout(r, cfg.rate * 1000))
+      if (i < targets.length - 1 && cfg.rate > 0) await new Promise(r => setTimeout(r, cfg.rate * 1000))
     }
 
-    // Save all updates at once — avoids stale closure issue
     setLeads(updatedLeads)
-    // Direct save to API with final state
     try {
-      await fetch('/api/crm?type=save', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ leads: updatedLeads })
-      })
+      await fetch('/api/crm?type=save', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ leads: updatedLeads }) })
     } catch(e) { console.warn('Save failed', e) }
 
     setStatus(`Done — ${processed} emails sent`); setRunning(false)
     toast(`Campaign complete: ${processed} sent`, 'success')
     logActivity(`Campaign finished: ${processed} sent`)
-  }
-
-  async function generatePreview() {
-    if (mode === 'custom') {
-      setPrevSubj(customSubj || 'Subject will appear here')
-      setPrevBody(customBody || 'Body will appear here')
-      return
-    }
-    if (!settings.openaiKey) { toast('Set NVIDIA API key in Settings', 'error'); return }
-    setGenLoading(true)
-    try {
-      const res = await fetch('/api/generate-ai', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:'John Doe', company:'Acme Corp', role:'Founder', category:'SaaS', apiKey:settings.openaiKey, customPrompt:aiPrompt }) })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
-      setPrevSubj(data.subject); setPrevBody(data.body)
-    } catch(e) { toast('Preview failed: '+e.message, 'error') }
-    setGenLoading(false)
   }
 
   return (
@@ -154,7 +177,6 @@ export default function Campaign() {
         </Btn>
       </PageHeader>
 
-      {/* Progress bar */}
       {(running || progress > 0) && (
         <div className="card p-4 mb-6">
           <div className="flex items-center justify-between mb-2">
@@ -174,7 +196,7 @@ export default function Campaign() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div><label className="label">Batch Limit</label><input className="input" type="number" value={cfg.batch} onChange={e=>setCfg({...cfg,batch:+e.target.value})} /></div>
-              <div><label className="label">Rate (secs)</label><input className="input" type="number" value={cfg.rate} onChange={e=>setCfg({...cfg,rate:+e.target.value})} /></div>
+              <div><label className="label">Rate (secs)</label><input className="input" type="number" min="0" value={cfg.rate} onChange={e=>setCfg({...cfg,rate:+e.target.value})} /></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="label">FU1 Wait (days)</label><input className="input" type="number" value={cfg.fu1} onChange={e=>setCfg({...cfg,fu1:+e.target.value})} /></div>
@@ -183,27 +205,22 @@ export default function Campaign() {
             <div>
               <label className="label">Target Group</label>
               <select className="input" value={cfg.target} onChange={e=>setCfg({...cfg,target:e.target.value})}>
-                <option value="valid">VALID Only</option>
-                <option value="all">All Contacts</option>
-                <option value="followup">FOLLOW-UP Only</option>
-                <option value="hot">HOT Leads Only</option>
-                <option value="category">Specific Category</option>
-                <option value="tag">Specific Tag</option>
+                <option value="valid">VALID Only</option><option value="all">All Contacts</option>
+                <option value="followup">FOLLOW-UP Only</option><option value="hot">HOT Leads Only</option>
+                <option value="category">Specific Category</option><option value="tag">Specific Tag</option>
               </select>
             </div>
             {(cfg.target==='category'||cfg.target==='tag') && (
               <input className="input" placeholder={`Enter ${cfg.target}...`} value={cfg.filterVal} onChange={e=>setCfg({...cfg,filterVal:e.target.value})} />
             )}
             <div>
-              <label className="label">Active Senders</label>
+              <label className="label">Active Senders (Round-Robin)</label>
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2 max-h-28 overflow-y-auto">
                 {profiles.length === 0 ? <p className="text-xs text-slate-400">No profiles. Add in Settings.</p> :
                   profiles.map(p => (
                     <label key={p.id} className="flex items-center gap-2 text-sm cursor-pointer">
                       <input type="checkbox" className="rounded" checked={selectedSenders.has(p.user||p.email||'')} onChange={e => {
-                        const n = new Set(selectedSenders)
-                        e.target.checked ? n.add(p.user||p.email||'') : n.delete(p.user||p.email||'')
-                        setSelectedSenders(n)
+                        const n = new Set(selectedSenders); e.target.checked ? n.add(p.user||p.email||'') : n.delete(p.user||p.email||''); setSelectedSenders(n)
                       }} />
                       <span className="font-medium text-slate-700">{p.name}</span>
                       <span className="text-xs text-slate-400">({p.type.toUpperCase()})</span>
@@ -214,6 +231,21 @@ export default function Campaign() {
             </div>
             <div><label className="label">Sender Name</label><input className="input" value={cfg.sender} onChange={e=>setCfg({...cfg,sender:e.target.value})} /></div>
             <div><label className="label">Reply-to Email</label><input className="input" value={cfg.replyTo} onChange={e=>setCfg({...cfg,replyTo:e.target.value})} /></div>
+
+            {/* Attachments */}
+            <div>
+              <label className="label flex items-center gap-1"><Paperclip size={11} /> Attachments / Links</label>
+              <div className="space-y-2">
+                {attachments.map((a, i) => (
+                  <div key={i} className="flex gap-2">
+                    <input className="input flex-1" placeholder="Label (e.g. Our Brochure)" value={a.label} onChange={e => { const n=[...attachments]; n[i]={...n[i],label:e.target.value}; setAttachments(n) }} />
+                    <input className="input flex-1" placeholder="URL or link" value={a.url} onChange={e => { const n=[...attachments]; n[i]={...n[i],url:e.target.value}; setAttachments(n) }} />
+                    <button className="text-red-400 hover:text-red-600 px-2" onClick={() => setAttachments(attachments.filter((_,j)=>j!==i))}>✕</button>
+                  </div>
+                ))}
+                <button className="text-xs text-emerald-600 hover:underline" onClick={() => setAttachments([...attachments, {type:'link',label:'',url:''}])}>+ Add Link</button>
+              </div>
+            </div>
           </div>
         </Card>
 
@@ -233,35 +265,77 @@ export default function Campaign() {
 
           {mode === 'ai' ? (
             <div className="space-y-3">
-              <div><label className="label">A/B Subject Override (optional)</label><input className="input" value={cfg.subjectAlt} onChange={e=>setCfg({...cfg,subjectAlt:e.target.value})} placeholder="Idea for [Company]" /></div>
-              <div><label className="label">AI Instructions</label><textarea className="input resize-y min-h-[80px]" value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)} placeholder="e.g. Focus on ERP for manufacturing, mention ROI..." /></div>
+              <div className="flex gap-2">
+                <div className="flex-1"><label className="label">Variants to Generate</label>
+                  <select className="input" value={variantCount} onChange={e=>setVariantCount(+e.target.value)}>
+                    {[1,3,5,7,10].map(n=><option key={n} value={n}>{n} variant{n>1?'s':''}</option>)}
+                  </select>
+                </div>
+                <div className="flex-1"><label className="label">AI Focus / Instructions</label>
+                  <input className="input" value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)} placeholder="e.g. Focus on ROI, mention 60% time saving..." />
+                </div>
+              </div>
+              <Btn variant="secondary" size="sm" onClick={generateVariants} disabled={genLoading}>
+                {genLoading ? <><RefreshCw size={12} className="animate-spin" /> Generating...</> : <><Zap size={12} /> Generate {variantCount} Variants</>}
+              </Btn>
+              {variants.length > 0 && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-xs text-emerald-700 font-medium">
+                  ✓ {variants.length} variants ready — will rotate randomly during campaign
+                </div>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
-              <div><label className="label">Subject Line</label><input className="input" value={customSubj} onChange={e=>setCustomSubj(e.target.value)} placeholder="Quick idea for [Company]" /></div>
-              <div><label className="label">Email Body</label><textarea className="input resize-y min-h-[120px]" value={customBody} onChange={e=>setCustomBody(e.target.value)} placeholder={"Hi [Name],\n\n...\n\nBest,\nPawan Kumar"} /></div>
-              <div className="flex gap-2">
+              <div><label className="label">Subject Line</label>
+                <input className="input" value={customSubj} onChange={e=>setCustomSubj(e.target.value)} placeholder="Quick idea for [Company]" />
+              </div>
+              <div><label className="label">Email Body</label>
+                <textarea ref={bodyRef} className="input resize-y min-h-[140px] font-mono text-sm" value={customBody} onChange={e=>setCustomBody(e.target.value)} placeholder={"Hi [Name],\n\n...\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution"} />
+              </div>
+              <div className="flex gap-2 flex-wrap">
                 {['[Name]','[Company]','[Role]'].map(v => (
-                  <button key={v} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded-md transition-colors" onClick={() => setCustomBody(b => b + v)}>+{v}</button>
+                  <button key={v} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-2 py-1 rounded-md transition-colors" onClick={() => {
+                    const ta = bodyRef.current; if(!ta) return
+                    const pos = ta.selectionStart; const val = ta.value
+                    setCustomBody(val.slice(0,pos)+v+val.slice(pos))
+                    setTimeout(()=>{ ta.focus(); ta.selectionStart=ta.selectionEnd=pos+v.length },0)
+                  }}>+{v}</button>
                 ))}
               </div>
             </div>
           )}
 
-          <Btn variant="secondary" size="sm" className="mt-3 mb-4" onClick={generatePreview} disabled={genLoading}>
-            {genLoading ? 'Generating...' : '✦ Generate Preview'}
-          </Btn>
-
-          <div className="bg-slate-50 border border-slate-200 rounded-lg overflow-hidden">
-            <div className="px-3 py-2 border-b border-slate-200 bg-white">
-              <p className="text-xs font-mono text-slate-500">Subject: <span className="text-slate-800">{prevSubj}</span></p>
+          {/* Variant Preview */}
+          {(variants.length > 0 || mode === 'custom') && (
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="label mb-0">Preview {variants.length > 1 ? `(Variant ${variantIdx+1}/${variants.length})` : ''}</label>
+                {variants.length > 1 && (
+                  <div className="flex gap-1">
+                    <button className="p-1 rounded hover:bg-slate-100" onClick={()=>setVariantIdx(i=>Math.max(0,i-1))}><ChevronLeft size={14}/></button>
+                    <button className="p-1 rounded hover:bg-slate-100" onClick={()=>setVariantIdx(i=>Math.min(variants.length-1,i+1))}><ChevronRight size={14}/></button>
+                  </div>
+                )}
+              </div>
+              <div className="bg-slate-50 border border-slate-200 rounded-lg overflow-hidden">
+                <div className="px-3 py-2 border-b border-slate-200 bg-white">
+                  <p className="text-xs font-mono text-slate-500">Subject: <span className="text-slate-800 font-semibold">{mode==='custom' ? customSubj : currentVariant.subject}</span></p>
+                </div>
+                <div className="p-3 text-sm text-slate-700 whitespace-pre-wrap max-h-52 overflow-y-auto leading-relaxed">
+                  {mode==='custom' ? customBody : currentVariant.body}
+                  {buildAttachmentText() && <span className="text-blue-600">{buildAttachmentText()}</span>}
+                </div>
+              </div>
+              {variants.length > 0 && (
+                <button className="text-xs text-slate-400 hover:text-slate-600 mt-1" onClick={()=>{ const v=variants[variantIdx]; if(v){ setCustomSubj(v.subject); setCustomBody(v.body); setMode('custom') }}}>
+                  ✏ Edit this variant in Custom mode
+                </button>
+              )}
             </div>
-            <div className="p-3 text-sm text-slate-700 whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">{prevBody}</div>
-          </div>
+          )}
         </Card>
       </div>
 
-      {/* Campaign Log */}
       {log.length > 0 && (
         <Card className="p-5 mt-6">
           <h3 className="text-sm font-bold text-slate-900 mb-3">Campaign Log</h3>

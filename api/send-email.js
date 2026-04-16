@@ -78,9 +78,9 @@ function buildHtmlBody(plainText, leadId, email, appUrl) {
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#1a1a1a;">
-  <div style="max-width:580px;margin:0 auto;padding:32px 24px;">
-    <div style="padding-bottom:24px;">${paragraphs}</div>
-    <div style="margin-top:32px;padding-top:16px;border-top:1px solid #eeeeee;font-size:12px;color:#999999;line-height:1.8;">
+  <div style="padding:32px 24px;max-width:640px;">
+    <div>${paragraphs}</div>
+    <div style="margin-top:40px;padding-top:16px;border-top:1px solid #eeeeee;font-size:12px;color:#999999;line-height:1.8;">
       You're receiving this because we thought it might be relevant to you.<br>
       <a href="${unsubUrl}" style="color:#999999;text-decoration:underline;">Unsubscribe</a> from future emails.
     </div>
