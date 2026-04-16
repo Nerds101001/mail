@@ -39,11 +39,11 @@ Return ONLY this JSON:
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
-        model:       "openai/gpt-oss-120b",
+        model:       "meta/llama-3.1-70b-instruct",
         messages:    [{ role: "system", content: system }, { role: "user", content: user }],
-        temperature: 0.75,
+        temperature: 0.7,
         top_p:       1,
-        max_tokens:  512,
+        max_tokens:  600,
         stream:      false,
       }),
     });
@@ -55,8 +55,10 @@ Return ONLY this JSON:
     if (!choice) throw new Error("NVIDIA returned empty response — check your API key and model availability");
 
     const raw     = choice.trim();
-    const cleaned = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/,"").trim();
-    const parsed  = JSON.parse(cleaned);
+    // Extract JSON even if model adds text before/after
+    const jsonMatch = raw.match(/\{[\s\S]*"subject"[\s\S]*"body"[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("AI did not return valid JSON. Response: " + raw.slice(0, 100));
+    const parsed  = JSON.parse(jsonMatch[0]);
 
     if (!parsed.subject || !parsed.body) throw new Error("AI returned incomplete JSON");
 
