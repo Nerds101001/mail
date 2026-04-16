@@ -4,7 +4,8 @@
   "description": "AI Lead Engine CRM with Gmail OAuth and tracking",
   "scripts": {
     "dev": "node server.js",
-    "deploy": "vercel --prod"
+    "deploy": "vercel --prod",
+    "build": "cd crm-ui && npm install && npm run build"
   },
   "dependencies": {
     "nodemailer": "^6.9.13"

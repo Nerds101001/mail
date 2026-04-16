@@ -8,7 +8,7 @@
     { "source": "/api/send-reminder",  "destination": "/api/ops?type=reminder" },
     { "source": "/api/get-crm-data",   "destination": "/api/crm?type=load" },
     { "source": "/api/save-crm-data",  "destination": "/api/crm?type=save" },
-    { "source": "/",                   "destination": "/index.html" }
+    { "source": "/((?!api/).*)",       "destination": "/public/index.html" }
   ],
   "headers": [
     {
