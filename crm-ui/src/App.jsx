@@ -15,14 +15,38 @@ import Tasks    from './pages/Tasks'
 import Settings from './pages/Settings'
 
 function ProtectedApp() {
-  const { loadFromRedis, checkGmailStatus } = useCRM()
+  const { loadFromRedis, checkGmailStatus, setProfiles, profiles, logActivity } = useCRM()
   const [taskCount, setTaskCount] = useState(0)
 
   useEffect(() => {
+    // Handle Gmail OAuth redirect params
+    const params = new URLSearchParams(window.location.search)
+    const gmail = params.get('gmail')
+    if (gmail === 'connected') {
+      const account = params.get('account')
+      // Add Gmail profile if not already there
+      setProfiles(prev => {
+        if (prev.find(p => p.user === account && p.type === 'gmail')) return prev
+        return [...prev, { id: 'gmail_' + Date.now(), type: 'gmail', active: true, name: 'Gmail Account', user: account }]
+      })
+      logActivity?.(`Gmail connected: ${account}`)
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if (gmail === 'denied' || gmail === 'error') {
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+
     loadFromRedis()
     checkGmailStatus()
-    // Load task count for badge
     fetch('/api/tasks').then(r => r.json()).then(d => setTaskCount(d.tasks?.length || 0)).catch(() => {})
+  }, [])
+
+  // Re-check Gmail status after OAuth redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('gmail') === 'connected') {
+      setTimeout(() => checkGmailStatus(), 1000)
+    }
   }, [])
 
   return (

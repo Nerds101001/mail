@@ -58,7 +58,7 @@ export function CRMProvider({ children }) {
 
   const checkGmailStatus = useCallback(async () => {
     try {
-      const r = await fetch('/api/gmail-status')
+      const r = await fetch('/api/ops?type=gmail-status')
       if (r.ok) setGmailStatus(await r.json())
     } catch(e) { setGmailStatus({ connected: false, email: null }) }
   }, [])
