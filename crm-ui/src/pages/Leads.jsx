@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useCRM } from '../store'
 import { enrichLead, isValidEmail, PIPELINE_STAGES, STAGE_COLORS, STATUS_COLORS, fmtDate } from '../utils'
 import { Modal, Btn, Input, Select, Textarea, Badge, Empty, PageHeader, toast } from '../components/ui'
-import { Plus, Upload, CheckCircle, Zap, Trash2, UserCheck, Search, Filter, Flame } from 'lucide-react'
+import { Plus, Upload, CheckCircle, Zap, Trash2, UserCheck, Search, Filter, Flame, Users } from 'lucide-react'
 
 export default function Leads() {
   const { leads, setLeads, profiles, settings, logActivity, pushToRedis } = useCRM()
