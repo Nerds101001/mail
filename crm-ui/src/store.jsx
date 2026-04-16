@@ -51,7 +51,11 @@ export function CRMProvider({ children }) {
       if (data.clients?.length)  setClients(data.clients)
       if (data.deals?.length)    setDeals(data.deals)
       if (data.profiles?.length) setProfiles(data.profiles)
-      if (Object.keys(data.settings||{}).length) setSettings(data.settings)
+      if (Object.keys(data.settings||{}).length) {
+        // Preserve openaiKey from localStorage — it's never saved to Redis for security
+        const localKey = load('crm_settings', {}).openaiKey
+        setSettings({ ...data.settings, ...(localKey ? { openaiKey: localKey } : {}) })
+      }
       if (data.activity?.length) setActivity(data.activity)
     } catch(e) { console.warn('Redis load failed') }
   }, [])

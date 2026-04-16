@@ -57,32 +57,37 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl })
 
 // ─── HTML body builder (tracking intact) ─────────────────────────────────────
 function buildHtmlBody(plainText, leadId, email, appUrl) {
-  const htmlText = plainText
+  // Split into paragraphs on double newlines, single newlines become <br>
+  const paragraphs = plainText
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/\n/g, "<br>");
+    .split(/\n{2,}/)
+    .map(para => {
+      // Track URLs within each paragraph
+      const tracked = para.replace(/\n/g, "<br>").replace(
+        /https?:\/\/[^\s<"&]+/g,
+        (url) => `<a href="${appUrl}/api/track/click?id=${leadId}&url=${encodeURIComponent(url)}" style="color:#1a73e8;">${url}</a>`
+      )
+      return `<p style="margin:0 0 16px 0;line-height:1.7;">${tracked}</p>`
+    })
+    .join('')
 
-  const trackedText = htmlText.replace(
-    /https?:\/\/[^\s<"&]+/g,
-    (url) => `<a href="${appUrl}/api/track/click?id=${leadId}&url=${encodeURIComponent(url)}" style="color:#1a73e8;">${url}</a>`
-  );
-
-  const trackingPixel = `<img src="${appUrl}/api/track/open?id=${leadId}" width="1" height="1" alt="" style="display:none;border:0;"/>`;
-  const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`;
+  const trackingPixel = `<img src="${appUrl}/api/track/open?id=${leadId}" width="1" height="1" alt="" style="display:none;border:0;"/>`
+  const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#333333;">
-  <div style="max-width:600px;margin:0 auto;padding:24px 20px;">
-    <div style="padding:0 0 24px 0;">${trackedText}</div>
-    <div style="margin-top:32px;padding-top:16px;border-top:1px solid #eeeeee;font-size:11px;color:#999999;line-height:1.8;">
+<body style="margin:0;padding:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#1a1a1a;">
+  <div style="max-width:580px;margin:0 auto;padding:32px 24px;">
+    <div style="padding-bottom:24px;">${paragraphs}</div>
+    <div style="margin-top:32px;padding-top:16px;border-top:1px solid #eeeeee;font-size:12px;color:#999999;line-height:1.8;">
       You're receiving this because we thought it might be relevant to you.<br>
       <a href="${unsubUrl}" style="color:#999999;text-decoration:underline;">Unsubscribe</a> from future emails.
     </div>
   </div>
   ${trackingPixel}
 </body>
-</html>`;
+</html>`
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────────────

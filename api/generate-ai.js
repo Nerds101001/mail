@@ -17,21 +17,27 @@ module.exports = async (req, res) => {
     category ? `Industry: ${category}`            : "",
   ].filter(Boolean).join("\n");
 
-  const system = `You are an expert cold email copywriter for Enginerds Tech Solution (ERP & SaaS). 
-Write concise, human-sounding outreach emails. Never use spam trigger words.
+  const system = `You are an expert cold email copywriter for Enginerds Tech Solution (ERP & SaaS).
+Write highly personalized, human-sounding outreach emails. Never use spam trigger words.
+CRITICAL: You MUST use the recipient's actual name, company name, and industry in the email — not placeholders.
 Respond ONLY with valid JSON — no markdown, no explanation outside the JSON.`;
 
-  const user = `Write a cold outreach email using this context:
+  const user = `Write a personalized cold outreach email using EXACTLY this recipient data:
 ${context}
 ${customPrompt ? `\nExtra instructions: ${customPrompt}` : ""}
 
-Rules:
-- subject: max 9 words, curiosity-driven, no spam words (free, guaranteed, act now)
-- body: 80-120 words, conversational, one clear CTA, no bullet points, no subject line in body
-- Personalize using company/role/industry
-- Sign off: Pawan Kumar, Enginerds Tech Solution
+CRITICAL RULES:
+- Use the recipient's ACTUAL name (not "there" or generic greetings)
+- Mention their ACTUAL company name specifically
+- Reference their ACTUAL industry/role to show you know them
+- subject: max 9 words, mention their company or industry, no spam words
+- body: 80-120 words, 3-4 short paragraphs separated by blank lines
+- Each paragraph on its own line with a blank line between them
+- One clear CTA (call to action)
+- No bullet points, no subject line in body
+- Sign off as last paragraph: "Best regards,\\nPawan Kumar\\nEnginerds Tech Solution"
 
-Return ONLY this JSON:
+Return ONLY this JSON (use \\n\\n between paragraphs in body):
 {"subject":"...","body":"..."}`;
 
   try {

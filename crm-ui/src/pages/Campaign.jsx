@@ -72,9 +72,12 @@ export default function Campaign() {
 
     setRunning(true); setLog([]); setProgress(0)
     let processed = 0
+    // Track all updated leads to save at end
+    const updatedLeads = [...leads]
 
     for (let i = 0; i < targets.length; i++) {
       const l = targets[i]
+      const leadIdx = updatedLeads.findIndex(x => x.id === l.id)
       const pct = Math.round(((i+1)/targets.length)*100)
       setProgress(pct); setStatus(`Processing: ${l.name}`)
       const profile = senderProfiles[processed % senderProfiles.length]
@@ -84,11 +87,17 @@ export default function Campaign() {
       if (l.stage === '2' && l.lastSent && daysSince(l.lastSent) >= cfg.fu2) {
         const body = `Hi ${l.name},\n\nThis is my last follow-up. If the timing isn't right, no worries — but if you're open to a quick chat, I'd love to connect.\n\nThanks,\nPawan Kumar\nEnginerds Tech Solution`
         const ok = await sendOne(l, `Quick idea for ${l.company||'your company'}`, body, profile)
-        if (ok) { setLeads(prev => prev.map(x => x.id===l.id ? {...x,status:'SENT',stage:'3',lastSent:new Date().toISOString()} : x)); addLog(`FU2 sent → ${l.name}`, 'warn'); processed++ }
+        if (ok) {
+          updatedLeads[leadIdx] = {...updatedLeads[leadIdx], status:'SENT', stage:'3', lastSent:new Date().toISOString()}
+          addLog(`FU2 sent → ${l.name}`, 'warn'); processed++
+        }
       } else if (l.stage === '1' && l.lastSent && daysSince(l.lastSent) >= cfg.fu1) {
         const body = `Hi ${l.name},\n\nJust checking in — did you get a chance to look at my previous email?\n\nHappy to hop on a quick call.\n\nRegards,\nPawan Kumar\nEnginerds Tech Solution`
         const ok = await sendOne(l, `Following up — ${l.company||'your company'}`, body, profile)
-        if (ok) { setLeads(prev => prev.map(x => x.id===l.id ? {...x,stage:'2',lastSent:new Date().toISOString(),status:'FOLLOW-UP',pipelineStage:'CONTACTED'} : x)); addLog(`FU1 sent → ${l.name}`, 'info'); processed++ }
+        if (ok) {
+          updatedLeads[leadIdx] = {...updatedLeads[leadIdx], stage:'2', lastSent:new Date().toISOString(), status:'FOLLOW-UP', pipelineStage:'CONTACTED'}
+          addLog(`FU1 sent → ${l.name}`, 'info'); processed++
+        }
       } else if (l.status === 'VALID') {
         let subject = `Quick idea for ${l.company||'your company'}`
         let body = ''
@@ -97,14 +106,24 @@ export default function Campaign() {
         if (!body) { addLog(`Skipped ${l.name} — no content`, 'warn'); continue }
         const ok = await sendOne(l, subject, body, profile)
         if (ok) {
-          setLeads(prev => prev.map(x => x.id===l.id ? {...x,status:'SENT',stage:'1',lastSent:new Date().toISOString(),lastEmail:body,pipelineStage:'CONTACTED'} : x))
+          updatedLeads[leadIdx] = {...updatedLeads[leadIdx], status:'SENT', stage:'1', lastSent:new Date().toISOString(), lastEmail:body, pipelineStage:'CONTACTED'}
           addLog(`✓ Sent via ${profile.name} → ${l.name}`, 'success')
           logActivity(`Campaign: Sent to ${l.name}`); processed++
         } else { addLog(`✗ Failed → ${l.name}`, 'error') }
       }
-      pushToRedis()
       if (i < targets.length - 1) await new Promise(r => setTimeout(r, cfg.rate * 1000))
     }
+
+    // Save all updates at once — avoids stale closure issue
+    setLeads(updatedLeads)
+    // Direct save to API with final state
+    try {
+      await fetch('/api/crm?type=save', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ leads: updatedLeads })
+      })
+    } catch(e) { console.warn('Save failed', e) }
+
     setStatus(`Done — ${processed} emails sent`); setRunning(false)
     toast(`Campaign complete: ${processed} sent`, 'success')
     logActivity(`Campaign finished: ${processed} sent`)
