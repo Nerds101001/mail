@@ -25,6 +25,7 @@ const NAV = [
     { to: '/unsubscribes', icon: UserX,           label: 'Unsubscribes' },
   ]},
   { label: 'Config', items: [
+    { to: '/users',    icon: Users,           label: 'Users',    adminOnly: true },
     { to: '/settings', icon: Settings,        label: 'Settings' },
   ]},
 ]
@@ -64,20 +65,24 @@ export default function Layout({ children, taskCount = 0 }) {
             <div key={group.label}>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2 mb-1.5">{group.label}</p>
               <div className="space-y-0.5">
-                {group.items.map(item => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.to === '/'}
-                    className={({ isActive }) => isActive ? 'nav-item-active' : 'nav-item'}
-                  >
-                    <item.icon size={16} />
-                    <span className="flex-1">{item.label}</span>
-                    {item.badge === 'tasks' && taskCount > 0 && (
-                      <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{taskCount}</span>
-                    )}
-                  </NavLink>
-                ))}
+                {group.items.map(item => {
+                  const isAdmin = localStorage.getItem('crm_role') === 'admin'
+                  if (item.adminOnly && !isAdmin) return null
+                  return (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.to === '/'}
+                      className={({ isActive }) => isActive ? 'nav-item-active' : 'nav-item'}
+                    >
+                      <item.icon size={16} />
+                      <span className="flex-1">{item.label}</span>
+                      {item.badge === 'tasks' && taskCount > 0 && (
+                        <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{taskCount}</span>
+                      )}
+                    </NavLink>
+                  )
+                })}
               </div>
             </div>
           ))}
@@ -85,6 +90,10 @@ export default function Layout({ children, taskCount = 0 }) {
 
         {/* Bottom */}
         <div className="px-3 py-3 border-t border-slate-100 space-y-1">
+          <div className="px-3 py-2 text-xs text-slate-500">
+            <span className="font-semibold text-slate-700">{localStorage.getItem('crm_userName') || 'Admin'}</span>
+            <span className="ml-1 text-slate-400">({localStorage.getItem('crm_role') || 'admin'})</span>
+          </div>
           <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${gmailStatus.connected ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-500'}`}>
             <Mail size={13} />
             <span className="truncate">{gmailStatus.connected ? gmailStatus.email : 'Gmail not connected'}</span>

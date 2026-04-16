@@ -29,8 +29,10 @@ export function CRMProvider({ children }) {
     if (saveTimer) clearTimeout(saveTimer)
     const t = setTimeout(async () => {
       try {
+        const token = localStorage.getItem('crm_token') || ''
         await fetch('/api/crm?type=save', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({ leads, clients, deals, profiles, settings, activity: activity.slice(-200) })
         })
       } catch(e) { console.warn('Redis sync failed') }
@@ -44,7 +46,10 @@ export function CRMProvider({ children }) {
 
   const loadFromRedis = useCallback(async () => {
     try {
-      const res = await fetch('/api/crm?type=load')
+      const token = localStorage.getItem('crm_token') || ''
+      const res = await fetch('/api/crm?type=load', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
       if (!res.ok) return
       const data = await res.json()
       if (data.leads?.length)    setLeads(data.leads)

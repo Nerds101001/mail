@@ -15,6 +15,7 @@ import Tasks    from './pages/Tasks'
 import Settings       from './pages/Settings'
 import Unsubscribes   from './pages/Unsubscribes'
 import CampaignHistory from './pages/CampaignHistory'
+import UsersPage      from './pages/Users'
 
 function ProtectedApp() {
   const { loadFromRedis, checkGmailStatus, setProfiles, profiles, logActivity } = useCRM()
@@ -65,6 +66,7 @@ function ProtectedApp() {
         <Route path="/tracking"      element={<Tracking />} />
         <Route path="/unsubscribes"  element={<Unsubscribes />} />
         <Route path="/settings"      element={<Settings />} />
+        <Route path="/users"         element={<UsersPage />} />
       </Routes>
     </Layout>
   )
