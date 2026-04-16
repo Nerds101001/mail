@@ -1,52 +1,50 @@
 // api/tracking-stats.js
-// Returns open + click counts for a list of lead IDs
-// The frontend polls this to update its tracking display
-//
-// GET /api/tracking-stats?ids=id1,id2,id3
-// GET /api/gmail-status  (checks if Gmail is connected)
+// Handles two routes in one file (Vercel routes by filename):
+//   GET /api/tracking-stats?ids=id1,id2,...  → { leadId: { opens, clicks } }
+//   GET /api/gmail-status                    → { connected, email, tokenExpired }
 
 const { get } = require("./_redis");
 
 module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // ── /api/tracking-stats?ids=... ─────────────────────────────────────
-  if (req.url.startsWith("/api/tracking-stats")) {
-    const { ids } = req.query;
+  const path = req.url.split("?")[0];
 
+  // ── /api/gmail-status ────────────────────────────────────────────────
+  if (path === "/api/gmail-status") {
+    try {
+      const email     = await get("gmail:email");
+      const expiresAt = parseInt(await get("gmail:expires_at") || "0");
+      return res.json({
+        connected:    !!email,
+        email:        email || null,
+        tokenExpired: expiresAt > 0 && Date.now() > expiresAt,
+      });
+    } catch (err) {
+      return res.json({ connected: false, email: null, tokenExpired: false });
+    }
+  }
+
+  // ── /api/tracking-stats?ids=... ──────────────────────────────────────
+  if (path === "/api/tracking-stats") {
+    const { ids } = req.query;
     if (!ids) return res.json({});
 
-    const leadIds = ids.split(",").filter(Boolean);
+    const leadIds = ids.split(",").map(s => s.trim()).filter(Boolean);
 
-    // Fetch all open + click counts in parallel
     const results = await Promise.all(
       leadIds.map(async (id) => {
         const [opens, clicks] = await Promise.all([
-          get(`track:open:${id}`).catch(() => 0),
-          get(`track:click:${id}`).catch(() => 0),
+          get(`track:open:${id}`).catch(() => null),
+          get(`track:click:${id}`).catch(() => null),
         ]);
         return { id, opens: parseInt(opens) || 0, clicks: parseInt(clicks) || 0 };
       })
     );
 
-    // Return as { leadId: { opens, clicks } }
     const stats = {};
-    results.forEach(({ id, opens, clicks }) => {
-      stats[id] = { opens, clicks };
-    });
-
+    results.forEach(({ id, opens, clicks }) => { stats[id] = { opens, clicks }; });
     return res.json(stats);
-  }
-
-  // ── /api/gmail-status ────────────────────────────────────────────────
-  if (req.url.startsWith("/api/gmail-status")) {
-    const email = await get("gmail:email").catch(() => null);
-    const expiresAt = parseInt(await get("gmail:expires_at").catch(() => "0"));
-    return res.json({
-      connected: !!email,
-      email: email || null,
-      tokenExpired: expiresAt > 0 && Date.now() > expiresAt,
-    });
   }
 
   res.status(404).json({ error: "Not found" });

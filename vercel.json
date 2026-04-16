@@ -1,15 +1,22 @@
 {
   "rewrites": [
-    { "source": "/", "destination": "/index.html" }
+    { "source": "/api/gmail-status", "destination": "/api/tracking-stats" },
+    { "source": "/",                 "destination": "/index.html" }
   ],
   "headers": [
     {
       "source": "/api/(.*)",
       "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,OPTIONS" },
+        { "key": "Access-Control-Allow-Origin",  "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,DELETE,OPTIONS" },
         { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
       ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/send-reminder",
+      "schedule": "0 2 * * *"
     }
   ]
 }

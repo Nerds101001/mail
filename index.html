@@ -3,19 +3,28 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>AI Lead Engine — Enginerds CRM</title>
+<title>Enginerds CRM — Business OS</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
 <style>
 :root{
   --bg:#0a0b0d;--surface:#111316;--card:#161a1f;--border:#222630;
   --accent:#00e5a0;--accent2:#ff4d6d;--accent3:#4d9fff;--accent4:#ffb347;
-  --text:#e8eaed;--muted:#6b7280;
+  --accent5:#a78bfa;--text:#e8eaed;--muted:#6b7280;
   --mono:'Space Mono',monospace;--sans:'DM Sans',sans-serif;
 }
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;overflow-x:hidden;}
 body::before{content:'';position:fixed;top:0;left:0;width:100%;height:100%;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,229,160,0.012) 2px,rgba(0,229,160,0.012) 4px);pointer-events:none;z-index:9999;}
 
+/* LOGIN */
+#login-screen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9000;}
+.login-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:40px;width:360px;text-align:center;}
+.login-logo{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--accent);letter-spacing:3px;margin-bottom:8px;}
+.login-sub{font-size:13px;color:var(--muted);margin-bottom:32px;}
+.login-card input{margin-bottom:16px;text-align:center;letter-spacing:4px;font-size:18px;font-family:var(--mono);}
+.login-error{color:var(--accent2);font-size:12px;margin-top:8px;min-height:18px;}
+
+/* TOPBAR */
 .topbar{position:fixed;top:0;left:0;right:0;height:56px;background:rgba(10,11,13,0.95);border-bottom:1px solid var(--border);backdrop-filter:blur(12px);display:flex;align-items:center;padding:0 24px;gap:16px;z-index:100;}
 .logo{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent);letter-spacing:2px;}
 .logo span{color:var(--muted);}
@@ -28,48 +37,60 @@ body::before{content:'';position:fixed;top:0;left:0;width:100%;height:100%;backg
 .topbar-stat{font-family:var(--mono);font-size:11px;color:var(--muted);}
 .topbar-stat b{color:var(--text);}
 
-.sidebar{position:fixed;left:0;top:56px;bottom:0;width:220px;background:var(--surface);border-right:1px solid var(--border);padding:20px 0;z-index:90;}
+/* SIDEBAR */
+.sidebar{position:fixed;left:0;top:56px;bottom:0;width:220px;background:var(--surface);border-right:1px solid var(--border);padding:20px 0;z-index:90;overflow-y:auto;}
 .nav-item{display:flex;align-items:center;gap:10px;padding:11px 20px;cursor:pointer;font-size:13px;font-weight:500;color:var(--muted);transition:all .15s;border-left:2px solid transparent;}
 .nav-item:hover{color:var(--text);background:rgba(255,255,255,0.03);}
 .nav-item.active{color:var(--accent);border-left-color:var(--accent);background:rgba(0,229,160,0.06);}
 .nav-icon{font-size:16px;width:20px;text-align:center;}
 .nav-divider{height:1px;background:var(--border);margin:12px 16px;}
 .nav-label{font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--muted);padding:8px 20px 4px;text-transform:uppercase;}
+.nav-badge{background:var(--accent2);color:#fff;font-size:10px;font-family:var(--mono);padding:1px 6px;border-radius:10px;margin-left:auto;}
 
+/* MAIN */
 .main{margin-left:220px;margin-top:56px;padding:28px;min-height:calc(100vh - 56px);}
 .page{display:none;}.page.active{display:block;animation:fadeIn .2s ease;}
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
-
 .page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;}
 .page-title{font-family:var(--mono);font-size:18px;font-weight:700;letter-spacing:1px;}
 .page-title span{color:var(--accent);}
 
+/* CARDS */
 .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;}
-.card-header{font-family:var(--mono);font-size:11px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:16px;}
+.card-header{font-family:var(--mono);font-size:11px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;}
 
+/* STATS */
 .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
-.stat-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;position:relative;overflow:hidden;}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;position:relative;overflow:hidden;cursor:pointer;transition:border-color .15s;}
+.stat-card:hover{border-color:var(--accent);}
 .stat-card::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;}
 .stat-card.green::after{background:var(--accent);}
 .stat-card.red::after{background:var(--accent2);}
 .stat-card.blue::after{background:var(--accent3);}
 .stat-card.yellow::after{background:var(--accent4);}
+.stat-card.purple::after{background:var(--accent5);}
 .stat-label{font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:10px;}
 .stat-value{font-family:var(--mono);font-size:32px;font-weight:700;line-height:1;}
 .stat-card.green .stat-value{color:var(--accent);}
 .stat-card.red .stat-value{color:var(--accent2);}
 .stat-card.blue .stat-value{color:var(--accent3);}
 .stat-card.yellow .stat-value{color:var(--accent4);}
+.stat-card.purple .stat-value{color:var(--accent5);}
 .stat-sub{font-size:11px;color:var(--muted);margin-top:6px;}
-
+</style>
+<style>
+/* BUTTONS */
 .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .15s;font-family:var(--sans);text-decoration:none;}
 .btn-primary{background:var(--accent);color:#000;}.btn-primary:hover{background:#00ffb3;transform:translateY(-1px);}
 .btn-danger{background:var(--accent2);color:#fff;}.btn-danger:hover{opacity:.85;}
 .btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border);}.btn-ghost:hover{color:var(--text);border-color:var(--muted);}
 .btn-blue{background:var(--accent3);color:#000;}.btn-blue:hover{opacity:.85;}
+.btn-yellow{background:var(--accent4);color:#000;}.btn-yellow:hover{opacity:.85;}
+.btn-purple{background:var(--accent5);color:#fff;}.btn-purple:hover{opacity:.85;}
 .btn-google{background:#fff;color:#333;}.btn-google:hover{background:#f0f0f0;}
 .btn-sm{padding:6px 12px;font-size:12px;}
 
+/* TABLE */
 .table-wrap{overflow-x:auto;border-radius:8px;border:1px solid var(--border);}
 table{width:100%;border-collapse:collapse;font-size:13px;}
 thead tr{background:rgba(255,255,255,0.03);border-bottom:1px solid var(--border);}
@@ -77,30 +98,37 @@ th{padding:12px 14px;text-align:left;font-family:var(--mono);font-size:10px;lett
 td{padding:11px 14px;border-bottom:1px solid rgba(255,255,255,0.04);vertical-align:middle;}
 tr:last-child td{border-bottom:none;}
 tr:hover td{background:rgba(255,255,255,0.02);}
+
+/* BADGES */
 .badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-family:var(--mono);font-weight:700;}
 .badge-valid{background:rgba(0,229,160,0.12);color:var(--accent);}
 .badge-sent{background:rgba(77,159,255,0.12);color:var(--accent3);}
 .badge-replied{background:rgba(0,229,160,0.2);color:#00ffc8;}
-.badge-invalid{background:rgba(255,77,109,0.12);color:var(--accent2);}
+.badge-invalid,.badge-lost{background:rgba(255,77,109,0.12);color:var(--accent2);}
 .badge-duplicate{background:rgba(255,179,71,0.12);color:var(--accent4);}
-.badge-rolebased,.badge-role-based{background:rgba(77,159,255,0.12);color:var(--accent3);}
-.badge-personal{background:rgba(107,114,128,0.2);color:var(--muted);}
-.badge-disposable{background:rgba(255,77,109,0.2);color:var(--accent2);border:1px solid rgba(255,77,109,0.3);}
-.badge-typo{background:rgba(255,179,71,0.2);color:var(--accent4);}
-.badge-invalidlength,.badge-invalid-length{background:rgba(255,77,109,0.15);color:var(--accent2);}
-.badge-invalid-domain{background:rgba(255,77,109,0.2);color:var(--accent2);border:1px solid var(--accent2);}
-.badge-no-mail-server{background:rgba(255,179,71,0.15);color:var(--accent4);}
-.badge-blacklisted{background:rgba(255,77,109,0.3);color:#fff;}
+.badge-hot{background:rgba(255,77,109,0.25);color:#ff6b6b;border:1px solid rgba(255,77,109,0.4);}
+.badge-warm{background:rgba(255,179,71,0.2);color:var(--accent4);}
+.badge-cold{background:rgba(107,114,128,0.2);color:var(--muted);}
+.badge-won{background:rgba(0,229,160,0.2);color:var(--accent);}
+.badge-demo{background:rgba(167,139,250,0.2);color:var(--accent5);}
+.badge-quoted{background:rgba(77,159,255,0.15);color:var(--accent3);}
 .badge-followup,.badge-follow-up{background:rgba(255,179,71,0.15);color:var(--accent4);}
+.badge-unsubscribed,.badge-notinterested{background:rgba(107,114,128,0.1);color:var(--muted);border:1px solid var(--border);}
+.badge-paid{background:rgba(0,229,160,0.15);color:var(--accent);}
+.badge-pending{background:rgba(255,179,71,0.15);color:var(--accent4);}
+.badge-overdue{background:rgba(255,77,109,0.2);color:var(--accent2);border:1px solid rgba(255,77,109,0.3);}
+.badge-active{background:rgba(0,229,160,0.12);color:var(--accent);}
+.badge-open{background:rgba(77,159,255,0.12);color:var(--accent3);}
+.badge-accepted{background:rgba(0,229,160,0.2);color:var(--accent);}
+.badge-rejected{background:rgba(255,77,109,0.12);color:var(--accent2);}
 .badge-high{background:rgba(255,77,109,0.12);color:var(--accent2);}
 .badge-medium{background:rgba(255,179,71,0.12);color:var(--accent4);}
 .badge-low{background:rgba(107,114,128,0.2);color:var(--muted);}
-.badge-bounced{background:rgba(255,77,109,0.15);color:var(--accent2);border:1px solid rgba(255,77,109,0.2);}
-.badge-complaint{background:rgba(255,179,71,0.15);color:var(--accent4);border:1px solid rgba(255,179,71,0.2);}
-.badge-unsubscribed{background:rgba(107,114,128,0.1);color:var(--muted);border:1px solid var(--border);}
 .tag{display:inline-flex;align-items:center;padding:2px 6px;border-radius:4px;font-size:10px;font-family:var(--mono);background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--muted);margin:1px;}
 .tag-category{background:rgba(0,229,160,0.1);color:var(--accent);border-color:rgba(0,229,160,0.2);}
+.tag-hot{background:rgba(255,77,109,0.15);color:var(--accent2);border-color:rgba(255,77,109,0.3);}
 
+/* FORMS */
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;}
 .form-group{display:flex;flex-direction:column;gap:6px;}
 .form-group label{font-family:var(--mono);font-size:10px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;}
@@ -109,29 +137,42 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 
 textarea{resize:vertical;min-height:80px;}
 select option{background:var(--card);}
 
+/* MODALS */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:200;display:none;align-items:center;justify-content:center;}
 .modal-overlay.open{display:flex;}
-.modal{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:28px;width:520px;max-width:95vw;max-height:90vh;overflow-y:auto;}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:28px;width:560px;max-width:95vw;max-height:90vh;overflow-y:auto;}
 .modal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;}
 .modal-title{font-family:var(--mono);font-size:14px;font-weight:700;letter-spacing:1px;}
-.modal-close{background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;}
+.modal-close{background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;}
 .modal-close:hover{color:var(--text);}
 
-.pipeline-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
-.pipeline-col{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px;}
-.pipeline-col-header{font-family:var(--mono);font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;}
+/* PIPELINE */
+.pipeline-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+.pipeline-col{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;min-height:200px;}
+.pipeline-col-header{font-family:var(--mono);font-size:10px;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;}
 .pipeline-col-count{background:rgba(255,255,255,0.08);border-radius:10px;padding:1px 8px;font-size:11px;}
-.pipeline-card{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:10px;}
-.pipeline-name{font-weight:600;font-size:13px;margin-bottom:4px;}
+.pipeline-card{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:8px;cursor:pointer;transition:border-color .15s;}
+.pipeline-card:hover{border-color:var(--accent);}
+.pipeline-name{font-weight:600;font-size:13px;margin-bottom:3px;}
 .pipeline-company{font-size:11px;color:var(--muted);font-family:var(--mono);}
 
+/* TASK CARDS */
+.task-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:14px;transition:border-color .15s;}
+.task-card:hover{border-color:var(--accent);}
+.task-card.high{border-left:3px solid var(--accent2);}
+.task-card.medium{border-left:3px solid var(--accent4);}
+.task-card.low{border-left:3px solid var(--muted);}
+.task-icon{font-size:22px;width:32px;text-align:center;}
+.task-title{font-weight:600;font-size:13px;margin-bottom:2px;}
+.task-detail{font-size:12px;color:var(--muted);}
+
+/* MISC */
 .campaign-bar{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:16px;display:flex;align-items:center;gap:16px;}
 .campaign-progress{flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden;}
 .campaign-progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent3));border-radius:3px;transition:width .5s ease;}
 .email-preview{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;font-size:13px;line-height:1.7;white-space:pre-wrap;font-family:var(--sans);color:var(--text);max-height:280px;overflow-y:auto;}
 .preview-subject{font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border);}
-
-.notif{position:fixed;bottom:24px;right:24px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 18px;font-size:13px;z-index:999;transform:translateY(80px);opacity:0;transition:all .3s;max-width:320px;}
+.notif{position:fixed;bottom:24px;right:24px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 18px;font-size:13px;z-index:9999;transform:translateY(80px);opacity:0;transition:all .3s;max-width:340px;}
 .notif.show{transform:translateY(0);opacity:1;}
 .notif.success{border-left:3px solid var(--accent);}
 .notif.error{border-left:3px solid var(--accent2);}
@@ -139,48 +180,69 @@ select option{background:var(--card);}
 .spinner{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;display:inline-block;vertical-align:middle;}
 @keyframes spin{to{transform:rotate(360deg);}}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;}
 .chart-bars{display:flex;align-items:flex-end;gap:6px;height:100px;padding-top:8px;}
 .chart-bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;}
 .chart-bar{width:100%;border-radius:3px 3px 0 0;min-height:2px;transition:height .5s;}
 .warn-box{background:rgba(255,77,109,0.08);border:1px solid rgba(255,77,109,0.2);border-radius:8px;padding:14px 18px;font-size:13px;color:var(--accent2);margin-bottom:20px;display:flex;align-items:center;gap:10px;}
-.info-box{background:rgba(77,159,255,0.08);border:1px solid rgba(77,159,255,0.2);border-radius:8px;padding:14px 18px;font-size:13px;color:var(--accent3);margin-bottom:20px;gap:10px;}
+.info-box{background:rgba(77,159,255,0.08);border:1px solid rgba(77,159,255,0.2);border-radius:8px;padding:14px 18px;font-size:13px;color:var(--accent3);margin-bottom:20px;}
 .success-box{background:rgba(0,229,160,0.08);border:1px solid rgba(0,229,160,0.2);border-radius:8px;padding:14px 18px;font-size:13px;color:var(--accent);margin-bottom:20px;}
-
 ::-webkit-scrollbar{width:4px;height:4px;}
 ::-webkit-scrollbar-track{background:transparent;}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
-
 @media(max-width:900px){
-  .sidebar{width:56px;}.nav-item span,.nav-label{display:none;}
+  .sidebar{width:56px;}.nav-item span,.nav-label,.nav-badge{display:none;}
   .main{margin-left:56px;}
   .stat-grid{grid-template-columns:repeat(2,1fr);}
   .pipeline-grid{grid-template-columns:repeat(2,1fr);}
-  .grid2{grid-template-columns:1fr;}
+  .grid2,.grid3{grid-template-columns:1fr;}
 }
 </style>
 </head>
 <body>
 
+<!-- LOGIN SCREEN -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">ENGINERDS</div>
+    <div class="login-sub">Business CRM — Team Access</div>
+    <div class="form-group">
+      <label>Team PIN</label>
+      <input type="password" id="login-pin" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()"/>
+    </div>
+    <button class="btn btn-primary" style="width:100%;" onclick="doLogin()">Login →</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
 <!-- TOP BAR -->
-<div class="topbar">
-  <div class="logo">ENGINERDS <span>/</span> LEAD ENGINE</div>
+<div class="topbar" id="app-topbar" style="display:none;">
+  <div class="logo">ENGINERDS <span>/</span> CRM</div>
   <div class="topbar-right">
     <div class="status-dot"></div>
     <div id="gmail-status-badge" class="gmail-status gmail-disconnected">Gmail: Not Connected</div>
     <div class="topbar-stat">Leads: <b id="tb-leads">0</b></div>
-    <div class="topbar-stat">Sent: <b id="tb-sent">0</b></div>
-    <div class="topbar-stat">Replies: <b id="tb-replied">0</b></div>
+    <div class="topbar-stat">Clients: <b id="tb-clients">0</b></div>
+    <div class="topbar-stat">Hot: <b id="tb-hot" style="color:var(--accent2);">0</b></div>
     <button class="btn btn-primary btn-sm" onclick="openModal('addLeadModal')">+ Add Lead</button>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()">Logout</button>
   </div>
 </div>
 
 <!-- SIDEBAR -->
-<div class="sidebar">
-  <div class="nav-label">Main</div>
+<div class="sidebar" id="app-sidebar" style="display:none;">
+  <div class="nav-label">Overview</div>
   <div class="nav-item active" onclick="showPage('dashboard')" id="nav-dashboard"><span class="nav-icon">⬛</span><span>Dashboard</span></div>
+  <div class="nav-item" onclick="showPage('tasks')" id="nav-tasks"><span class="nav-icon">✅</span><span>Today's Tasks</span><span class="nav-badge" id="task-badge" style="display:none;">0</span></div>
+  <div class="nav-divider"></div>
+  <div class="nav-label">Sales</div>
   <div class="nav-item" onclick="showPage('leads')" id="nav-leads"><span class="nav-icon">◉</span><span>Leads</span></div>
-  <div class="nav-item" onclick="showPage('campaign')" id="nav-campaign"><span class="nav-icon">▶</span><span>Campaign</span></div>
   <div class="nav-item" onclick="showPage('pipeline')" id="nav-pipeline"><span class="nav-icon">▦</span><span>Pipeline</span></div>
+  <div class="nav-item" onclick="showPage('campaign')" id="nav-campaign"><span class="nav-icon">▶</span><span>Campaign</span></div>
+  <div class="nav-divider"></div>
+  <div class="nav-label">Business</div>
+  <div class="nav-item" onclick="showPage('clients')" id="nav-clients"><span class="nav-icon">👥</span><span>Clients</span></div>
+  <div class="nav-item" onclick="showPage('deals')" id="nav-deals"><span class="nav-icon">📋</span><span>Deals</span></div>
   <div class="nav-divider"></div>
   <div class="nav-label">Analytics</div>
   <div class="nav-item" onclick="showPage('tracking')" id="nav-tracking"><span class="nav-icon">◈</span><span>Tracking</span></div>
@@ -190,64 +252,117 @@ select option{background:var(--card);}
 </div>
 
 <!-- MAIN -->
-<div class="main">
+<div class="main" id="app-main" style="display:none;">
 
 <!-- DASHBOARD -->
 <div class="page active" id="page-dashboard">
   <div class="page-header">
-    <div class="page-title">SALES <span>DASHBOARD</span></div>
-    <button class="btn btn-ghost btn-sm" onclick="refreshDashboard()">↻ Refresh</button>
+    <div class="page-title">BUSINESS <span>DASHBOARD</span></div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-ghost btn-sm" onclick="sendReminderNow()">📧 Send Digest</button>
+      <button class="btn btn-ghost btn-sm" onclick="refreshDashboard()">↻ Refresh</button>
+    </div>
   </div>
   <div class="stat-grid">
-    <div class="stat-card green"><div class="stat-label">Total Leads</div><div class="stat-value" id="d-total">0</div><div class="stat-sub">All contacts</div></div>
+    <div class="stat-card green" onclick="showPage('leads')"><div class="stat-label">Total Leads</div><div class="stat-value" id="d-total">0</div><div class="stat-sub">All contacts</div></div>
+    <div class="stat-card red" onclick="showPage('leads')"><div class="stat-label">Hot Leads</div><div class="stat-value" id="d-hot">0</div><div class="stat-sub">Opened/Clicked</div></div>
+    <div class="stat-card blue" onclick="showPage('clients')"><div class="stat-label">Active Clients</div><div class="stat-value" id="d-clients">0</div><div class="stat-sub" id="d-revenue">₹0 pipeline</div></div>
+    <div class="stat-card yellow" onclick="showPage('tasks')"><div class="stat-label">Tasks Today</div><div class="stat-value" id="d-tasks">0</div><div class="stat-sub">Pending actions</div></div>
+  </div>
+  <div class="stat-grid" style="margin-top:0;">
     <div class="stat-card blue"><div class="stat-label">Emails Sent</div><div class="stat-value" id="d-sent">0</div><div class="stat-sub" id="d-sent-rate">0% send rate</div></div>
-    <div class="stat-card green" style="--accent:#00ffc8"><div class="stat-label">Replies</div><div class="stat-value" id="d-replied">0</div><div class="stat-sub" id="d-reply-rate">0% reply rate</div></div>
-    <div class="stat-card yellow"><div class="stat-label">Follow-ups</div><div class="stat-value" id="d-followup">0</div><div class="stat-sub">Pending sequences</div></div>
+    <div class="stat-card green"><div class="stat-label">Replies</div><div class="stat-value" id="d-replied">0</div><div class="stat-sub" id="d-reply-rate">0% reply rate</div></div>
+    <div class="stat-card yellow"><div class="stat-label">Renewals Due</div><div class="stat-value" id="d-renewals">0</div><div class="stat-sub">Next 30 days</div></div>
+    <div class="stat-card red"><div class="stat-label">Overdue Payments</div><div class="stat-value" id="d-overdue">0</div><div class="stat-sub">Needs follow-up</div></div>
   </div>
-  <div class="grid2">
-    <div class="card"><div class="card-header">Lead Status</div><div id="status-chart" class="chart-bars"></div><div id="status-labels" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;"></div></div>
-    <div class="card"><div class="card-header">Priority</div><div id="priority-chart" class="chart-bars"></div><div id="priority-labels" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;"></div></div>
+  <div class="grid2" style="margin-top:16px;">
+    <div class="card">
+      <div class="card-header">Today's Priority Tasks</div>
+      <div id="dash-tasks"><div style="color:var(--muted);font-size:13px;">Loading tasks...</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Recent Activity</div>
+      <div id="activity-log"></div>
+    </div>
   </div>
-  <div class="card" style="margin-top:16px;"><div class="card-header">Recent Activity</div><div id="activity-log"></div></div>
+  <div class="grid2" style="margin-top:16px;">
+    <div class="card"><div class="card-header">Lead Pipeline</div><div id="status-chart" class="chart-bars"></div><div id="status-labels" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;"></div></div>
+    <div class="card"><div class="card-header">Revenue Pipeline</div><div id="revenue-chart" class="chart-bars"></div><div id="revenue-labels" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;"></div></div>
+  </div>
+</div>
+
+<!-- TODAY'S TASKS -->
+<div class="page" id="page-tasks">
+  <div class="page-header">
+    <div class="page-title">TODAY'S <span>TASKS</span></div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-ghost btn-sm" onclick="loadTasks()">↻ Refresh</button>
+      <button class="btn btn-primary btn-sm" onclick="sendReminderNow()">📧 Email Digest</button>
+    </div>
+  </div>
+  <div id="tasks-loading" class="info-box">Loading your tasks for today...</div>
+  <div id="tasks-container"></div>
 </div>
 
 <!-- LEADS -->
 <div class="page" id="page-leads">
   <div class="page-header">
     <div class="page-title">LEAD <span>MANAGEMENT</span></div>
-    <div style="display:flex;gap:8px;">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-ghost btn-sm" onclick="importCSV()">↑ Import CSV</button>
       <button class="btn btn-ghost btn-sm" onclick="validateAll()">✓ Validate</button>
-      <button class="btn btn-blue btn-sm" onclick="advancedValidateAll()" id="adv-val-btn">◈ Advanced Validate</button>
+      <button class="btn btn-blue btn-sm" onclick="advancedValidateAll()" id="adv-val-btn">◈ Adv. Validate</button>
       <button class="btn btn-ghost btn-sm" onclick="enrichAll()">◈ Enrich</button>
       <button class="btn btn-primary btn-sm" onclick="openModal('addLeadModal')">+ Add Lead</button>
     </div>
   </div>
-  <div style="display:flex;gap:10px;margin-bottom:16px;">
-    <input type="text" id="search-leads" placeholder="Search name, email, company..." style="max-width:320px;" oninput="renderLeads()"/>
-    <select id="filter-status" onchange="renderLeads()" style="width:140px;"><option value="">All Status</option><option>VALID</option><option>SENT</option><option>REPLIED</option><option>FOLLOW-UP</option><option>INVALID</option><option>DUPLICATE</option></select>
-    <select id="filter-priority" onchange="renderLeads()" style="width:130px;"><option value="">All Priority</option><option>HIGH</option><option>MEDIUM</option><option>LOW</option></select>
+  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+    <input type="text" id="search-leads" placeholder="Search name, email, company..." style="max-width:280px;" oninput="renderLeads()"/>
+    <select id="filter-status" onchange="renderLeads()" style="width:140px;">
+      <option value="">All Status</option>
+      <option>VALID</option><option>SENT</option><option>REPLIED</option>
+      <option>FOLLOW-UP</option><option>INVALID</option><option>DUPLICATE</option>
+    </select>
+    <select id="filter-pipeline" onchange="renderLeads()" style="width:140px;">
+      <option value="">All Stages</option>
+      <option>COLD</option><option>CONTACTED</option><option>OPENED</option>
+      <option>HOT</option><option>DEMO</option><option>QUOTED</option>
+      <option>WON</option><option>LOST</option><option>UNSUBSCRIBED</option>
+    </select>
+    <select id="filter-priority" onchange="renderLeads()" style="width:120px;">
+      <option value="">All Priority</option><option>HIGH</option><option>MEDIUM</option><option>LOW</option>
+    </select>
   </div>
   <div class="table-wrap">
     <table>
-      <thead><tr><th><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)"/></th><th>Name</th><th>Email</th><th>Company</th><th>Category &amp; Tags</th><th>Status</th><th>Score</th><th>Last Sent</th><th>Actions</th></tr></thead>
+      <thead><tr>
+        <th><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)"/></th>
+        <th>Name</th><th>Email</th><th>Company</th><th>Stage</th>
+        <th>Status</th><th>Score</th><th>Opens</th><th>Last Sent</th><th>Actions</th>
+      </tr></thead>
       <tbody id="leads-tbody"></tbody>
     </table>
   </div>
   <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:12px;display:flex;justify-content:space-between;align-items:center;">
     <span id="leads-count"></span>
     <div style="display:flex;gap:8px;">
-      <button class="btn btn-ghost btn-sm" onclick="bulkDelete()">🗑 Delete Selected</button>
+      <button class="btn btn-ghost btn-sm" onclick="bulkConvertToClient()">👥 → Client</button>
+      <button class="btn btn-ghost btn-sm" onclick="bulkDelete()">🗑 Delete</button>
     </div>
   </div>
+</div>
+
+<!-- PIPELINE -->
+<div class="page" id="page-pipeline">
+  <div class="page-header"><div class="page-title">LEAD <span>PIPELINE</span></div></div>
+  <div class="pipeline-grid" id="pipeline-grid"></div>
 </div>
 
 <!-- CAMPAIGN -->
 <div class="page" id="page-campaign">
   <div class="page-header"><div class="page-title">AI <span>CAMPAIGN</span></div></div>
-  <div id="campaign-sender-warn" class="warn-box" style="display:none;">⚠ No active sender profiles — add your SMTP or Gmail accounts in Settings before sending.</div>
-  <div id="campaign-ai-warn" class="info-box" style="display:none;background:rgba(77,159,255,0.08);border:1px solid rgba(77,159,255,0.2);color:var(--accent3);padding:14px 18px;border-radius:8px;margin-bottom:20px;">ℹ OpenAI API key not set — emails will use a default template. Add your key in Settings for AI-personalized emails.</div>
-
+  <div id="campaign-sender-warn" class="warn-box" style="display:none;">⚠ No active sender profiles — add SMTP or Gmail in Settings.</div>
+  <div id="campaign-ai-warn" class="info-box" style="display:none;">ℹ NVIDIA API key not set — emails will use default template.</div>
   <div class="campaign-bar">
     <div>
       <div style="font-family:var(--mono);font-size:10px;letter-spacing:1.5px;color:var(--muted);margin-bottom:4px;">CAMPAIGN PROGRESS</div>
@@ -257,59 +372,79 @@ select option{background:var(--card);}
     <div style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--accent);" id="camp-pct">0%</div>
     <button class="btn btn-primary" id="camp-btn" onclick="runCampaign()">▶ Run Campaign</button>
   </div>
-
   <div class="grid2">
     <div class="card">
       <div class="card-header">Campaign Config</div>
       <div class="form-row">
         <div class="form-group"><label>Batch Limit</label><input type="number" id="cfg-batch" value="30" min="1"/></div>
-        <div class="form-group"><label>Rate Limit (secs between emails)</label><input type="number" id="cfg-rate-limit" value="5" min="0" max="60"/></div>
+        <div class="form-group"><label>Rate Limit (secs)</label><input type="number" id="cfg-rate-limit" value="5" min="0" max="60"/></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>FU1 Wait (Days)</label><input type="number" id="cfg-fu1" value="2" min="1"/></div>
         <div class="form-group"><label>FU2 Wait (Days)</label><input type="number" id="cfg-fu2" value="4" min="1"/></div>
       </div>
       <div class="form-group" style="margin-bottom:12px;">
-        <label>Target Group (Leads Selection)</label>
+        <label>Target Group</label>
         <select id="cfg-target-group" onchange="toggleCampFilters()">
-          <option value="all">All Contacts</option>
           <option value="valid" selected>VALID Only</option>
+          <option value="all">All Contacts</option>
           <option value="followup">FOLLOW-UP Only</option>
+          <option value="hot">HOT Leads Only</option>
           <option value="category">Specific Category</option>
           <option value="tag">Specific Tag</option>
-          <option value="selected">Selected Leads (from table)</option>
+          <option value="selected">Selected (from table)</option>
         </select>
       </div>
       <div id="cfg-filter-detail" style="display:none;margin-bottom:12px;">
-        <label id="cfg-filter-label">Select Value</label>
         <div style="display:flex;gap:8px;">
-          <input type="text" id="cfg-filter-value" placeholder="Enter Category or Tag..."/>
-          <button class="btn btn-ghost btn-sm" onclick="previewTargetList()">🔍 Preview</button>
+          <input type="text" id="cfg-filter-value" placeholder="Enter value..."/>
+          <button class="btn btn-ghost btn-sm" onclick="previewTargetList()">🔍</button>
         </div>
       </div>
       <div class="form-group" style="margin-bottom:12px;">
         <label>Active Senders (Round-Robin)</label>
-        <div id="cfg-sender-list" style="display:flex;flex-direction:column;gap:4px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;max-height:100px;overflow-y:auto;border:1px solid var(--border);">
-          <!-- Dynamic checkboxes -->
-          <div style="font-size:11px;color:var(--muted);">Syncing profiles...</div>
-        </div>
+        <div id="cfg-sender-list" style="display:flex;flex-direction:column;gap:4px;background:rgba(255,255,255,0.03);padding:8px;border-radius:4px;max-height:100px;overflow-y:auto;border:1px solid var(--border);"></div>
       </div>
-      <div class="form-group" style="margin-bottom:12px;"><label>Sender Name Display</label><input type="text" id="cfg-sender" value="Pawan Kumar - Enginerds Tech Solution"/></div>
+      <div class="form-group" style="margin-bottom:12px;"><label>Sender Name</label><input type="text" id="cfg-sender" value="Pawan Kumar - Enginerds Tech Solution"/></div>
       <div class="form-group"><label>Reply-to Email</label><input type="text" id="cfg-replyto" value="contact@enginerds.in"/></div>
     </div>
     <div class="card">
-      <div class="card-header">Email Preview</div>
-      <div class="form-row">
-        <div class="form-group"><label>Name</label><input type="text" id="prev-name" placeholder="John Doe"/></div>
-        <div class="form-group"><label>A/B Subject (Alt)</label><input type="text" id="cfg-subject-alt" placeholder="Idea for [Company] (A/B Test)"/></div>
+      <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
+        Email Composer
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-sm" id="mode-ai-btn" onclick="setEmailMode('ai')" style="background:var(--accent3);color:#000;font-size:11px;">✦ AI</button>
+          <button class="btn btn-ghost btn-sm" id="mode-custom-btn" onclick="setEmailMode('custom')" style="font-size:11px;">✏ Custom</button>
+        </div>
       </div>
-      <div class="form-group" style="margin-bottom:12px;">
-        <label>Custom AI Generation Instructions (Prompt)</label>
-        <textarea id="ai-prompt-cmd" style="width:100%;height:60px;font-size:12px;padding:8px;" placeholder="e.g. Focus on our 15% discount, mention their industry..."></textarea>
+      <div id="email-mode-ai">
+        <div class="form-row">
+          <div class="form-group"><label>Preview Name</label><input type="text" id="prev-name" placeholder="John Doe"/></div>
+          <div class="form-group"><label>A/B Subject Override</label><input type="text" id="cfg-subject-alt" placeholder="Optional alt subject"/></div>
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+          <label>AI Instructions</label>
+          <textarea id="ai-prompt-cmd" style="min-height:56px;font-size:12px;" placeholder="e.g. Focus on ERP for manufacturing, mention ROI..."></textarea>
+        </div>
+        <button class="btn btn-blue btn-sm" onclick="previewEmail()" style="margin-bottom:12px;">✦ Generate Preview</button>
       </div>
-      <button class="btn btn-blue btn-sm" onclick="previewEmail()" style="margin-bottom:12px;">✦ Generate Preview</button>
+      <div id="email-mode-custom" style="display:none;">
+        <div class="form-group" style="margin-bottom:12px;">
+          <label>Subject Line</label>
+          <input type="text" id="custom-subject" placeholder="e.g. Quick idea for [Company]"/>
+        </div>
+        <div class="form-group" style="margin-bottom:10px;">
+          <label>Email Body</label>
+          <textarea id="custom-body" style="min-height:140px;font-size:13px;" placeholder="Hi [Name],&#10;&#10;...&#10;&#10;Best,&#10;Pawan Kumar"></textarea>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+          <button class="btn btn-ghost btn-sm" onclick="insertVar('[Name]')">+Name</button>
+          <button class="btn btn-ghost btn-sm" onclick="insertVar('[Company]')">+Company</button>
+          <button class="btn btn-ghost btn-sm" onclick="insertVar('[Role]')">+Role</button>
+          <button class="btn btn-ghost btn-sm" onclick="previewCustom()">👁 Preview</button>
+        </div>
+      </div>
       <div class="preview-subject" id="prev-subject">Subject will appear here</div>
-      <div class="email-preview" id="prev-body">Click Generate Preview to see the email...</div>
+      <div class="email-preview" id="prev-body">Configure and click Generate Preview...</div>
     </div>
   </div>
   <div class="card" style="margin-top:16px;">
@@ -318,17 +453,73 @@ select option{background:var(--card);}
   </div>
 </div>
 
-<!-- PIPELINE -->
-<div class="page" id="page-pipeline">
-  <div class="page-header"><div class="page-title">DEAL <span>PIPELINE</span></div></div>
-  <div class="pipeline-grid" id="pipeline-grid"></div>
+<!-- CLIENTS -->
+<div class="page" id="page-clients">
+  <div class="page-header">
+    <div class="page-title">CLIENT <span>MANAGEMENT</span></div>
+    <button class="btn btn-primary btn-sm" onclick="openModal('addClientModal')">+ Add Client</button>
+  </div>
+  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+    <input type="text" id="search-clients" placeholder="Search name, company, software..." style="max-width:280px;" oninput="renderClients()"/>
+    <select id="filter-payment" onchange="renderClients()" style="width:140px;">
+      <option value="">All Payments</option><option>PAID</option><option>PENDING</option><option>OVERDUE</option>
+    </select>
+    <select id="filter-renewal" onchange="renderClients()" style="width:140px;">
+      <option value="">All Renewals</option><option value="soon">Due Soon (30d)</option><option value="overdue">Overdue</option>
+    </select>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Name</th><th>Company</th><th>Software</th><th>Amount</th>
+        <th>Payment</th><th>Renewal Date</th><th>Contact</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="clients-tbody"></tbody>
+    </table>
+  </div>
+  <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:12px;">
+    <span id="clients-count"></span>
+  </div>
+</div>
+
+<!-- DEALS -->
+<div class="page" id="page-deals">
+  <div class="page-header">
+    <div class="page-title">DEALS <span>&amp; QUOTATIONS</span></div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-blue btn-sm" onclick="openAddDealModal('DEMO')">+ Demo Call</button>
+      <button class="btn btn-yellow btn-sm" onclick="openAddDealModal('QUOTATION')">+ Quotation</button>
+      <button class="btn btn-primary btn-sm" onclick="openAddDealModal('ORDER')">+ Order</button>
+    </div>
+  </div>
+  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+    <input type="text" id="search-deals" placeholder="Search name, notes..." style="max-width:280px;" oninput="renderDeals()"/>
+    <select id="filter-deal-type" onchange="renderDeals()" style="width:130px;">
+      <option value="">All Types</option><option>DEMO</option><option>QUOTATION</option><option>ORDER</option>
+    </select>
+    <select id="filter-deal-status" onchange="renderDeals()" style="width:130px;">
+      <option value="">All Status</option><option>OPEN</option><option>SENT</option><option>ACCEPTED</option><option>REJECTED</option><option>DONE</option>
+    </select>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Type</th><th>Name</th><th>Company</th><th>Amount</th>
+        <th>Status</th><th>Date</th><th>Notes</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="deals-tbody"></tbody>
+    </table>
+  </div>
+  <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:12px;">
+    <span id="deals-count"></span>
+  </div>
 </div>
 
 <!-- TRACKING -->
 <div class="page" id="page-tracking">
   <div class="page-header">
     <div class="page-title">MAIL <span>TRACKING</span></div>
-    <button class="btn btn-ghost btn-sm" onclick="syncTracking()"><span id="sync-spinner"></span> ↻ Sync from Server</button>
+    <button class="btn btn-ghost btn-sm" onclick="syncTracking()"><span id="sync-spinner"></span> ↻ Sync</button>
   </div>
   <div id="tracking-info" class="info-box" style="display:none;padding:12px 16px;border-radius:8px;font-size:12px;margin-bottom:16px;"></div>
   <div class="stat-grid">
@@ -341,7 +532,7 @@ select option{background:var(--card);}
     <div class="card-header">Per-Lead Tracking</div>
     <div class="table-wrap" style="border:none;">
       <table>
-        <thead><tr><th>Name</th><th>Email</th><th>Company</th><th>Opens</th><th>Clicks</th><th>Stage</th><th>Last Sent</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Name</th><th>Email</th><th>Company</th><th>Stage</th><th>Opens</th><th>Clicks</th><th>Last Sent</th><th>Actions</th></tr></thead>
         <tbody id="tracking-tbody"></tbody>
       </table>
     </div>
@@ -352,68 +543,45 @@ select option{background:var(--card);}
 <div class="page" id="page-settings">
   <div class="page-header"><div class="page-title">SETTINGS <span>&amp; CONFIG</span></div></div>
   <div class="grid2">
-    <!-- Gmail OAuth -->
     <div class="card">
       <div class="card-header">Gmail Account</div>
-      <div id="gmail-connect-section">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6;">Connect your Gmail to send emails directly. Uses OAuth — your password is never stored.</p>
-        <div id="gmail-connected-info" style="display:none;margin-bottom:14px;" class="success-box"></div>
-        <a href="/api/gmail-auth" class="btn btn-google">
-          <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-          Connect Gmail
-        </a>
-        <div style="font-size:12px;color:var(--muted);margin-top:10px;">After connecting, you'll be redirected back automatically.</div>
-      </div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6;">Connect Gmail for OAuth sending. Password never stored.</p>
+      <div id="gmail-connected-info" style="display:none;margin-bottom:14px;" class="success-box"></div>
+      <a href="/api/gmail-auth" class="btn btn-google">
+        <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+        Connect Gmail
+      </a>
     </div>
-    <!-- NVIDIA NIM AI -->
     <div class="card">
-      <div class="card-header">NVIDIA NIM AI Integration</div>
+      <div class="card-header">NVIDIA NIM AI</div>
       <div class="form-group" style="margin-bottom:14px;">
         <label>NVIDIA API Key</label>
         <input type="password" id="openai-key" placeholder="nvapi-..."/>
       </div>
       <button class="btn btn-primary" onclick="saveSettings()">Save Key</button>
-      <div style="font-size:12px;color:var(--muted);margin-top:10px;">Enables high-performance AI email personalization via NVIDIA NIM (GPT-OSS-120B).</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:10px;">AI email personalization via NVIDIA NIM (GPT-OSS-120B).</div>
     </div>
   </div>
-  <!-- Sender Profiles (Multi-Account) -->
   <div class="card" style="margin-top:16px;">
     <div class="card-header">Sender Profiles (Multi-Account / Round-Robin)</div>
-    <div style="margin-bottom:16px;">
-      <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6;">Add multiple email accounts. The campaign runner will rotate through these for "Round-Robin" sending.</p>
-      <div id="profile-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;"></div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:16px;">
-        <button class="btn btn-blue btn-sm" onclick="openModal('addSmtpModal')">+ Add SMTP Account</button>
-        <button class="btn btn-primary btn-sm" style="--accent:#ff9900;" onclick="openModal('addSesModal')">+ Add Amazon SES</button>
-        <a href="/api/gmail-auth" class="btn btn-google btn-sm">Connect Gmail API</a>
-      </div>
+    <div id="profile-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;"></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:16px;">
+      <button class="btn btn-blue btn-sm" onclick="openModal('addSmtpModal')">+ Add SMTP</button>
+      <a href="/api/gmail-auth" class="btn btn-google btn-sm">Connect Gmail</a>
     </div>
   </div>
-
-  <!-- Deployment Info -->
   <div class="card" style="margin-top:16px;">
     <div class="card-header">Deployment Info</div>
     <div style="font-size:13px;color:var(--muted);line-height:2;">
       <div>App URL: <code id="show-app-url" style="color:var(--accent);font-family:var(--mono);font-size:12px;"></code></div>
-      <div>Gmail Status: <span id="show-gmail-email" style="color:var(--text);">Not connected</span></div>
-      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
-        <b style="color:var(--text);">Required Vercel Env Vars:</b><br>
-        <code style="display:block;background:var(--surface);padding:12px;border-radius:6px;margin-top:8px;font-family:var(--mono);font-size:11px;line-height:2;color:var(--accent);">
-          GOOGLE_CLIENT_ID=...<br>
-          GOOGLE_CLIENT_SECRET=...<br>
-          APP_URL=https://your-app.vercel.app<br>
-          UPSTASH_REDIS_REST_URL=...<br>
-          UPSTASH_REDIS_REST_TOKEN=...
-        </code>
-      </div>
+      <div>Gmail: <span id="show-gmail-email">Not connected</span></div>
       <div id="env-warning-list"></div>
     </div>
   </div>
-
   <div class="card" style="margin-top:16px;">
     <div class="card-header">Data Management</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;">
-      <button class="btn btn-ghost" onclick="exportCSV()">↓ Export CSV</button>
+      <button class="btn btn-ghost" onclick="exportCSV()">↓ Export Leads CSV</button>
       <button class="btn btn-ghost" onclick="exportJSON()">↓ Export JSON</button>
       <button class="btn btn-danger" onclick="clearAllData()">🗑 Clear All Data</button>
     </div>
@@ -431,20 +599,27 @@ select option{background:var(--card);}
       <div class="form-group"><label>Email *</label><input type="email" id="add-email" placeholder="john@company.com"/></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Status</label><select id="add-status"><option>VALID</option><option>SENT</option><option>REPLIED</option><option>FOLLOW-UP</option></select></div>
-      <div class="form-group"><label>Stage</label><select id="add-stage"><option value="">—</option><option>1</option><option>2</option><option>3</option></select></div>
-    </div>
-    <div class="form-row">
-      <div class="form-group"><label>Company (optional)</label><input type="text" id="add-company" placeholder="Auto-detected"/></div>
+      <div class="form-group"><label>Company</label><input type="text" id="add-company" placeholder="Auto-detected"/></div>
       <div class="form-group"><label>Role</label><select id="add-role"><option>GENERAL</option><option>FOUNDER</option><option>SALES</option><option>HR</option><option>CTO</option><option>CFO</option></select></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Category</label><input type="text" id="add-category" list="category-list" placeholder="e.g. SaaS, E-commerce"/>
-        <datalist id="category-list"><option value="SaaS"/><option value="E-commerce"/><option value="Marketing"/><option value="Enterprise"/></datalist>
+      <div class="form-group"><label>Pipeline Stage</label>
+        <select id="add-pipeline">
+          <option value="COLD">COLD</option><option value="CONTACTED">CONTACTED</option>
+          <option value="HOT">HOT</option><option value="DEMO">DEMO</option>
+          <option value="QUOTED">QUOTED</option><option value="WON">WON</option>
+        </select>
       </div>
-      <div class="form-group"><label>Tags (comma separated)</label><input type="text" id="add-tags" placeholder="VIP, New, Confirmed"/></div>
+      <div class="form-group"><label>Phone</label><input type="text" id="add-phone" placeholder="+91 98765 43210"/></div>
     </div>
-    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px;">
+    <div class="form-row">
+      <div class="form-group"><label>Category</label><input type="text" id="add-category" list="category-list" placeholder="e.g. SaaS, E-commerce"/>
+        <datalist id="category-list"><option value="SaaS"/><option value="E-commerce"/><option value="Manufacturing"/><option value="Healthcare"/><option value="Education"/><option value="Finance"/></datalist>
+      </div>
+      <div class="form-group"><label>Tags (comma separated)</label><input type="text" id="add-tags" placeholder="VIP, Hot, Confirmed"/></div>
+    </div>
+    <div class="form-group" style="margin-bottom:14px;"><label>Notes</label><textarea id="add-notes" style="min-height:60px;" placeholder="Any notes..."></textarea></div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;">
       <button class="btn btn-ghost" onclick="closeModal('addLeadModal')">Cancel</button>
       <button class="btn btn-primary" onclick="addLead()">Add Lead</button>
     </div>
@@ -453,13 +628,70 @@ select option{background:var(--card);}
 
 <!-- EMAIL MODAL -->
 <div class="modal-overlay" id="emailModal">
-  <div class="modal" style="width:600px;">
+  <div class="modal" style="width:620px;">
     <div class="modal-header"><div class="modal-title">SEND EMAIL</div><button class="modal-close" onclick="closeModal('emailModal')">✕</button></div>
     <div id="email-modal-content"></div>
     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
       <button class="btn btn-ghost" onclick="closeModal('emailModal')">Cancel</button>
-      <button class="btn btn-blue btn-sm" onclick="generateForModal()" id="gen-btn">✦ Generate AI Email</button>
-      <button class="btn btn-primary" onclick="sendEmailFromModal()" id="send-btn">✉ Send via Gmail</button>
+      <button class="btn btn-blue btn-sm" onclick="generateForModal()" id="gen-btn">✦ Generate AI</button>
+      <button class="btn btn-primary" onclick="sendEmailFromModal()" id="send-btn">✉ Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD CLIENT MODAL -->
+<div class="modal-overlay" id="addClientModal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">ADD CLIENT</div><button class="modal-close" onclick="closeModal('addClientModal')">✕</button></div>
+    <div class="form-row">
+      <div class="form-group"><label>Full Name *</label><input type="text" id="cl-name" placeholder="John Doe"/></div>
+      <div class="form-group"><label>Company *</label><input type="text" id="cl-company" placeholder="Acme Corp"/></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Email</label><input type="email" id="cl-email" placeholder="john@acme.com"/></div>
+      <div class="form-group"><label>Phone</label><input type="text" id="cl-phone" placeholder="+91 98765 43210"/></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Software / Product</label><input type="text" id="cl-software" placeholder="ERP Pro, CRM Basic..."/></div>
+      <div class="form-group"><label>Amount (₹)</label><input type="number" id="cl-amount" placeholder="50000"/></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Payment Status</label>
+        <select id="cl-payment"><option>PAID</option><option>PENDING</option><option>OVERDUE</option></select>
+      </div>
+      <div class="form-group"><label>Renewal Date</label><input type="date" id="cl-renewal"/></div>
+    </div>
+    <div class="form-group" style="margin-bottom:14px;"><label>Notes</label><textarea id="cl-notes" style="min-height:60px;" placeholder="Any notes..."></textarea></div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;">
+      <button class="btn btn-ghost" onclick="closeModal('addClientModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveClient()">Save Client</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD DEAL MODAL -->
+<div class="modal-overlay" id="addDealModal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title" id="deal-modal-title">ADD DEAL</div><button class="modal-close" onclick="closeModal('addDealModal')">✕</button></div>
+    <input type="hidden" id="deal-type-hidden"/>
+    <div class="form-row">
+      <div class="form-group"><label>Contact Name *</label><input type="text" id="deal-name" placeholder="John Doe"/></div>
+      <div class="form-group"><label>Company</label><input type="text" id="deal-company" placeholder="Acme Corp"/></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Amount (₹)</label><input type="number" id="deal-amount" placeholder="50000"/></div>
+      <div class="form-group"><label>Status</label>
+        <select id="deal-status"><option>OPEN</option><option>SENT</option><option>ACCEPTED</option><option>REJECTED</option><option>DONE</option></select>
+      </div>
+    </div>
+    <div class="form-row" id="deal-demo-row">
+      <div class="form-group"><label>Demo Date</label><input type="date" id="deal-demo-date"/></div>
+      <div class="form-group"><label>Demo Time</label><input type="time" id="deal-demo-time"/></div>
+    </div>
+    <div class="form-group" style="margin-bottom:14px;"><label>Notes</label><textarea id="deal-notes" style="min-height:60px;" placeholder="Details, requirements..."></textarea></div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;">
+      <button class="btn btn-ghost" onclick="closeModal('addDealModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveDeal()">Save</button>
     </div>
   </div>
 </div>
@@ -468,58 +700,40 @@ select option{background:var(--card);}
 <div class="modal-overlay" id="importModal">
   <div class="modal">
     <div class="modal-header"><div class="modal-title">IMPORT CSV</div><button class="modal-close" onclick="closeModal('importModal')">✕</button></div>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Paste CSV rows below or upload a file. Columns: <code style="color:var(--accent);">Name, Email</code> (required).</p>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">Columns: <code style="color:var(--accent);">Name, Email</code> (required). Optional: Company, Phone, Category, Tags</p>
     <div style="margin-bottom:14px;padding:12px;border:1px dashed var(--border);border-radius:6px;text-align:center;">
       <input type="file" id="csv-file" accept=".csv" style="display:none;" onchange="handleFileSelect(this)"/>
       <button class="btn btn-ghost btn-sm" onclick="document.getElementById('csv-file').click()">📁 Choose CSV File</button>
       <div id="file-name" style="font-size:11px;color:var(--accent);margin-top:8px;font-family:var(--mono);"></div>
     </div>
-    <textarea id="csv-paste" placeholder="Name,Email&#10;John Doe,john@acme.com&#10;Jane Smith,jane@corp.com" style="min-height:160px;"></textarea>
+    <textarea id="csv-paste" placeholder="Name,Email&#10;John Doe,john@acme.com" style="min-height:140px;"></textarea>
     <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;">
       <button class="btn btn-ghost" onclick="closeModal('importModal')">Cancel</button>
       <button class="btn btn-primary" onclick="processCSVImport()">Import</button>
     </div>
   </div>
 </div>
+
 <!-- ADD SMTP MODAL -->
 <div class="modal-overlay" id="addSmtpModal">
   <div class="modal">
     <div class="modal-header"><div class="modal-title">ADD SMTP ACCOUNT</div><button class="modal-close" onclick="closeModal('addSmtpModal')">✕</button></div>
-    <div class="form-group" style="margin-bottom:12px;"><label>Profile Name (e.g. Work Email)</label><input type="text" id="smtp-name" placeholder="Pawan Kumar"/></div>
+    <div class="form-group" style="margin-bottom:12px;"><label>Profile Name</label><input type="text" id="smtp-name" placeholder="Work Email"/></div>
     <div class="form-row">
       <div class="form-group"><label>SMTP Host</label><input type="text" id="smtp-host" placeholder="smtp.gmail.com"/></div>
       <div class="form-group"><label>Port</label><input type="number" id="smtp-port" value="465"/></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Email Address / User</label><input type="email" id="smtp-user" placeholder="me@company.com"/></div>
+      <div class="form-group"><label>Email / User</label><input type="email" id="smtp-user" placeholder="me@company.com"/></div>
       <div class="form-group"><label>Password / App Pass</label><input type="password" id="smtp-pass"/></div>
     </div>
     <div class="form-group" style="flex-direction:row;align-items:center;gap:8px;margin-bottom:16px;">
-      <input type="checkbox" id="smtp-secure" checked style="width:16px;height:16px;"/><label>SSL / TLS (Secure)</label>
+      <input type="checkbox" id="smtp-secure" checked style="width:16px;height:16px;"/><label>SSL/TLS</label>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:10px;">
       <button class="btn btn-ghost" onclick="closeModal('addSmtpModal')">Cancel</button>
-      <button class="btn btn-blue btn-sm" id="test-smtp-btn" onclick="testSmtpConnection()">⚡ Test Connection</button>
-    </div>
-  </div>
-</div>
-
-<!-- ADD SES MODAL -->
-<div class="modal-overlay" id="addSesModal">
-  <div class="modal">
-    <div class="modal-header"><div class="modal-title">ADD AMAZON SES ACCOUNT</div><button class="modal-close" onclick="closeModal('addSesModal')">✕</button></div>
-    <div class="form-group" style="margin-bottom:12px;"><label>Profile Name (e.g. AWS Production)</label><input type="text" id="ses-name" placeholder="SES Marketing"/></div>
-    <div class="form-row">
-      <div class="form-group"><label>AWS Region</label><select id="ses-region"><option value="us-east-1">us-east-1 (N. Virginia)</option><option value="us-west-2">us-west-2 (Oregon)</option><option value="eu-west-1">eu-west-1 (Ireland)</option><option value="ap-south-1">ap-south-1 (Mumbai)</option></select></div>
-      <div class="form-group"><label>Verified Sender Email</label><input type="email" id="ses-sender" placeholder="verified@domain.com"/></div>
-    </div>
-    <div class="form-row">
-      <div class="form-group"><label>Access Key ID</label><input type="text" id="ses-key" placeholder="AKIA..."/></div>
-      <div class="form-group"><label>Secret Access Key</label><input type="password" id="ses-secret"/></div>
-    </div>
-    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
-      <button class="btn btn-ghost" onclick="closeModal('addSesModal')">Cancel</button>
-      <button class="btn btn-primary" onclick="addSesProfile()">Save SES Profile</button>
+      <button class="btn btn-blue btn-sm" onclick="testSmtpConnection()">⚡ Test</button>
+      <button class="btn btn-primary btn-sm" onclick="addSmtpProfile()">Save Profile</button>
     </div>
   </div>
 </div>
@@ -528,52 +742,100 @@ select option{background:var(--card);}
 
 <script>
 /************************************************************
- DATA + SETTINGS
+ AUTH
 ************************************************************/
-let leads = JSON.parse(localStorage.getItem('crm_leads')||'[]');
-let settings = JSON.parse(localStorage.getItem('crm_settings')||'{}');
-let profiles = JSON.parse(localStorage.getItem('crm_profiles')||'[]');
-let activityLog = JSON.parse(localStorage.getItem('crm_activity')||'[]');
+let authToken = localStorage.getItem('crm_token') || '';
+
+async function doLogin(){
+  const pin = document.getElementById('login-pin').value.trim();
+  if(!pin){ document.getElementById('login-error').textContent='Enter your PIN'; return; }
+  try {
+    const res = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({pin}) });
+    const data = await res.json();
+    if(data.ok){
+      authToken = data.token;
+      localStorage.setItem('crm_token', authToken);
+      showApp();
+    } else {
+      document.getElementById('login-error').textContent = 'Invalid PIN. Try again.';
+      document.getElementById('login-pin').value = '';
+    }
+  } catch(e) {
+    document.getElementById('login-error').textContent = 'Connection error. Is the server running?';
+  }
+}
+
+async function checkAuth(){
+  if(!authToken){ showLogin(); return; }
+  try {
+    const res = await fetch(`/api/auth?token=${authToken}`);
+    const data = await res.json();
+    if(data.ok) showApp();
+    else { localStorage.removeItem('crm_token'); showLogin(); }
+  } catch(e) {
+    // If API unreachable (local dev), still show app if token exists
+    if(authToken) showApp(); else showLogin();
+  }
+}
+
+function showLogin(){
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('app-topbar').style.display = 'none';
+  document.getElementById('app-sidebar').style.display = 'none';
+  document.getElementById('app-main').style.display = 'none';
+}
+
+function showApp(){
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app-topbar').style.display = 'flex';
+  document.getElementById('app-sidebar').style.display = 'block';
+  document.getElementById('app-main').style.display = 'block';
+  initApp();
+}
+
+async function doLogout(){
+  await fetch(`/api/auth?token=${authToken}`, { method:'DELETE' }).catch(()=>{});
+  localStorage.removeItem('crm_token');
+  authToken = '';
+  showLogin();
+}
+
+/************************************************************
+ DATA
+************************************************************/
+let leads      = JSON.parse(localStorage.getItem('crm_leads')    || '[]');
+let settings   = JSON.parse(localStorage.getItem('crm_settings') || '{}');
+let profiles   = JSON.parse(localStorage.getItem('crm_profiles') || '[]');
+let activityLog= JSON.parse(localStorage.getItem('crm_activity') || '[]');
+let clients    = JSON.parse(localStorage.getItem('crm_clients')  || '[]');
+let deals      = JSON.parse(localStorage.getItem('crm_deals')    || '[]');
+let gmailStatus= { connected: false, email: null };
 let modalLeadIndex = -1;
 let modalEmailBody = '';
 let modalEmailSubject = '';
-
-async function previewEmail(){
-  const name = document.getElementById('prev-name').value || 'John Doe';
-  const company = document.getElementById('prev-company') ? document.getElementById('prev-company').value : 'Acme Corp';
-  const customPrompt = document.getElementById('ai-prompt-cmd').value;
-  const btn = event ? event.target : document.querySelector('button[onclick="previewEmail()"]');
-  
-  if(!settings.openaiKey){ notify('Please add your AI API Key in Settings first.','warn'); return; }
-  
-  btn.innerHTML = '<span class="spinner"></span> Generating...'; btn.disabled = true;
-  try {
-    const body = await generateAIEmail(name, company, settings.openaiKey, customPrompt);
-    document.getElementById('prev-subject').textContent = generateSubject(company);
-    document.getElementById('prev-body').innerHTML = body.replace(/\n/g, '<br>');
-  } catch(e) {
-    notify('Preview failed: ' + e.message, 'error');
-  }
-  btn.innerHTML = '✦ Generate Preview'; btn.disabled = false;
-}
+let emailMode = 'ai';
+let _saveTimer = null;
 
 function save(){
-  localStorage.setItem('crm_leads', JSON.stringify(leads));
+  localStorage.setItem('crm_leads',    JSON.stringify(leads));
   localStorage.setItem('crm_settings', JSON.stringify(settings));
   localStorage.setItem('crm_profiles', JSON.stringify(profiles));
-  localStorage.setItem('crm_activity', JSON.stringify(activityLog.slice(-100)));
-  pushDataToRedis();
+  localStorage.setItem('crm_activity', JSON.stringify(activityLog.slice(-200)));
+  localStorage.setItem('crm_clients',  JSON.stringify(clients));
+  localStorage.setItem('crm_deals',    JSON.stringify(deals));
+  updateTopBar();
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(pushDataToRedis, 3000);
 }
 
 async function pushDataToRedis(){
   if(window.location.protocol === 'file:') return;
   try {
     await fetch('/api/save-crm-data', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ leads, profiles, settings, activity: activityLog.slice(-100) })
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ leads, profiles, settings, activity: activityLog.slice(-200), clients, deals })
     });
-  } catch(e) { console.warn('Redis sync failed', e); }
+  } catch(e){ console.warn('Redis sync failed', e); }
 }
 
 async function loadData(){
@@ -582,91 +844,32 @@ async function loadData(){
     const res = await fetch('/api/get-crm-data');
     if(res.ok){
       const data = await res.json();
-      if(data.leads?.length) leads = data.leads;
+      if(data.leads?.length)    leads    = data.leads;
       if(data.profiles?.length) profiles = data.profiles;
       if(Object.keys(data.settings||{}).length) settings = data.settings;
       if(data.activity?.length) activityLog = data.activity;
-      renderLeads(); renderProfiles(); updateSenderListUI(); refreshDashboard();
+      if(data.clients?.length)  clients  = data.clients;
+      if(data.deals?.length)    deals    = data.deals;
+      renderLeads(); renderProfiles(); updateSenderListUI();
+      renderClients(); renderDeals(); refreshDashboard();
     }
-  } catch(e) { console.warn('Redis load failed', e); }
+  } catch(e){ console.warn('Redis load failed', e); }
 }
 
-// Handle Gmail Callback
-const urlParams = new URLSearchParams(window.location.search);
-if(urlParams.get('gmail') === 'connected'){
-  const email = urlParams.get('account');
-  if(!profiles.find(p=>p.user===email && p.type==='gmail')){
-    profiles.push({ id:'gmail_'+Date.now(), type:'gmail', active:true, name:'Gmail Account', user:email });
-    localStorage.setItem('crm_profiles', JSON.stringify(profiles));
-    notify(`Connected Gmail: ${email}`, 'success');
-  }
-  window.history.replaceState({}, document.title, window.location.pathname);
-}
-
-function saveSettings(){
-  settings.openaiKey = document.getElementById('openai-key').value.trim();
-  save();
-  notify('Settings saved', 'success');
-}
-
-async function checkApiEnv(){
-  try {
-    const res = await fetch('/api/check-env');
-    if(res.ok){
-      const data = await res.json();
-      if(!data.ok){
-        notify('⚠️ Critical setup missing: Click "Settings" to see required environment variables.', 'error');
-        if(document.getElementById('env-warning-list')){
-          document.getElementById('env-warning-list').innerHTML = `
-            <div class="warn-box" style="margin-top:16px;background:rgba(255,87,87,0.1);border:1px solid var(--accent2);">
-              <b>⚠️ Missing Vercel Configuration:</b>
-              <ul style="margin:8px 0 0 16px;padding:0;font-size:12px;">
-                ${data.missing.map(m=>`<li><code>${m}</code></li>`).join('')}
-              </ul>
-              <div style="margin-top:8px;font-size:11px;color:var(--muted);">Add these in Vercel > Settings > Environment Variables, then redeploy.</div>
-            </div>
-          `;
-        }
-      }
-    }
-  } catch(e){}
-}
+function logActivity(msg){ activityLog.push({time:Date.now(),msg}); localStorage.setItem('crm_activity',JSON.stringify(activityLog.slice(-200))); }
 
 /************************************************************
- GMAIL STATUS CHECK
+ INIT
 ************************************************************/
-async function checkGmailStatus(){
-  try {
-    const res = await fetch('/api/tracking-stats'); // reuses same file for /api/gmail-status
-    // hit the correct endpoint
-    const r = await fetch('/api/gmail-status');
-    if(r.ok){
-      gmailStatus = await r.json();
-      updateGmailBadge();
-    }
-  } catch(e){
-    // If API not available (local dev without backend), show disconnected
-    gmailStatus = { connected: false, email: null };
-    updateGmailBadge();
-  }
-}
-
-function updateGmailBadge(){
-  const badge = document.getElementById('gmail-status-badge');
-  const info = document.getElementById('gmail-connected-info');
-  const showEmail = document.getElementById('show-gmail-email');
-
-  if(gmailStatus.connected){
-    badge.className = 'gmail-status gmail-connected';
-    badge.textContent = '✓ Gmail: ' + gmailStatus.email;
-    if(info){ info.style.display='block'; info.textContent='✓ Connected as: ' + gmailStatus.email; }
-    if(showEmail) showEmail.textContent = gmailStatus.email;
-  } else {
-    badge.className = 'gmail-status gmail-disconnected';
-    badge.textContent = 'Gmail: Not Connected';
-    if(info) info.style.display='none';
-    if(showEmail) showEmail.textContent = 'Not connected';
-  }
+function initApp(){
+  handleOAuthRedirect();
+  loadData();
+  checkApiEnv();
+  checkGmailStatus();
+  updateTopBar();
+  refreshDashboard();
+  updateSenderListUI();
+  loadTasks();
 }
 
 /************************************************************
@@ -678,426 +881,346 @@ function showPage(p){
   document.querySelectorAll('.nav-item').forEach(ni=>ni.classList.remove('active'));
   document.getElementById('nav-'+p).classList.add('active');
   if(p==='dashboard') refreshDashboard();
-  if(p==='leads') renderLeads();
-  if(p==='campaign'){ 
-    renderLeads(); // For count updates
-    updateSenderListUI();
-  }
-  if(p==='pipeline') renderPipeline();
-  if(p==='tracking') renderTracking();
-  if(p==='settings'){ 
-    document.getElementById('openai-key').value=settings.openaiKey||''; 
-    document.getElementById('show-app-url').textContent=window.location.origin; 
+  if(p==='leads')     renderLeads();
+  if(p==='campaign')  { updateSenderListUI(); checkCampaignReady(); }
+  if(p==='pipeline')  renderPipeline();
+  if(p==='tracking')  renderTracking();
+  if(p==='clients')   renderClients();
+  if(p==='deals')     renderDeals();
+  if(p==='tasks')     loadTasks();
+  if(p==='settings')  {
+    document.getElementById('openai-key').value = settings.openaiKey||'';
+    document.getElementById('show-app-url').textContent = window.location.origin;
     renderProfiles();
   }
-  updateSenderListUI(); // Always refresh to be safe
-}
-
-function toggleCampFilters(){
-  const val = document.getElementById('cfg-target-group').value;
-  const detail = document.getElementById('cfg-filter-detail');
-  const label = document.getElementById('cfg-filter-label');
-  if(val === 'category' || val === 'tag'){
-    detail.style.display = 'block';
-    label.textContent = val === 'category' ? 'Select Category' : 'Select Tag';
-  } else {
-    detail.style.display = 'none';
-  }
-}
-
-function getFilteredLeads(){
-  const targetGroup = document.getElementById('cfg-target-group').value;
-  const filterVal = document.getElementById('cfg-filter-value').value.trim().toLowerCase();
-  
-  if(targetGroup === 'all') return leads.slice();
-  if(targetGroup === 'valid') return leads.filter(l => l.status === 'VALID');
-  if(targetGroup === 'followup') return leads.filter(l => l.status === 'FOLLOW-UP');
-  if(targetGroup === 'category') return leads.filter(l => (l.category||'').toLowerCase() === filterVal);
-  if(targetGroup === 'tag') return leads.filter(l => (l.tags||[]).some(t => t.toLowerCase() === filterVal));
-  if(targetGroup === 'selected'){
-    const idxs = Array.from(document.querySelectorAll('.lead-check:checked')).map(cb=>parseInt(cb.dataset.idx));
-    return idxs.map(i => leads[i]);
-  }
-  return [];
-}
-
-function previewTargetList(){
-  const targets = getFilteredLeads();
-  const log = document.getElementById('camp-log');
-  if(!targets.length){ notify('No leads match this filter','info'); return; }
-  
-  log.innerHTML = `<div style="background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;margin-bottom:10px;border:1px solid var(--border);">
-    <b style="color:var(--accent);">Target List Preview (${targets.length} leads):</b>
-    <div style="max-height:150px;overflow-y:auto;margin-top:8px;font-size:11px;">
-      ${targets.map(t=>`<div>${t.name} &lt;${t.email}&gt; [${t.category||'General'}]</div>`).join('')}
-    </div>
-  </div>` + log.innerHTML;
-  notify(`Selected ${targets.length} leads for preview`,'info');
-}
-
-function checkCampaignReady(){
-  const activeProfiles = profiles.filter(p=>p.active);
-  document.getElementById('campaign-sender-warn').style.display = activeProfiles.length ? 'none':'flex';
-  document.getElementById('campaign-ai-warn').style.display = settings.openaiKey ? 'none':'block';
-}
-
-/************************************************************
- SENDER PROFILES (ROUND ROBIN)
-************************************************************/
-function renderProfiles(){
-  const list = document.getElementById('profile-list');
-  if(!list) return;
-  if(!profiles.length){
-    list.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:8px;border:1px dashed var(--border);border-radius:6px;text-align:center;">No profiles added yet.</div>';
-    return;
-  }
-  list.innerHTML = profiles.map((p,i)=>`
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;display:flex;align-items:center;gap:12px;">
-      <input type="checkbox" ${p.active?'checked':''} onchange="toggleProfile(${i})" style="width:16px;height:16px;"/>
-      <div style="flex:1;">
-        <div style="font-size:13px;font-weight:600;">${p.name} <span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:8px;">(${p.type.toUpperCase()})</span></div>
-        <div style="font-family:var(--mono);font-size:11px;color:var(--accent);">${p.user || p.email}</div>
-      </div>
-      <div style="display:flex;gap:6px;">
-        ${p.type==='smtp' ? `<button class="btn btn-blue btn-sm" onclick="testExistingSmtp(${i})" title="Test Connection">⚡ Test</button>` : ''}
-        ${p.type==='ses' ? `<button class="btn btn-blue btn-sm" style="--accent3:#ff9900;--accent:#ff9900;" onclick="notify('SES live status check not yet implemented','info')" title="Check Status">✓ Ready</button>` : ''}
-        <button class="btn btn-ghost btn-sm" onclick="deleteProfile(${i})" style="color:var(--accent2);border-color:rgba(255,179,71,0.2);">✕</button>
-      </div>
-    </div>
-  `).join('');
-}
-
-async function testExistingSmtp(i){
-  const p = profiles[i];
-  await runSmtpTest(p.host, p.port, p.user, p.pass, p.secure, p.name);
-}
-
-async function testSmtpConnection(){
-  const host = document.getElementById('smtp-host').value.trim();
-  const port = document.getElementById('smtp-port').value.trim();
-  const user = document.getElementById('smtp-user').value.trim();
-  const pass = document.getElementById('smtp-pass').value;
-  const secure = document.getElementById('smtp-secure').checked;
-  const name = document.getElementById('smtp-name').value.trim() || 'Test User';
-
-  if(!host || !user || !pass){ notify('Host, User, and Pass required to test','error'); return; }
-  await runSmtpTest(host, port, user, pass, secure, name);
-}
-
-async function runSmtpTest(host, port, user, pass, secure, name){
-  if(window.location.protocol === 'file:'){
-    notify('API Error: You must run "npm run dev" or deploy the app to use testing/sending features.', 'error');
-    return;
-  }
-  
-  const testTo = prompt("Enter an email address to send a test message to:", user);
-  if(!testTo) return;
-
-  const btn = document.activeElement; 
-  const oldText = btn.innerHTML;
-  btn.innerHTML = '<span class="spinner"></span>...'; btn.disabled = true;
-
-  try {
-    const res = await fetch('/api/send-smtp', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        leadId: 'test_lead',
-        to: testTo,
-        subject: '🚀 SMTP Test Connection - Enginerds CRM',
-        body: 'Congratulations! Your SMTP connection is working perfectly.\n\nSent via: ' + host,
-        senderName: name,
-        smtpConfig: { host, port, user, pass, secure }
-      })
-    });
-    const data = await res.json();
-    if(res.ok) notify('Test email sent successfully!', 'success');
-    else throw new Error(data.error || 'Connection failed');
-  } catch(e) {
-    notify('Test failed: ' + e.message, 'error');
-  }
-  btn.innerHTML = oldText; btn.disabled = false;
-}
-
-function addSmtpProfile(){
-  const name = document.getElementById('smtp-name').value.trim();
-  const host = document.getElementById('smtp-host').value.trim();
-  const port = document.getElementById('smtp-port').value.trim();
-  const user = document.getElementById('smtp-user').value.trim();
-  const pass = document.getElementById('smtp-pass').value;
-  const secure = document.getElementById('smtp-secure').checked;
-
-  if(!name || !host || !user || !pass){ notify('All fields required','error'); return; }
-
-  profiles.push({
-    id: 'profile_'+Date.now(),
-    type: 'smtp', active: true,
-    name, host, port, user, pass, secure
-  });
-  save();
-  closeModal('addSmtpModal');
-  renderProfiles();
-  notify('SMTP Profile added','success');
-  ['smtp-name','smtp-host','smtp-user','smtp-pass'].forEach(id=>document.getElementById(id).value='');
-}
-
-function addSesProfile(){
-  const name = document.getElementById('ses-name').value.trim();
-  const region = document.getElementById('ses-region').value;
-  const senderEmail = document.getElementById('ses-sender').value.trim();
-  const accessKeyId = document.getElementById('ses-key').value.trim();
-  const secretAccessKey = document.getElementById('ses-secret').value;
-
-  if(!name || !senderEmail || !accessKeyId || !secretAccessKey){ notify('All fields required','error'); return; }
-
-  profiles.push({
-    id: 'profile_'+Date.now(),
-    type: 'ses', active: true,
-    name, region, senderEmail, accessKeyId, secretAccessKey, user: senderEmail
-  });
-  save();
-  closeModal('addSesModal');
-  renderProfiles();
-  notify('Amazon SES Profile added','success');
-  ['ses-name','ses-sender','ses-key','ses-secret'].forEach(id=>document.getElementById(id).value='');
-}
-
-function toggleProfile(i){
-  profiles[i].active = !profiles[i].active;
-  save();
-  renderProfiles();
-}
-
-function deleteProfile(i){
-  if(!confirm('Delete this profile?')) return;
-  profiles.splice(i,1);
-  save();
-  renderProfiles();
-}
-
-/************************************************************
- MODALS + NOTIFICATIONS
-************************************************************/
-function openModal(id){ document.getElementById(id).classList.add('open'); }
-function closeModal(id){ document.getElementById(id).classList.remove('open'); }
-
-function notify(msg, type='info'){
-  const n = document.getElementById('notif');
-  n.textContent = msg;
-  n.className = 'notif '+type+' show';
-  setTimeout(()=>n.classList.remove('show'), 3200);
 }
 
 /************************************************************
  TOP BAR
 ************************************************************/
 function updateTopBar(){
-  document.getElementById('tb-leads').textContent = leads.length;
-  document.getElementById('tb-sent').textContent = leads.filter(l=>['SENT','REPLIED','FOLLOW-UP'].includes(l.status)).length;
-  document.getElementById('tb-replied').textContent = leads.filter(l=>l.status==='REPLIED').length;
+  document.getElementById('tb-leads').textContent   = leads.length;
+  document.getElementById('tb-clients').textContent = clients.length;
+  const hot = leads.filter(l=>l.pipelineStage==='HOT'||(l.opens>=2||l.clicks>=1)).length;
+  document.getElementById('tb-hot').textContent = hot;
+}
+</script>
+
+<script>
+/************************************************************
+ GMAIL + ENV
+************************************************************/
+async function checkGmailStatus(){
+  try {
+    const r = await fetch('/api/gmail-status');
+    if(r.ok){ gmailStatus = await r.json(); updateGmailBadge(); }
+  } catch(e){ gmailStatus={connected:false,email:null}; updateGmailBadge(); }
+}
+
+function updateGmailBadge(){
+  const badge = document.getElementById('gmail-status-badge');
+  const info  = document.getElementById('gmail-connected-info');
+  const showEmail = document.getElementById('show-gmail-email');
+  if(gmailStatus.connected){
+    badge.className='gmail-status gmail-connected';
+    badge.textContent='✓ Gmail: '+gmailStatus.email;
+    if(info){ info.style.display='block'; info.textContent='✓ Connected: '+gmailStatus.email; }
+    if(showEmail) showEmail.textContent=gmailStatus.email;
+  } else {
+    badge.className='gmail-status gmail-disconnected';
+    badge.textContent='Gmail: Not Connected';
+    if(info) info.style.display='none';
+    if(showEmail) showEmail.textContent='Not connected';
+  }
+}
+
+async function checkApiEnv(){
+  try {
+    const res = await fetch('/api/check-env');
+    if(res.ok){
+      const data = await res.json();
+      if(!data.ok && document.getElementById('env-warning-list')){
+        document.getElementById('env-warning-list').innerHTML=`
+          <div class="warn-box" style="margin-top:16px;">
+            <b>⚠️ Missing:</b> ${data.missing.map(m=>`<code>${m}</code>`).join(', ')}
+          </div>`;
+      }
+    }
+  } catch(e){}
+}
+
+function handleOAuthRedirect(){
+  const params=new URLSearchParams(window.location.search);
+  const gmail=params.get('gmail');
+  if(gmail==='connected'){
+    const account=params.get('account');
+    if(!profiles.find(p=>p.user===account&&p.type==='gmail')){
+      profiles.push({id:'gmail_'+Date.now(),type:'gmail',active:true,name:'Gmail Account',user:account});
+      save(); notify(`Connected Gmail: ${account}`,'success'); logActivity(`Gmail connected: ${account}`);
+    }
+    window.history.replaceState({},'','/');
+  } else if(gmail==='denied'||gmail==='error'){
+    notify('Gmail connection failed: '+params.get('msg'),'error');
+    window.history.replaceState({},'','/');
+  }
 }
 
 /************************************************************
- VALIDATION + ENRICHMENT
+ TASKS
+************************************************************/
+async function loadTasks(){
+  const el = document.getElementById('tasks-container');
+  const loading = document.getElementById('tasks-loading');
+  if(loading) loading.style.display='block';
+  try {
+    const res = await fetch('/api/tasks');
+    if(!res.ok) throw new Error('API error');
+    const data = await res.json();
+    const tasks = data.tasks || [];
+
+    // Update badge
+    const badge = document.getElementById('task-badge');
+    if(badge){ badge.textContent=tasks.length; badge.style.display=tasks.length?'inline':'none'; }
+    document.getElementById('d-tasks').textContent = tasks.length;
+
+    if(!tasks.length){
+      if(el) el.innerHTML='<div class="success-box">🎉 No urgent tasks today! You\'re all caught up.</div>';
+      if(loading) loading.style.display='none';
+      return;
+    }
+
+    if(el) el.innerHTML = tasks.map(t=>`
+      <div class="task-card ${t.priority.toLowerCase()}">
+        <div class="task-icon">${t.icon}</div>
+        <div style="flex:1;">
+          <div class="task-title">${t.title}</div>
+          <div class="task-detail">${t.detail}</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <span class="badge badge-${t.priority.toLowerCase()}">${t.priority}</span>
+          ${t.email ? `<button class="btn btn-blue btn-sm" onclick="quickEmail('${t.email}','${(t.name||'').replace(/'/g,"\\'")}')">✉</button>` : ''}
+        </div>
+      </div>`).join('');
+
+    // Also update dashboard tasks preview
+    const dashTasks = document.getElementById('dash-tasks');
+    if(dashTasks) dashTasks.innerHTML = tasks.slice(0,5).map(t=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:18px;">${t.icon}</span>
+        <div style="flex:1;"><div style="font-size:13px;font-weight:600;">${t.title}</div><div style="font-size:11px;color:var(--muted);">${t.detail}</div></div>
+        <span class="badge badge-${t.priority.toLowerCase()}">${t.priority}</span>
+      </div>`).join('') + (tasks.length>5?`<div style="font-size:12px;color:var(--muted);padding-top:8px;cursor:pointer;" onclick="showPage('tasks')">+${tasks.length-5} more tasks →</div>`:'');
+
+  } catch(e){
+    if(el) el.innerHTML=`<div class="warn-box">Could not load tasks: ${e.message}</div>`;
+  }
+  if(loading) loading.style.display='none';
+}
+
+async function sendReminderNow(){
+  notify('Sending daily digest...','info');
+  try {
+    const res = await fetch('/api/send-reminder');
+    const data = await res.json();
+    if(data.ok) notify('Daily digest sent to contact@enginerds.in ✓','success');
+    else notify('Could not send: '+data.reason,'error');
+  } catch(e){ notify('Send failed: '+e.message,'error'); }
+}
+
+function quickEmail(email, name){
+  const idx = leads.findIndex(l=>l.email===email);
+  if(idx>=0){ openEmailModal(idx); } else { notify('Lead not found in database','info'); }
+}
+
+/************************************************************
+ DASHBOARD
+************************************************************/
+function refreshDashboard(){
+  const total   = leads.length;
+  const sent    = leads.filter(l=>['SENT','REPLIED','FOLLOW-UP'].includes(l.status)).length;
+  const replied = leads.filter(l=>l.status==='REPLIED').length;
+  const hot     = leads.filter(l=>l.pipelineStage==='HOT'||(l.opens>=2||l.clicks>=1)).length;
+  const activeClients = clients.filter(c=>c.renewalStatus!=='CANCELLED').length;
+  const revenue = clients.reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+  const renewalsSoon = clients.filter(c=>{
+    if(!c.renewalDate) return false;
+    const d = Math.ceil((new Date(c.renewalDate)-Date.now())/86400000);
+    return d>=0 && d<=30;
+  }).length;
+  const overdue = clients.filter(c=>c.paymentStatus==='OVERDUE').length;
+
+  document.getElementById('d-total').textContent    = total;
+  document.getElementById('d-hot').textContent      = hot;
+  document.getElementById('d-clients').textContent  = activeClients;
+  document.getElementById('d-revenue').textContent  = `₹${revenue.toLocaleString('en-IN')} pipeline`;
+  document.getElementById('d-sent').textContent     = sent;
+  document.getElementById('d-replied').textContent  = replied;
+  document.getElementById('d-renewals').textContent = renewalsSoon;
+  document.getElementById('d-overdue').textContent  = overdue;
+  document.getElementById('d-sent-rate').textContent= total?Math.round(sent/total*100)+'% send rate':'0%';
+  document.getElementById('d-reply-rate').textContent=sent?Math.round(replied/sent*100)+'% reply rate':'0%';
+
+  // Lead pipeline chart
+  const stages=['COLD','CONTACTED','OPENED','HOT','DEMO','QUOTED','WON'];
+  const sCols=['#6b7280','#4d9fff','#ffb347','#ff4d6d','#a78bfa','#4d9fff','#00e5a0'];
+  renderBarChart('status-chart','status-labels',stages,stages.map(s=>leads.filter(l=>l.pipelineStage===s).length),sCols);
+
+  // Revenue chart
+  const rStages=['OPEN','SENT','ACCEPTED','DONE'];
+  const rCols=['#6b7280','#ffb347','#00e5a0','#4d9fff'];
+  renderBarChart('revenue-chart','revenue-labels',rStages,rStages.map(s=>deals.filter(d=>d.status===s).reduce((sum,d)=>sum+(parseFloat(d.amount)||0),0)),rCols);
+
+  // Activity log
+  const al=document.getElementById('activity-log');
+  if(al) al.innerHTML=activityLog.length===0
+    ?'<div style="color:var(--muted);font-size:13px;padding:8px 0;">No activity yet.</div>'
+    :activityLog.slice().reverse().slice(0,10).map(a=>`
+      <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;">
+        <span style="font-family:var(--mono);color:var(--muted);white-space:nowrap;">${new Date(a.time).toLocaleTimeString()}</span>
+        <span>${a.msg}</span>
+      </div>`).join('');
+
+  updateTopBar();
+}
+
+function renderBarChart(cid,lid,labels,counts,colors){
+  const max=Math.max(...counts,1);
+  const cel=document.getElementById(cid); const lel=document.getElementById(lid);
+  if(!cel||!lel) return;
+  cel.innerHTML=labels.map((l,i)=>`<div class="chart-bar-wrap"><div class="chart-bar" style="height:${Math.round(counts[i]/max*80)+4}px;background:${colors[i]};"></div></div>`).join('');
+  lel.innerHTML=labels.map((l,i)=>`<div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);"><div style="width:8px;height:8px;border-radius:2px;background:${colors[i]};"></div>${l}(${counts[i]})</div>`).join('');
+}
+</script>
+
+<script>
+/************************************************************
+ LEAD PIPELINE STAGES
+************************************************************/
+const PIPELINE_STAGES = ['COLD','CONTACTED','OPENED','HOT','DEMO','QUOTED','WON','LOST','UNSUBSCRIBED','NOT-INTERESTED'];
+const STAGE_COLORS = {
+  COLD:'#6b7280',CONTACTED:'#4d9fff',OPENED:'#ffb347',HOT:'#ff4d6d',
+  DEMO:'#a78bfa',QUOTED:'#4d9fff',WON:'#00e5a0',LOST:'#ff4d6d',
+  UNSUBSCRIBED:'#6b7280','NOT-INTERESTED':'#6b7280'
+};
+
+// Auto-promote lead based on tracking events
+function autoPromoteLead(lead){
+  if(['WON','LOST','UNSUBSCRIBED','NOT-INTERESTED'].includes(lead.pipelineStage)) return lead;
+  const opens  = lead.opens  || 0;
+  const clicks = lead.clicks || 0;
+  if(clicks >= 1 && lead.pipelineStage !== 'HOT' && !['DEMO','QUOTED','WON'].includes(lead.pipelineStage)){
+    lead.pipelineStage = 'HOT';
+    logActivity(`🔥 Auto-promoted to HOT: ${lead.name} (link clicked)`);
+  } else if(opens >= 2 && lead.pipelineStage === 'CONTACTED'){
+    lead.pipelineStage = 'OPENED';
+    logActivity(`👁 Auto-promoted to OPENED: ${lead.name} (${opens} opens)`);
+  }
+  return lead;
+}
+
+/************************************************************
+ LEADS
 ************************************************************/
 function isValidEmail(email){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email); }
 
-function validateAll(){
-  const seen = new Set();
-  let changed = 0;
-  leads.forEach(l=>{
-    const e=(l.email||'').trim().toLowerCase();
-    
-    // 2. Empty Check
-    if(!e){
-      l.status='INVALID'; changed++;
-    } 
-    // 12. Length Check
-    else if(e.length < 5 || e.length > 254){
-      l.status='INVALID-LENGTH'; changed++;
-    }
-    // 1. Format Check
-    else if(!isValidEmail(e)){
-      l.status='INVALID'; changed++;
-    } 
-    // 3. Duplicate Check
-    else if(seen.has(e)){
-      l.status='DUPLICATE'; changed++;
-    } else {
-      seen.add(e);
-      // Let enrichLead handle advanced categories if it's currently clean
-      if(!['SENT','REPLIED','FOLLOW-UP'].includes(l.status)){
-        const oldStatus = l.status;
-        l = enrichLead(l);
-        if(l.status !== oldStatus) changed++;
-      }
-    }
-  });
-  save(); renderLeads();
-  notify(`Validated ${leads.length} leads (${changed} updated)`, 'success');
-  logActivity(`Validated ${leads.length} leads`);
-}
-
-async function advancedValidateAll(){
-  const btn = document.getElementById('adv-val-btn');
-  const toValidate = leads.filter(l => !['SENT','REPLIED','FOLLOW-UP'].includes(l.status));
-  if(!toValidate.length){ notify('No leads to validate','info'); return; }
-  
-  if(!confirm(`Run advanced network validation (MX/Domain) for ${toValidate.length} leads?`)) return;
-  
-  btn.innerHTML = '<span class="spinner"></span> Validating...'; btn.disabled = true;
-  let updated = 0;
-  
-  for(let i=0; i<toValidate.length; i++){
-    const l = toValidate[i];
-    const idx = leads.indexOf(l);
-    try {
-      const res = await fetch('/api/validate', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ email: l.email })
-      });
-      if(res.ok){
-        const data = await res.json();
-        if(data.status !== 'VALID'){
-          leads[idx].status = data.status;
-          updated++;
-        }
-      }
-    } catch(e) { console.error('Adv validation failed for', l.email); }
-    // small sleep to avoid overwhelming
-    if(i % 5 === 0) await sleep(100);
-  }
-  
-  save(); renderLeads();
-  btn.innerHTML = '◈ Advanced Validate'; btn.disabled = false;
-  notify(`Advanced validation complete. ${updated} statuses updated.`,'success');
-  logActivity(`Ran advanced validation on ${toValidate.length} leads`);
-}
-
-function enrichLead(l){
-  if(!l.email) return l;
-  const e = l.email.toLowerCase().trim();
-  const [user, domain] = e.split('@');
-  l.domain = domain || '';
-
-  // 10. Typo Detection
-  const typos = { 'gmial.com':'gmail.com', 'gmal.com':'gmail.com', 'gnail.com':'gmail.com', 'yaho.com':'yahoo.com', 'hotmial.com':'hotmail.com' };
-  if(typos[domain]){
-    l.status = 'TYPO';
-    // Optionally auto-fix? For now just mark.
-  }
-
-  // 6. Disposable Detection
-  const disposable = ['mailinator.com', '10minutemail.com', 'temp-mail.org', 'guerrillamail.com', 'disposable.com'];
-  if(disposable.includes(domain)) l.status = 'DISPOSABLE';
-
-  // 5. Personal/Free Provider Detection
-  const personal = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com', 'aol.com', 'live.com', 'msn.com'];
-  if(personal.includes(domain) && !['DISPOSABLE', 'TYPO'].includes(l.status)) l.status = 'PERSONAL';
-
-  // 4. Role-Based Detection
-  const roles = ['info', 'admin', 'support', 'sales', 'contact', 'hr', 'office', 'hello', 'marketing', 'team', 'jobs', 'billing'];
-  if(roles.includes(user) && !['PERSONAL', 'DISPOSABLE', 'TYPO'].includes(l.status)) l.status = 'ROLE-BASED';
-
-  // Set default VALID if nothing else caught it
-  if(!['SENT','REPLIED','FOLLOW-UP','INVALID','DUPLICATE','ROLE-BASED','PERSONAL','DISPOSABLE','TYPO','INVALID-LENGTH'].includes(l.status)){
-    l.status = 'VALID';
-  }
-
-  // Company detection
-  if(!l.company && domain) l.company = (domain.split('.')[0]||'').toUpperCase();
-  
-  // Priority & Scoring
-  if(!l.role){
-    if(e.includes('ceo')||e.includes('founder')||e.includes('owner')) l.role='FOUNDER';
-    else if(e.includes('sales')) l.role='SALES';
-    else if(e.includes('hr')||e.includes('people')) l.role='HR';
-    else if(e.includes('cto')||e.includes('tech')||e.includes('engineer')) l.role='CTO';
-    else l.role='GENERAL';
-  }
-  
-  l.priority = l.role==='FOUNDER'?'HIGH': (l.role==='SALES'||l.role==='CTO')?'MEDIUM':'LOW';
-  l.score = l.role==='FOUNDER'?90: l.role==='CTO'?75: l.role==='SALES'?70: 40;
-  
-  return l;
-}
-
-function enrichAll(){
-  leads = leads.map(enrichLead);
-  save(); renderLeads();
-  notify('Leads enriched','success');
-  logActivity('Enriched all leads');
-}
-
-/************************************************************
- ADD LEAD
-************************************************************/
 function addLead(){
-  const name = document.getElementById('add-name').value.trim();
+  const name  = document.getElementById('add-name').value.trim();
   const email = document.getElementById('add-email').value.trim();
   if(!name||!email){ notify('Name and email required','error'); return; }
   if(!isValidEmail(email)){ notify('Invalid email address','error'); return; }
-  const exists = leads.find(l=>l.email.toLowerCase()===email.toLowerCase());
-  if(exists){ notify('Email already exists','error'); return; }
+  if(leads.find(l=>l.email.toLowerCase()===email.toLowerCase())){ notify('Email already exists','error'); return; }
 
   let l = {
-    id: 'lead_'+Date.now(),
-    name, email: email.toLowerCase(),
-    status: document.getElementById('add-status').value,
-    stage: document.getElementById('add-stage').value||'',
-    company: document.getElementById('add-company').value.trim(),
-    role: document.getElementById('add-role').value,
-    category: document.getElementById('add-category').value.trim() || 'General',
-    tags: document.getElementById('add-tags').value.split(',').map(t=>t.trim()).filter(Boolean),
-    opens:0, clicks:0, score:40, lastSent:'',
-    domain:'', priority:'LOW', createdAt: new Date().toISOString()
+    id: 'lead_'+Date.now(), name, email: email.toLowerCase(),
+    company:  document.getElementById('add-company').value.trim(),
+    role:     document.getElementById('add-role').value,
+    phone:    document.getElementById('add-phone').value.trim(),
+    category: document.getElementById('add-category').value.trim()||'General',
+    tags:     document.getElementById('add-tags').value.split(',').map(t=>t.trim()).filter(Boolean),
+    notes:    document.getElementById('add-notes').value.trim(),
+    pipelineStage: document.getElementById('add-pipeline').value||'COLD',
+    status:'VALID', stage:'', opens:0, clicks:0, score:40,
+    lastSent:'', domain:'', priority:'LOW', createdAt: new Date().toISOString()
   };
   l = enrichLead(l);
   leads.push(l);
   save(); closeModal('addLeadModal'); renderLeads();
   notify(`${name} added`,'success');
   logActivity(`Added lead: ${name} <${email}>`);
-  ['add-name','add-email','add-company'].forEach(id=>document.getElementById(id).value='');
+  ['add-name','add-email','add-company','add-phone','add-notes'].forEach(id=>document.getElementById(id).value='');
 }
 
-/************************************************************
- RENDER LEADS
-************************************************************/
+function enrichLead(l){
+  if(!l.email) return l;
+  const e = l.email.toLowerCase().trim();
+  const [user, domain] = e.split('@');
+  l.domain = domain||'';
+  if(!l.pipelineStage) l.pipelineStage = 'COLD';
+
+  const typos={'gmial.com':'gmail.com','gmal.com':'gmail.com','gnail.com':'gmail.com','yaho.com':'yahoo.com','hotmial.com':'hotmail.com'};
+  if(typos[domain]) l.status='TYPO';
+  const disposable=['mailinator.com','10minutemail.com','temp-mail.org','guerrillamail.com'];
+  if(disposable.includes(domain)) l.status='DISPOSABLE';
+  const personal=['gmail.com','yahoo.com','outlook.com','hotmail.com','icloud.com','aol.com','live.com'];
+  if(personal.includes(domain)&&!['DISPOSABLE','TYPO'].includes(l.status)) l.status='PERSONAL';
+  const roles=['info','admin','support','sales','contact','hr','office','hello','marketing','team','jobs','billing'];
+  if(roles.includes(user)&&!['PERSONAL','DISPOSABLE','TYPO'].includes(l.status)) l.status='ROLE-BASED';
+  if(!['SENT','REPLIED','FOLLOW-UP','INVALID','DUPLICATE','ROLE-BASED','PERSONAL','DISPOSABLE','TYPO','INVALID-LENGTH','UNSUBSCRIBED'].includes(l.status)) l.status='VALID';
+
+  if(!l.company&&domain) l.company=(domain.split('.')[0]||'').toUpperCase();
+  if(!l.role){
+    if(e.includes('ceo')||e.includes('founder')||e.includes('owner')) l.role='FOUNDER';
+    else if(e.includes('sales')) l.role='SALES';
+    else if(e.includes('cto')||e.includes('tech')) l.role='CTO';
+    else l.role='GENERAL';
+  }
+  l.priority = l.role==='FOUNDER'?'HIGH':(l.role==='SALES'||l.role==='CTO')?'MEDIUM':'LOW';
+  l.score    = l.role==='FOUNDER'?90:l.role==='CTO'?75:l.role==='SALES'?70:40;
+  return l;
+}
+
+function enrichAll(){ leads=leads.map(enrichLead); save(); renderLeads(); notify('Leads enriched','success'); }
+
 function renderLeads(){
-  const search=(document.getElementById('search-leads')||{}).value||'';
-  const sf=(document.getElementById('filter-status')||{}).value||'';
-  const pf=(document.getElementById('filter-priority')||{}).value||'';
-  const filtered=leads.filter(l=>{
+  const search = (document.getElementById('search-leads')||{}).value||'';
+  const sf     = (document.getElementById('filter-status')||{}).value||'';
+  const pf     = (document.getElementById('filter-pipeline')||{}).value||'';
+  const priF   = (document.getElementById('filter-priority')||{}).value||'';
+  const filtered = leads.filter(l=>{
     const s=search.toLowerCase();
-    return (!s||[(l.name||''),(l.email||''),(l.company||'')].join(' ').toLowerCase().includes(s))
-      && (!sf||l.status===sf) && (!pf||l.priority===pf);
+    return (!s||[l.name||'',l.email||'',l.company||''].join(' ').toLowerCase().includes(s))
+      && (!sf||l.status===sf) && (!pf||l.pipelineStage===pf) && (!priF||l.priority===priF);
   });
   const tbody=document.getElementById('leads-tbody');
-  if(!tbody)return;
+  if(!tbody) return;
   if(!filtered.length){
-    tbody.innerHTML=`<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:32px;font-family:var(--mono);font-size:12px;">NO LEADS FOUND</td></tr>`;
+    tbody.innerHTML=`<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:32px;font-family:var(--mono);font-size:12px;">NO LEADS FOUND</td></tr>`;
   } else {
     tbody.innerHTML=filtered.map(l=>{
       const idx=leads.indexOf(l);
       const ls=l.lastSent?new Date(l.lastSent).toLocaleDateString():'—';
+      const stageColor=STAGE_COLORS[l.pipelineStage]||'#6b7280';
+      const isHot=(l.opens>=2||l.clicks>=1)&&!['WON','LOST','UNSUBSCRIBED'].includes(l.pipelineStage);
       return `<tr>
-        <td><input type="checkbox" class="lead-check" data-idx="${idx}"/></td>
-        <td style="font-weight:600;">${l.name||'—'}</td>
+        <td><input type="checkbox" class="lead-check" data-id="${l.id}" data-idx="${idx}"/></td>
+        <td style="font-weight:600;">${l.name||'—'}${isHot?'<span class="tag tag-hot" style="margin-left:4px;">🔥</span>':''}</td>
         <td style="font-family:var(--mono);font-size:12px;">${l.email}</td>
         <td>${l.company||'—'}</td>
-        <td>
-          <div style="display:flex;flex-wrap:wrap;gap:4px;">
-            <span class="tag tag-category">${l.category||'General'}</span>
-            ${(l.tags||[]).map(t=>`<span class="tag">${t}</span>`).join('')}
-          </div>
-        </td>
-        <td><span class="badge badge-${(l.status||'').toLowerCase().replace('-','')}">${l.status||'—'}</span></td>
+        <td><span style="display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-family:var(--mono);font-weight:700;background:${stageColor}22;color:${stageColor};">${l.pipelineStage||'COLD'}</span></td>
+        <td><span class="badge badge-${(l.status||'').toLowerCase().replace(/[^a-z]/g,'')}">${l.status||'—'}</span></td>
         <td style="font-family:var(--mono);color:var(--accent);">${l.score||0}</td>
+        <td style="font-family:var(--mono);">${l.opens||0}👁 ${l.clicks||0}🖱</td>
         <td style="font-family:var(--mono);font-size:11px;">${ls}</td>
-        <td style="display:flex;gap:4px;">
-          <button class="btn btn-blue btn-sm" onclick="openEmailModal(${idx})" title="Send Email">✉</button>
-          <button class="btn btn-ghost btn-sm" onclick="deleteLead(${idx})" title="Delete">✕</button>
+        <td>
+          <div style="display:flex;gap:4px;">
+            <button class="btn btn-blue btn-sm" onclick="openEmailModal(${idx})" title="Send Email">✉</button>
+            <select class="btn btn-ghost btn-sm" style="padding:4px 6px;font-size:11px;width:auto;" onchange="changeLeadStage(${idx},this.value);this.value=''">
+              <option value="">Stage</option>
+              ${PIPELINE_STAGES.map(s=>`<option value="${s}">${s}</option>`).join('')}
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="convertLeadToClient(${idx})" title="Convert to Client">👥</button>
+            <button class="btn btn-ghost btn-sm" onclick="deleteLead(${idx})" title="Delete" style="color:var(--accent2);">✕</button>
+          </div>
         </td>
       </tr>`;
     }).join('');
@@ -1105,343 +1228,640 @@ function renderLeads(){
   document.getElementById('leads-count').textContent=`Showing ${filtered.length} of ${leads.length} leads`;
 }
 
+function changeLeadStage(idx, stage){
+  if(!stage) return;
+  leads[idx].pipelineStage = stage;
+  if(stage==='WON') leads[idx].status='REPLIED';
+  if(stage==='UNSUBSCRIBED') leads[idx].status='UNSUBSCRIBED';
+  save(); renderLeads(); renderPipeline();
+  notify(`${leads[idx].name} → ${stage}`,'success');
+  logActivity(`Stage change: ${leads[idx].name} → ${stage}`);
+}
+
 function deleteLead(idx){
-  if(!confirm('Delete this lead?'))return;
-  const name=leads[idx].name;
-  leads.splice(idx,1); save(); renderLeads();
+  if(!confirm('Delete this lead?')) return;
+  const name=leads[idx].name; leads.splice(idx,1); save(); renderLeads();
   notify(`Deleted: ${name}`,'info');
 }
 
 function bulkDelete(){
-  const idxs=Array.from(document.querySelectorAll('.lead-check:checked')).map(c=>parseInt(c.dataset.idx)).sort((a,b)=>b-a);
-  if(!idxs.length){notify('No leads selected','info');return;}
-  if(!confirm(`Delete ${idxs.length} leads?`))return;
-  idxs.forEach(i=>leads.splice(i,1)); save(); renderLeads();
-  notify(`Deleted ${idxs.length} leads`,'info');
+  const ids=Array.from(document.querySelectorAll('.lead-check:checked')).map(c=>c.dataset.id);
+  if(!ids.length){notify('No leads selected','info');return;}
+  if(!confirm(`Delete ${ids.length} leads?`))return;
+  leads=leads.filter(l=>!ids.includes(l.id)); save(); renderLeads();
+  notify(`Deleted ${ids.length} leads`,'info');
 }
 
 function toggleSelectAll(cb){ document.querySelectorAll('.lead-check').forEach(c=>c.checked=cb.checked); }
 
+function validateAll(){
+  const seen=new Set(); let changed=0;
+  leads.forEach(l=>{
+    const e=(l.email||'').trim().toLowerCase();
+    if(!e){l.status='INVALID';changed++;}
+    else if(e.length<5||e.length>254){l.status='INVALID-LENGTH';changed++;}
+    else if(!isValidEmail(e)){l.status='INVALID';changed++;}
+    else if(seen.has(e)){l.status='DUPLICATE';changed++;}
+    else{ seen.add(e); if(!['SENT','REPLIED','FOLLOW-UP'].includes(l.status)){const old=l.status;l=enrichLead(l);if(l.status!==old)changed++;} }
+  });
+  save(); renderLeads(); notify(`Validated ${leads.length} leads (${changed} updated)`,'success');
+}
+
+async function advancedValidateAll(){
+  const btn=document.getElementById('adv-val-btn');
+  const toVal=leads.filter(l=>!['SENT','REPLIED','FOLLOW-UP'].includes(l.status));
+  if(!toVal.length){notify('No leads to validate','info');return;}
+  if(!confirm(`Run MX/Domain validation for ${toVal.length} leads?`))return;
+  btn.innerHTML='<span class="spinner"></span>'; btn.disabled=true;
+  let updated=0;
+  for(let i=0;i<toVal.length;i++){
+    const l=toVal[i]; const idx=leads.indexOf(l);
+    try{
+      const res=await fetch('/api/validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:l.email})});
+      if(res.ok){const d=await res.json();if(d.status!=='VALID'){leads[idx].status=d.status;updated++;}}
+    }catch(e){}
+    if(i%5===0) await sleep(100);
+  }
+  save(); renderLeads(); btn.innerHTML='◈ Adv. Validate'; btn.disabled=false;
+  notify(`Advanced validation done. ${updated} updated.`,'success');
+}
+
+/************************************************************
+ PIPELINE VIEW
+************************************************************/
+function renderPipeline(){
+  const visibleStages=['COLD','CONTACTED','OPENED','HOT','DEMO','QUOTED','WON','LOST'];
+  document.getElementById('pipeline-grid').style.gridTemplateColumns=`repeat(${visibleStages.length},1fr)`;
+  document.getElementById('pipeline-grid').innerHTML=visibleStages.map(stage=>{
+    const items=leads.filter(l=>l.pipelineStage===stage);
+    const color=STAGE_COLORS[stage]||'#6b7280';
+    return `<div class="pipeline-col">
+      <div class="pipeline-col-header" style="color:${color};">${stage}<span class="pipeline-col-count">${items.length}</span></div>
+      ${items.length===0?'<div style="color:var(--muted);font-size:12px;text-align:center;padding:16px 0;">Empty</div>':''}
+      ${items.map(l=>`
+        <div class="pipeline-card" onclick="openEmailModal(${leads.indexOf(l)})">
+          <div class="pipeline-name">${l.name||'—'}${(l.opens>=2||l.clicks>=1)?'🔥':''}</div>
+          <div class="pipeline-company">${l.company||l.email}</div>
+          <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;">
+            <span class="badge badge-${(l.priority||'low').toLowerCase()}">${l.priority||'LOW'}</span>
+            ${l.opens?`<span style="font-size:10px;color:var(--muted);">👁${l.opens}</span>`:''}
+            ${l.clicks?`<span style="font-size:10px;color:var(--accent2);">🖱${l.clicks}</span>`:''}
+          </div>
+        </div>`).join('')}
+    </div>`;
+  }).join('');
+}
+</script>
+
+<script>
+/************************************************************
+ CLIENTS
+************************************************************/
+function renderClients(){
+  const search  = (document.getElementById('search-clients')||{}).value||'';
+  const payF    = (document.getElementById('filter-payment')||{}).value||'';
+  const renF    = (document.getElementById('filter-renewal')||{}).value||'';
+  const filtered = clients.filter(c=>{
+    const s=search.toLowerCase();
+    const matchSearch=!s||[c.name||'',c.company||'',c.software||''].join(' ').toLowerCase().includes(s);
+    const matchPay=!payF||c.paymentStatus===payF;
+    let matchRen=true;
+    if(renF==='soon'){ const d=c.renewalDate?Math.ceil((new Date(c.renewalDate)-Date.now())/86400000):null; matchRen=d!==null&&d>=0&&d<=30; }
+    if(renF==='overdue'){ const d=c.renewalDate?Math.ceil((new Date(c.renewalDate)-Date.now())/86400000):null; matchRen=d!==null&&d<0; }
+    return matchSearch&&matchPay&&matchRen;
+  });
+  const tbody=document.getElementById('clients-tbody');
+  if(!tbody) return;
+  if(!filtered.length){
+    tbody.innerHTML=`<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:32px;font-family:var(--mono);font-size:12px;">NO CLIENTS FOUND</td></tr>`;
+  } else {
+    tbody.innerHTML=filtered.map(c=>{
+      const idx=clients.indexOf(c);
+      const renewDays=c.renewalDate?Math.ceil((new Date(c.renewalDate)-Date.now())/86400000):null;
+      const renewLabel=renewDays===null?'—':renewDays<0?`<span style="color:var(--accent2);">Expired ${Math.abs(renewDays)}d ago</span>`:renewDays<=7?`<span style="color:var(--accent2);">${renewDays}d left</span>`:renewDays<=30?`<span style="color:var(--accent4);">${renewDays}d left</span>`:`${renewDays}d`;
+      return `<tr>
+        <td style="font-weight:600;">${c.name||'—'}</td>
+        <td>${c.company||'—'}</td>
+        <td style="font-family:var(--mono);font-size:12px;">${c.software||'—'}</td>
+        <td style="font-family:var(--mono);color:var(--accent);">₹${(parseFloat(c.amount)||0).toLocaleString('en-IN')}</td>
+        <td><span class="badge badge-${(c.paymentStatus||'pending').toLowerCase()}">${c.paymentStatus||'PENDING'}</span></td>
+        <td style="font-size:12px;">${renewLabel}</td>
+        <td style="font-family:var(--mono);font-size:12px;">${c.email||c.phone||'—'}</td>
+        <td>
+          <div style="display:flex;gap:4px;">
+            <button class="btn btn-ghost btn-sm" onclick="editClient(${idx})">✏</button>
+            <select class="btn btn-ghost btn-sm" style="padding:4px 6px;font-size:11px;width:auto;" onchange="updateClientPayment(${idx},this.value);this.value=''">
+              <option value="">Payment</option>
+              <option>PAID</option><option>PENDING</option><option>OVERDUE</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="deleteClient(${idx})" style="color:var(--accent2);">✕</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+  document.getElementById('clients-count').textContent=`${filtered.length} of ${clients.length} clients · Total: ₹${clients.reduce((s,c)=>s+(parseFloat(c.amount)||0),0).toLocaleString('en-IN')}`;
+}
+
+function saveClient(){
+  const name    = document.getElementById('cl-name').value.trim();
+  const company = document.getElementById('cl-company').value.trim();
+  if(!name||!company){notify('Name and company required','error');return;}
+  const client = {
+    id:'client_'+Date.now(), createdAt:new Date().toISOString(),
+    name, company,
+    email:    document.getElementById('cl-email').value.trim(),
+    phone:    document.getElementById('cl-phone').value.trim(),
+    software: document.getElementById('cl-software').value.trim(),
+    amount:   document.getElementById('cl-amount').value,
+    paymentStatus: document.getElementById('cl-payment').value,
+    renewalDate:   document.getElementById('cl-renewal').value,
+    renewalStatus: 'ACTIVE',
+    notes:    document.getElementById('cl-notes').value.trim(),
+  };
+  clients.push(client);
+  save(); closeModal('addClientModal'); renderClients(); refreshDashboard();
+  notify(`Client ${name} added`,'success');
+  logActivity(`Added client: ${name} (${company})`);
+  ['cl-name','cl-company','cl-email','cl-phone','cl-software','cl-amount','cl-renewal','cl-notes'].forEach(id=>document.getElementById(id).value='');
+}
+
+function updateClientPayment(idx, status){
+  if(!status) return;
+  clients[idx].paymentStatus=status; save(); renderClients();
+  notify(`${clients[idx].name} payment → ${status}`,'success');
+  logActivity(`Payment update: ${clients[idx].name} → ${status}`);
+}
+
+function editClient(idx){
+  const c=clients[idx];
+  document.getElementById('cl-name').value    = c.name||'';
+  document.getElementById('cl-company').value = c.company||'';
+  document.getElementById('cl-email').value   = c.email||'';
+  document.getElementById('cl-phone').value   = c.phone||'';
+  document.getElementById('cl-software').value= c.software||'';
+  document.getElementById('cl-amount').value  = c.amount||'';
+  document.getElementById('cl-payment').value = c.paymentStatus||'PENDING';
+  document.getElementById('cl-renewal').value = c.renewalDate||'';
+  document.getElementById('cl-notes').value   = c.notes||'';
+  // Override save to update instead of add
+  const btn=document.querySelector('#addClientModal .btn-primary');
+  btn.textContent='Update Client';
+  btn.onclick=()=>{
+    clients[idx]={...clients[idx],
+      name:document.getElementById('cl-name').value.trim(),
+      company:document.getElementById('cl-company').value.trim(),
+      email:document.getElementById('cl-email').value.trim(),
+      phone:document.getElementById('cl-phone').value.trim(),
+      software:document.getElementById('cl-software').value.trim(),
+      amount:document.getElementById('cl-amount').value,
+      paymentStatus:document.getElementById('cl-payment').value,
+      renewalDate:document.getElementById('cl-renewal').value,
+      notes:document.getElementById('cl-notes').value.trim(),
+    };
+    save(); closeModal('addClientModal'); renderClients(); refreshDashboard();
+    notify('Client updated','success');
+    btn.textContent='Save Client'; btn.onclick=saveClient;
+  };
+  openModal('addClientModal');
+}
+
+function deleteClient(idx){
+  if(!confirm('Delete this client?'))return;
+  const name=clients[idx].name; clients.splice(idx,1); save(); renderClients(); refreshDashboard();
+  notify(`Deleted: ${name}`,'info');
+}
+
+function convertLeadToClient(idx){
+  const l=leads[idx];
+  document.getElementById('cl-name').value    = l.name||'';
+  document.getElementById('cl-company').value = l.company||'';
+  document.getElementById('cl-email').value   = l.email||'';
+  document.getElementById('cl-phone').value   = l.phone||'';
+  leads[idx].pipelineStage='WON'; leads[idx].status='REPLIED';
+  save(); renderLeads();
+  openModal('addClientModal');
+  notify('Fill in client details and save','info');
+}
+
+function bulkConvertToClient(){
+  const idxs=Array.from(document.querySelectorAll('.lead-check:checked')).map(c=>parseInt(c.dataset.idx));
+  if(!idxs.length){notify('Select leads first','info');return;}
+  if(idxs.length===1){ convertLeadToClient(idxs[0]); return; }
+  if(!confirm(`Convert ${idxs.length} leads to clients?`))return;
+  idxs.forEach(i=>{
+    const l=leads[i];
+    clients.push({id:'client_'+Date.now()+'_'+i,createdAt:new Date().toISOString(),name:l.name,company:l.company||'',email:l.email,phone:l.phone||'',paymentStatus:'PENDING',renewalStatus:'ACTIVE'});
+    leads[i].pipelineStage='WON';
+  });
+  save(); renderLeads(); renderClients(); refreshDashboard();
+  notify(`${idxs.length} leads converted to clients`,'success');
+}
+
+/************************************************************
+ DEALS
+************************************************************/
+function openAddDealModal(type){
+  document.getElementById('deal-type-hidden').value=type;
+  document.getElementById('deal-modal-title').textContent=`ADD ${type}`;
+  document.getElementById('deal-demo-row').style.display=type==='DEMO'?'grid':'none';
+  ['deal-name','deal-company','deal-notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('deal-amount').value='';
+  document.getElementById('deal-status').value='OPEN';
+  openModal('addDealModal');
+}
+
+function saveDeal(){
+  const name=document.getElementById('deal-name').value.trim();
+  if(!name){notify('Contact name required','error');return;}
+  const deal={
+    id:'deal_'+Date.now(), createdAt:new Date().toISOString(),
+    type:   document.getElementById('deal-type-hidden').value,
+    clientName: name,
+    leadName:   name,
+    company:    document.getElementById('deal-company').value.trim(),
+    amount:     document.getElementById('deal-amount').value,
+    status:     document.getElementById('deal-status').value,
+    demoDate:   document.getElementById('deal-demo-date').value,
+    demoTime:   document.getElementById('deal-demo-time').value,
+    notes:      document.getElementById('deal-notes').value.trim(),
+  };
+  deals.push(deal);
+  save(); closeModal('addDealModal'); renderDeals(); refreshDashboard();
+  notify(`${deal.type} added for ${name}`,'success');
+  logActivity(`New ${deal.type}: ${name} — ₹${deal.amount||0}`);
+}
+
+function renderDeals(){
+  const search  = (document.getElementById('search-deals')||{}).value||'';
+  const typeF   = (document.getElementById('filter-deal-type')||{}).value||'';
+  const statusF = (document.getElementById('filter-deal-status')||{}).value||'';
+  const filtered=deals.filter(d=>{
+    const s=search.toLowerCase();
+    return (!s||[d.clientName||'',d.company||'',d.notes||''].join(' ').toLowerCase().includes(s))
+      &&(!typeF||d.type===typeF)&&(!statusF||d.status===statusF);
+  });
+  const tbody=document.getElementById('deals-tbody');
+  if(!tbody) return;
+  if(!filtered.length){
+    tbody.innerHTML=`<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:32px;font-family:var(--mono);font-size:12px;">NO DEALS FOUND</td></tr>`;
+  } else {
+    tbody.innerHTML=filtered.map(d=>{
+      const idx=deals.indexOf(d);
+      const dateLabel=d.demoDate?new Date(d.demoDate).toLocaleDateString():d.createdAt?new Date(d.createdAt).toLocaleDateString():'—';
+      return `<tr>
+        <td><span class="badge badge-${(d.type||'').toLowerCase()}">${d.type||'—'}</span></td>
+        <td style="font-weight:600;">${d.clientName||'—'}</td>
+        <td>${d.company||'—'}</td>
+        <td style="font-family:var(--mono);color:var(--accent);">₹${(parseFloat(d.amount)||0).toLocaleString('en-IN')}</td>
+        <td><span class="badge badge-${(d.status||'open').toLowerCase()}">${d.status||'OPEN'}</span></td>
+        <td style="font-size:12px;">${dateLabel}${d.demoTime?' '+d.demoTime:''}</td>
+        <td style="font-size:12px;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${d.notes||'—'}</td>
+        <td>
+          <div style="display:flex;gap:4px;">
+            <select class="btn btn-ghost btn-sm" style="padding:4px 6px;font-size:11px;width:auto;" onchange="updateDealStatus(${idx},this.value);this.value=''">
+              <option value="">Status</option>
+              <option>OPEN</option><option>SENT</option><option>ACCEPTED</option><option>REJECTED</option><option>DONE</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="deleteDeal(${idx})" style="color:var(--accent2);">✕</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+  const total=filtered.reduce((s,d)=>s+(parseFloat(d.amount)||0),0);
+  document.getElementById('deals-count').textContent=`${filtered.length} deals · ₹${total.toLocaleString('en-IN')} total`;
+}
+
+function updateDealStatus(idx,status){
+  if(!status)return;
+  deals[idx].status=status; save(); renderDeals();
+  notify(`Deal → ${status}`,'success');
+  logActivity(`Deal update: ${deals[idx].clientName} → ${status}`);
+}
+
+function deleteDeal(idx){
+  if(!confirm('Delete this deal?'))return;
+  deals.splice(idx,1); save(); renderDeals();
+  notify('Deal deleted','info');
+}
+</script>
+
+<script>
 /************************************************************
  EMAIL MODAL + SEND
 ************************************************************/
 function openEmailModal(idx){
   modalLeadIndex=idx;
   const l=leads[idx];
-  modalEmailBody='';
-  modalEmailSubject=generateSubject(l.company||'your company');
+  modalEmailBody=''; modalEmailSubject=generateSubject(l.company||'your company');
   document.getElementById('email-modal-content').innerHTML=`
-    <div style="margin-bottom:12px;">
-      <b>${l.name}</b> — <span style="font-family:var(--mono);font-size:12px;">${l.email}</span>
-      <span class="badge badge-${(l.status||'').toLowerCase()}" style="margin-left:8px;">${l.status}</span>
+    <div style="margin-bottom:12px;display:flex;align-items:center;gap:10px;">
+      <div>
+        <b style="font-size:14px;">${l.name}</b>
+        <span style="font-family:var(--mono);font-size:12px;color:var(--muted);margin-left:8px;">${l.email}</span>
+      </div>
+      <span class="badge badge-${(l.pipelineStage||'cold').toLowerCase()}" style="margin-left:auto;">${l.pipelineStage||'COLD'}</span>
     </div>
     <div class="preview-subject" id="modal-subject">${modalEmailSubject}</div>
-    <div class="email-preview" id="modal-body">Click "Generate AI Email" to create a personalized email, or "Send via Gmail" to use default template.</div>
+    <div class="email-preview" id="modal-body" style="min-height:120px;">Click "Generate AI" or type your message below.</div>
+    <textarea id="modal-body-edit" style="width:100%;min-height:100px;margin-top:8px;font-size:13px;" placeholder="Or type/edit your email here..."></textarea>
   `;
   openModal('emailModal');
 }
 
 async function generateForModal(){
   const l=leads[modalLeadIndex];
-  if(!settings.openaiKey){ notify('Set NVIDIA API key in Settings','error'); return; }
   const btn=document.getElementById('gen-btn');
-  btn.innerHTML='<span class="spinner"></span> Generating...'; btn.disabled=true;
+  btn.innerHTML='<span class="spinner"></span>'; btn.disabled=true;
   try {
-    const email=await generateAIEmail(l.name, l.company||'your company', settings.openaiKey);
-    modalEmailBody=email;
-    document.getElementById('modal-body').textContent=email;
-  } catch(e){ notify('AI generation failed: '+e.message,'error'); }
-  btn.innerHTML='✦ Regenerate'; btn.disabled=false;
+    const result=await getEmailContent(l,'');
+    modalEmailBody=result.body; modalEmailSubject=result.subject;
+    document.getElementById('modal-subject').textContent=result.subject;
+    document.getElementById('modal-body').textContent=result.body;
+    document.getElementById('modal-body-edit').value=result.body;
+  } catch(e){ notify('Generation failed: '+e.message,'error'); }
+  btn.innerHTML='✦ Generate AI'; btn.disabled=false;
 }
 
 async function sendEmailFromModal(){
-  const activeProfiles = profiles.filter(p=>p.active);
-  if(!activeProfiles.length){ notify('Add and activate a Sender Profile in Settings first','error'); return; }
-  
-  // Use the first active profile for single manual send
-  const profile = activeProfiles[0];
+  const activeProfiles=profiles.filter(p=>p.active);
+  if(!activeProfiles.length){notify('Add a Sender Profile in Settings first','error');return;}
+  const profile=activeProfiles[0];
   const l=leads[modalLeadIndex];
   const btn=document.getElementById('send-btn');
-  btn.innerHTML='<span class="spinner"></span> Sending...'; btn.disabled=true;
+  btn.innerHTML='<span class="spinner"></span>'; btn.disabled=true;
 
-  const body=modalEmailBody || defaultEmailBody(l.name, l.company||'your company');
-  const subject=modalEmailSubject;
+  // Use edited body if user typed something
+  const editedBody=document.getElementById('modal-body-edit')?.value?.trim();
+  const body=editedBody||modalEmailBody||defaultEmailBody(l.name,l.company||'your company');
+  const subject=modalEmailSubject||generateSubject(l.company||'your company');
   const senderName=document.getElementById('cfg-sender')?document.getElementById('cfg-sender').value:'Pawan Kumar - Enginerds Tech Solution';
   const replyTo=document.getElementById('cfg-replyto')?document.getElementById('cfg-replyto').value:'contact@enginerds.in';
 
   try {
-    const endpoint = profile.type === 'gmail' ? '/api/send-email' : '/api/send-smtp';
-    const payload = { leadId:l.id, to:l.email, subject, body, senderName, replyTo };
-    if(profile.type === 'smtp') payload.smtpConfig = profile;
-
-    const res=await fetch(endpoint,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(payload)
-    });
+    const endpoint=profile.type==='gmail'?'/api/send-email':'/api/send-smtp';
+    const payload={leadId:l.id,to:l.email,subject,body,senderName,replyTo};
+    if(profile.type==='smtp') payload.smtpConfig=profile;
+    const res=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const data=await res.json();
     if(!res.ok) throw new Error(data.error||'Send failed');
+    if(data.skipped){notify(`Skipped — ${l.email} is unsubscribed`,'info');closeModal('emailModal');return;}
 
     leads[modalLeadIndex].status='SENT';
     leads[modalLeadIndex].stage=l.stage||'1';
     leads[modalLeadIndex].lastSent=new Date().toISOString();
-    if(modalEmailBody) leads[modalLeadIndex].lastEmail=modalEmailBody;
+    if(!['CONTACTED','OPENED','HOT','DEMO','QUOTED','WON'].includes(leads[modalLeadIndex].pipelineStage))
+      leads[modalLeadIndex].pipelineStage='CONTACTED';
+    if(body) leads[modalLeadIndex].lastEmail=body;
     save(); renderLeads(); closeModal('emailModal');
     notify(`Sent via ${profile.name} ✓`,'success');
     logActivity(`Sent email to: ${l.name} via ${profile.name}`);
-  } catch(e){
-    notify('Send failed: '+e.message,'error');
-  }
-  btn.innerHTML=`✉ Send via ${profile.type==='gmail'?'Gmail':'SMTP'}`; btn.disabled=false;
+  } catch(e){ notify('Send failed: '+e.message,'error'); }
+  btn.innerHTML='✉ Send'; btn.disabled=false;
 }
 
 /************************************************************
  AI EMAIL
 ************************************************************/
-async function generateAIEmail(name, company, apiKey, customPrompt=''){
-  const res=await fetch('/api/generate-ai',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({ name, company, apiKey, customPrompt })
-  });
+async function generateAIEmail(name,company,apiKey,customPrompt='',role='',category=''){
+  const res=await fetch('/api/generate-ai',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name,company,role,category,apiKey,customPrompt})});
   const data=await res.json();
-  if(!res.ok) throw new Error(data.error || 'AI generation failed');
-  return data.content;
+  if(!res.ok) throw new Error(data.error||'AI generation failed');
+  return data; // { subject, body }
 }
 
 function generateSubject(company){ return `Quick idea to improve ${company} operations`; }
 
-function defaultEmailBody(name, company){
+function defaultEmailBody(name,company){
   return `Hi ${name},\n\nI came across ${company} and was impressed by what you're building. At Enginerds Tech Solution, we specialize in ERP & SaaS solutions that help teams like yours streamline operations and scale faster.\n\nWould you be open to a quick 15-minute call this week?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`;
 }
 
-/************************************************************
- EMAIL PREVIEW (Campaign page)
-************************************************************/
-async function previewEmail(){
-  const name=document.getElementById('prev-name').value||'John';
-  const company=document.getElementById('prev-company').value||'Acme';
-  document.getElementById('prev-subject').textContent=generateSubject(company);
-  document.getElementById('prev-body').textContent='Generating...';
-  if(settings.openaiKey){
-    try {
-      const email=await generateAIEmail(name, company, settings.openaiKey);
-      document.getElementById('prev-body').textContent=email;
-    } catch(e){ document.getElementById('prev-body').textContent='Error: '+e.message; }
-  } else {
-    document.getElementById('prev-body').textContent=defaultEmailBody(name, company);
+async function getEmailContent(lead,customPrompt){
+  if(emailMode==='custom'){
+    const rawSubj=document.getElementById('custom-subject')?.value?.trim();
+    const rawBody=document.getElementById('custom-body')?.value?.trim();
+    if(!rawSubj||!rawBody) throw new Error('Custom mode: subject and body cannot be empty');
+    const r=s=>s.replace(/\[Name\]/g,lead.name||'').replace(/\[Company\]/g,lead.company||'').replace(/\[Role\]/g,lead.role||'');
+    return {subject:r(rawSubj),body:r(rawBody)};
   }
+  if(settings.openaiKey)
+    return await generateAIEmail(lead.name,lead.company||'your company',settings.openaiKey,customPrompt,lead.role||'',lead.category||'');
+  return {subject:generateSubject(lead.company||'your company'),body:defaultEmailBody(lead.name,lead.company||'your company')};
 }
 
 /************************************************************
- CAMPAIGN RUNNER
+ EMAIL MODE
 ************************************************************/
-async function runCampaign(){
-  const selectedSenderUsers = Array.from(document.querySelectorAll('.camp-sender-check:checked')).map(cb=>cb.value);
-  const activeProfiles = profiles.filter(p=>p.active && selectedSenderUsers.includes(p.user));
-  if(!activeProfiles.length){ notify('Select at least one active sender profile!','error'); return; }
+function setEmailMode(mode){
+  emailMode=mode;
+  document.getElementById('email-mode-ai').style.display    =mode==='ai'    ?'block':'none';
+  document.getElementById('email-mode-custom').style.display=mode==='custom'?'block':'none';
+  document.getElementById('mode-ai-btn').style.background   =mode==='ai'    ?'var(--accent3)':'transparent';
+  document.getElementById('mode-ai-btn').style.color        =mode==='ai'    ?'#000':'var(--muted)';
+  document.getElementById('mode-ai-btn').style.border       =mode==='ai'    ?'none':'1px solid var(--border)';
+  document.getElementById('mode-custom-btn').style.background=mode==='custom'?'var(--accent4)':'transparent';
+  document.getElementById('mode-custom-btn').style.color    =mode==='custom'?'#000':'var(--muted)';
+  document.getElementById('mode-custom-btn').style.border   =mode==='custom'?'none':'1px solid var(--border)';
+}
 
-  const toProcess = getFilteredLeads();
-  if(!toProcess.length){ notify('No leads found for the selected Target Group','info'); return; }
-  
-  const log = document.getElementById('camp-log');
-  const btn = document.getElementById('camp-btn');
-  const customPrompt = document.getElementById('ai-prompt-cmd').value.trim();
-  btn.innerHTML = '<span class="spinner"></span> Running...'; btn.disabled = true;
-  log.innerHTML = '<div style="color:var(--muted);font-size:12px;">Starting campaign...</div>';
-  
-  const senderName = document.getElementById('cfg-sender').value;
-  const replyTo = document.getElementById('cfg-replyto').value;
-  const fu1Days = parseInt(document.getElementById('cfg-fu1').value||0);
-  const fu2Days = parseInt(document.getElementById('cfg-fu2').value||0);
-  const rateLimit = parseInt(document.getElementById('cfg-rate-limit').value || 5);
-  const subjectAlt = document.getElementById('cfg-subject-alt').value.trim();
-  
+function insertVar(v){
+  const ta=document.getElementById('custom-body');
+  const pos=ta.selectionStart;
+  ta.value=ta.value.slice(0,pos)+v+ta.value.slice(pos);
+  ta.focus(); ta.selectionStart=ta.selectionEnd=pos+v.length;
+}
+
+function previewCustom(){
+  const subj=document.getElementById('custom-subject').value.trim();
+  const body=document.getElementById('custom-body').value.trim();
+  if(!subj&&!body){notify('Enter subject and body first','info');return;}
+  const name=document.getElementById('prev-name')?.value||'John Doe';
+  const r=s=>s.replace(/\[Name\]/g,name).replace(/\[Company\]/g,'Acme Corp').replace(/\[Role\]/g,'Founder');
+  document.getElementById('prev-subject').textContent=r(subj);
+  document.getElementById('prev-body').textContent=r(body);
+}
+
+async function previewEmail(){
+  const name=document.getElementById('prev-name')?.value||'John Doe';
+  const customPrompt=document.getElementById('ai-prompt-cmd')?.value||'';
+  const btn=event?event.target:document.querySelector('button[onclick="previewEmail()"]');
+  btn.innerHTML='<span class="spinner"></span>'; btn.disabled=true;
+  try {
+    if(settings.openaiKey){
+      const result=await generateAIEmail(name,'their company',settings.openaiKey,customPrompt);
+      document.getElementById('prev-subject').textContent=result.subject;
+      document.getElementById('prev-body').textContent=result.body;
+    } else {
+      document.getElementById('prev-subject').textContent=generateSubject('their company');
+      document.getElementById('prev-body').textContent=defaultEmailBody(name,'their company');
+    }
+  } catch(e){ notify('Preview failed: '+e.message,'error'); }
+  btn.innerHTML='✦ Generate Preview'; btn.disabled=false;
+}
+
+/************************************************************
+ CAMPAIGN
+************************************************************/
+function checkCampaignReady(){
+  const active=profiles.filter(p=>p.active);
+  document.getElementById('campaign-sender-warn').style.display=active.length?'none':'flex';
+  document.getElementById('campaign-ai-warn').style.display=settings.openaiKey?'none':'block';
+}
+
+function updateSenderListUI(){
+  const el=document.getElementById('cfg-sender-list');
+  if(!el) return;
+  if(!profiles.length){ el.innerHTML='<div style="font-size:11px;color:var(--muted);">No profiles. Go to Settings.</div>'; return; }
+  el.innerHTML=profiles.map(p=>`
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;">
+      <input type="checkbox" class="camp-sender-check" value="${p.user||p.email||''}" ${p.active?'checked':''} style="width:14px;height:14px;"/>
+      <span>${p.name}</span><span style="font-family:var(--mono);font-size:10px;color:var(--muted);">(${p.type.toUpperCase()})</span>
+    </label>`).join('');
+}
+
+function toggleCampFilters(){
+  const val=document.getElementById('cfg-target-group').value;
+  document.getElementById('cfg-filter-detail').style.display=(val==='category'||val==='tag')?'block':'none';
+}
+
+function getFilteredLeads(){
+  const tg=document.getElementById('cfg-target-group').value;
+  const fv=document.getElementById('cfg-filter-value').value.trim().toLowerCase();
+  if(tg==='all')      return leads.slice();
+  if(tg==='valid')    return leads.filter(l=>l.status==='VALID');
+  if(tg==='followup') return leads.filter(l=>l.status==='FOLLOW-UP');
+  if(tg==='hot')      return leads.filter(l=>l.pipelineStage==='HOT'||(l.opens>=2||l.clicks>=1));
+  if(tg==='category') return leads.filter(l=>(l.category||'').toLowerCase()===fv);
+  if(tg==='tag')      return leads.filter(l=>(l.tags||[]).some(t=>t.toLowerCase()===fv));
+  if(tg==='selected'){
+    const ids=Array.from(document.querySelectorAll('.lead-check:checked')).map(cb=>cb.dataset.id);
+    return leads.filter(l=>ids.includes(l.id));
+  }
+  return [];
+}
+
+function previewTargetList(){
+  const targets=getFilteredLeads();
+  const log=document.getElementById('camp-log');
+  if(!targets.length){notify('No leads match','info');return;}
+  log.innerHTML=`<div style="background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;margin-bottom:10px;border:1px solid var(--border);">
+    <b style="color:var(--accent);">Preview: ${targets.length} leads</b>
+    <div style="max-height:120px;overflow-y:auto;margin-top:6px;font-size:11px;">
+      ${targets.map(t=>`<div>${t.name} &lt;${t.email}&gt;</div>`).join('')}
+    </div></div>`+log.innerHTML;
+}
+
+async function runCampaign(){
+  const selectedUsers=Array.from(document.querySelectorAll('.camp-sender-check:checked')).map(cb=>cb.value);
+  const activeProfiles=profiles.filter(p=>p.active&&selectedUsers.includes(p.user||p.email||''));
+  if(!activeProfiles.length){notify('Select at least one sender!','error');return;}
+  const batchLimit=parseInt(document.getElementById('cfg-batch').value||30);
+  const toProcess=getFilteredLeads().slice(0,batchLimit);
+  if(!toProcess.length){notify('No leads for selected group','info');return;}
+  const log=document.getElementById('camp-log');
+  const btn=document.getElementById('camp-btn');
+  const customPrompt=document.getElementById('ai-prompt-cmd').value.trim();
+  btn.innerHTML='<span class="spinner"></span> Running...'; btn.disabled=true;
+  log.innerHTML='<div style="color:var(--muted);font-size:12px;">Starting campaign...</div>';
+  const senderName=document.getElementById('cfg-sender').value;
+  const replyTo=document.getElementById('cfg-replyto').value;
+  const fu1Days=parseInt(document.getElementById('cfg-fu1').value||2);
+  const fu2Days=parseInt(document.getElementById('cfg-fu2').value||4);
+  const rateLimit=parseInt(document.getElementById('cfg-rate-limit').value||5);
+  const subjectAlt=document.getElementById('cfg-subject-alt').value.trim();
   let processed=0;
 
-  for(let i=0; i<toProcess.length; i++){
-    const l = toProcess[i];
-    const idx = leads.indexOf(l);
-    
-    const pct = Math.round(((i+1)/toProcess.length)*100);
-    document.getElementById('camp-progress').style.width = pct+'%';
-    document.getElementById('camp-pct').textContent = pct+'%';
-    document.getElementById('camp-status').textContent = `Processing: ${l.name}`;
+  for(let i=0;i<toProcess.length;i++){
+    const l=toProcess[i]; const idx=leads.indexOf(l);
+    const pct=Math.round(((i+1)/toProcess.length)*100);
+    document.getElementById('camp-progress').style.width=pct+'%';
+    document.getElementById('camp-pct').textContent=pct+'%';
+    document.getElementById('camp-status').textContent=`Processing: ${l.name}`;
+    const profile=activeProfiles[processed%activeProfiles.length];
 
-    // Pick profile (Round Robin)
-    const profile = activeProfiles[processed % activeProfiles.length];
-
-    // A/B Subject Logic
-    let subject = generateSubject(l.company||'your company');
-    if(subjectAlt && processed % 2 === 1) subject = subjectAlt.replace('[Company]', l.company||'your company');
-
-    // FOLLOW-UP 2
-    if(l.stage==='2' && l.lastSent){
-      const diff = (Date.now() - new Date(l.lastSent))/(864e5);
-      if(diff >= fu2Days){
-        const body = `Hi ${l.name},\n\nThis is my last follow-up. If the timing isn't right, no worries at all — but if you're open to a quick chat about improving operations at ${l.company||'your company'}, I'd love to connect.\n\nThanks,\nPawan`;
-        const ok = await sendEmail(l, subject, body, senderName, replyTo, profile);
-        if(ok){
-          leads[idx].status='SENT'; leads[idx].stage='3'; leads[idx].lastSent=new Date().toISOString();
-          addCampLog(log,`FU2 sent via ${profile.name} → ${l.name}`,'yellow'); processed++;
-        }
-      }
-    }
-    // FOLLOW-UP 1
-    else if(l.stage==='1'&&l.lastSent){
-      const diff=(Date.now()-new Date(l.lastSent))/(864e5);
-      if(diff>=fu1Days){
-        const body=`Hi ${l.name},\n\nJust checking in — did you get a chance to look at my previous email about streamlining operations at ${l.company||'your company'}?\n\nHappy to hop on a quick call if helpful.\n\nRegards,\nPawan`;
-        const ok = await sendEmail(l, subject, body, senderName, replyTo, profile);
-        if(ok){
-          leads[idx].stage='2'; leads[idx].lastSent=new Date().toISOString(); leads[idx].status='FOLLOW-UP';
-          addCampLog(log,`FU1 sent via ${profile.name} → ${l.name}`,'blue'); processed++;
-        }
-      }
-    }
-    // FIRST EMAIL
-    else if(l.status==='VALID'){
-      let body=defaultEmailBody(l.name, l.company||'your company');
-      if(settings.openaiKey){
-        try{ body=await generateAIEmail(l.name, l.company||'your company', settings.openaiKey, customPrompt); }
-        catch(e){ addCampLog(log,`AI failed for ${l.name}: ${e.message}`,'red'); }
-      }
-      const ok=await sendEmail(l, subject, body, senderName, replyTo, profile);
+    if(l.stage==='2'&&l.lastSent&&(Date.now()-new Date(l.lastSent))/864e5>=fu2Days){
+      const body=`Hi ${l.name},\n\nThis is my last follow-up. If the timing isn't right, no worries — but if you're open to a quick chat about improving operations at ${l.company||'your company'}, I'd love to connect.\n\nThanks,\nPawan Kumar\nEnginerds Tech Solution`;
+      const ok=await sendEmail(l,generateSubject(l.company||'your company'),body,senderName,replyTo,profile);
+      if(ok){leads[idx].status='SENT';leads[idx].stage='3';leads[idx].lastSent=new Date().toISOString();addCampLog(log,`FU2 → ${l.name}`,'yellow');processed++;}
+    } else if(l.stage==='1'&&l.lastSent&&(Date.now()-new Date(l.lastSent))/864e5>=fu1Days){
+      const body=`Hi ${l.name},\n\nJust checking in — did you get a chance to look at my previous email about streamlining operations at ${l.company||'your company'}?\n\nHappy to hop on a quick call.\n\nRegards,\nPawan Kumar\nEnginerds Tech Solution`;
+      const ok=await sendEmail(l,generateSubject(l.company||'your company'),body,senderName,replyTo,profile);
+      if(ok){leads[idx].stage='2';leads[idx].lastSent=new Date().toISOString();leads[idx].status='FOLLOW-UP';leads[idx].pipelineStage='CONTACTED';addCampLog(log,`FU1 → ${l.name}`,'blue');processed++;}
+    } else if(l.status==='VALID'){
+      let emailSubject=generateSubject(l.company||'your company');
+      let body=defaultEmailBody(l.name,l.company||'your company');
+      try{ const r=await getEmailContent(l,customPrompt); body=r.body; emailSubject=r.subject; }
+      catch(e){ addCampLog(log,`Content failed for ${l.name}: ${e.message}`,'red'); }
+      if(subjectAlt&&processed%2===1) emailSubject=subjectAlt.replace('[Company]',l.company||'your company');
+      const ok=await sendEmail(l,emailSubject,body,senderName,replyTo,profile);
       if(ok){
-        leads[idx].status='SENT'; leads[idx].stage='1';
-        leads[idx].lastSent=new Date().toISOString(); leads[idx].lastEmail=body;
+        leads[idx].status='SENT';leads[idx].stage='1';leads[idx].lastSent=new Date().toISOString();
+        leads[idx].lastEmail=body;leads[idx].pipelineStage='CONTACTED';
         addCampLog(log,`✓ Sent via ${profile.name} → ${l.name}`,'green');
-        logActivity(`Campaign: Sent to ${l.name} via ${profile.name}`); processed++;
-      } else {
-        addCampLog(log,`✗ Failed (${profile.name}) → ${l.name}`,'red');
-      }
+        logActivity(`Campaign: Sent to ${l.name}`);processed++;
+      } else { addCampLog(log,`✗ Failed → ${l.name}`,'red'); }
     }
-    save(); 
-    // SES-grade Rate Limiting
-    if(toProcess.length > 1 && i < toProcess.length - 1) await sleep(rateLimit * 1000);
-    else await sleep(500); 
+    save();
+    if(toProcess.length>1&&i<toProcess.length-1) await sleep(rateLimit*1000);
+    else await sleep(300);
   }
-
-  document.getElementById('camp-status').textContent=`Done — ${processed} emails processed`;
+  document.getElementById('camp-status').textContent=`Done — ${processed} emails sent`;
   btn.innerHTML='▶ Run Again'; btn.disabled=false;
-  notify(`Campaign complete: ${processed} emails sent`,'success');
+  notify(`Campaign complete: ${processed} sent`,'success');
+  logActivity(`Campaign finished: ${processed} sent`);
 }
 
-async function sendEmail(lead, subject, body, senderName, replyTo, profile){
+async function sendEmail(lead,subject,body,senderName,replyTo,profile){
   try {
-    let endpoint = '/api/send-smtp';
-    if(profile.type === 'gmail') endpoint = '/api/send-email';
-    if(profile.type === 'ses') endpoint = '/api/send-ses';
-
-    const payload = { leadId:lead.id, to:lead.email, subject, body, senderName, replyTo };
-    if(profile.type === 'smtp') payload.smtpConfig = profile;
-    if(profile.type === 'ses') payload.sesConfig = profile;
-
-    const res = await fetch(endpoint, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(payload)
-    });
+    const endpoint=profile.type==='gmail'?'/api/send-email':'/api/send-smtp';
+    const payload={leadId:lead.id,to:lead.email,subject,body,senderName,replyTo};
+    if(profile.type==='smtp') payload.smtpConfig=profile;
+    const res=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     return res.ok;
   } catch(e){ return false; }
 }
 
-function addCampLog(el, msg, color){
+function addCampLog(el,msg,color){
   const cols={green:'var(--accent)',blue:'var(--accent3)',yellow:'var(--accent4)',red:'var(--accent2)'};
   const t=new Date().toLocaleTimeString();
-  el.innerHTML=`<div style="color:${cols[color]};padding:2px 0;">[${t}] ${msg}</div>`+el.innerHTML;
+  el.innerHTML=`<div style="color:${cols[color]||'var(--muted)'};padding:2px 0;">[${t}] ${msg}</div>`+el.innerHTML;
 }
 
 function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+</script>
 
+<script>
 /************************************************************
- DASHBOARD
-************************************************************/
-function refreshDashboard(){
-  const total=leads.length;
-  const sent=leads.filter(l=>l.status==='SENT').length;
-  const replied=leads.filter(l=>l.status==='REPLIED').length;
-  const followup=leads.filter(l=>l.status==='FOLLOW-UP').length;
-  document.getElementById('d-total').textContent=total;
-  document.getElementById('d-sent').textContent=sent;
-  document.getElementById('d-replied').textContent=replied;
-  document.getElementById('d-followup').textContent=followup;
-  document.getElementById('d-sent-rate').textContent=total?Math.round(sent/total*100)+'% send rate':'0% send rate';
-  document.getElementById('d-reply-rate').textContent=sent?Math.round(replied/sent*100)+'% reply rate':'0% reply rate';
-  const statuses=['VALID','SENT','REPLIED','FOLLOW-UP','INVALID'];
-  const sColors=['#00e5a0','#4d9fff','#00ffc8','#ffb347','#ff4d6d'];
-  renderBarChart('status-chart','status-labels',statuses,statuses.map(s=>leads.filter(l=>l.status===s).length),sColors);
-  const pris=['HIGH','MEDIUM','LOW'];
-  renderBarChart('priority-chart','priority-labels',pris,pris.map(p=>leads.filter(l=>l.priority===p).length),['#ff4d6d','#ffb347','#6b7280']);
-  const al=document.getElementById('activity-log');
-  al.innerHTML=activityLog.length===0
-    ?'<div style="color:var(--muted);font-size:13px;padding:8px 0;">No activity yet.</div>'
-    :activityLog.slice().reverse().slice(0,10).map(a=>`<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;"><span style="font-family:var(--mono);color:var(--muted);white-space:nowrap;">${new Date(a.time).toLocaleTimeString()}</span><span>${a.msg}</span></div>`).join('');
-}
-
-function renderBarChart(cid,lid,labels,counts,colors){
-  const max=Math.max(...counts,1);
-  document.getElementById(cid).innerHTML=labels.map((l,i)=>`<div class="chart-bar-wrap"><div class="chart-bar" style="height:${Math.round(counts[i]/max*80)+4}px;background:${colors[i]};"></div></div>`).join('');
-  document.getElementById(lid).innerHTML=labels.map((l,i)=>`<div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);"><div style="width:8px;height:8px;border-radius:2px;background:${colors[i]};"></div>${l} (${counts[i]})</div>`).join('');
-}
-
-function logActivity(msg){ activityLog.push({time:Date.now(),msg}); localStorage.setItem('crm_activity',JSON.stringify(activityLog.slice(-100))); }
-
-/************************************************************
- PIPELINE
-************************************************************/
-function renderPipeline(){
-  const stages=[
-    {label:'New Leads',filter:l=>l.status==='VALID',color:'var(--accent)'},
-    {label:'Contacted',filter:l=>l.status==='SENT'&&l.stage==='1',color:'var(--accent3)'},
-    {label:'Follow-Up',filter:l=>l.status==='FOLLOW-UP',color:'var(--accent4)'},
-    {label:'Replied',filter:l=>l.status==='REPLIED',color:'#00ffc8'},
-  ];
-  document.getElementById('pipeline-grid').innerHTML=stages.map(s=>{
-    const items=leads.filter(s.filter);
-    return `<div class="pipeline-col">
-      <div class="pipeline-col-header" style="color:${s.color};">${s.label}<span class="pipeline-col-count">${items.length}</span></div>
-      ${items.length===0?'<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px 0;">Empty</div>':''}
-      ${items.map(l=>`<div class="pipeline-card"><div class="pipeline-name">${l.name||'—'}</div><div class="pipeline-company">${l.company||l.email}</div><div style="margin-top:8px;"><span class="badge badge-${(l.priority||'low').toLowerCase()}">${l.priority||'LOW'}</span></div></div>`).join('')}
-    </div>`;
-  }).join('');
-}
-
-/************************************************************
- TRACKING — syncs real open/click counts from server
+ TRACKING
 ************************************************************/
 async function syncTracking(){
   const spinner=document.getElementById('sync-spinner');
   if(spinner) spinner.innerHTML='<span class="spinner"></span>';
   const info=document.getElementById('tracking-info');
   const sentLeads=leads.filter(l=>['SENT','REPLIED','FOLLOW-UP'].includes(l.status));
-  if(!sentLeads.length){ if(spinner) spinner.innerHTML=''; return; }
-
+  if(!sentLeads.length){if(spinner)spinner.innerHTML='';return;}
   try {
     const ids=sentLeads.map(l=>l.id).join(',');
     const res=await fetch(`/api/tracking-stats?ids=${ids}`);
     if(!res.ok) throw new Error('API unavailable');
     const stats=await res.json();
-
-    // Merge server counts into local leads
     let updated=0;
     sentLeads.forEach(l=>{
       const idx=leads.indexOf(l);
       if(stats[l.id]){
-        const serverOpens=stats[l.id].opens||0;
-        const serverClicks=stats[l.id].clicks||0;
-        if(serverOpens!==l.opens||serverClicks!==l.clicks){
-          leads[idx].opens=serverOpens;
-          leads[idx].clicks=serverClicks;
-          updated++;
+        const so=stats[l.id].opens||0; const sc=stats[l.id].clicks||0;
+        if(so!==l.opens||sc!==l.clicks){
+          leads[idx].opens=so; leads[idx].clicks=sc; updated++;
+          leads[idx]=autoPromoteLead(leads[idx]);
         }
       }
     });
-
-    if(updated>0){ save(); }
-    if(info){ info.style.display='block'; info.textContent=`✓ Synced ${sentLeads.length} leads — last updated ${new Date().toLocaleTimeString()}`; }
+    if(updated>0){ save(); renderLeads(); renderPipeline(); }
+    if(info){info.style.display='block';info.textContent=`✓ Synced ${sentLeads.length} leads — ${new Date().toLocaleTimeString()}`;}
   } catch(e){
-    if(info){ info.style.display='block'; info.style.color='var(--accent4)'; info.textContent='⚠ Could not sync from server (API not reachable). Showing local data.'; }
+    if(info){info.style.display='block';info.style.color='var(--accent4)';info.textContent='⚠ Could not sync from server.';}
   }
   if(spinner) spinner.innerHTML='';
   renderTracking();
@@ -1460,27 +1880,30 @@ function renderTracking(){
   document.getElementById('tr-click-rate').textContent=sent.length?Math.round(totalClicks/sent.length*100)+'% CTR':'';
   document.getElementById('tr-reply-rate').textContent=sent.length?Math.round(replied/sent.length*100)+'% reply rate':'';
   const tbody=document.getElementById('tracking-tbody');
-  if(!sent.length){ tbody.innerHTML=`<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:32px;font-family:var(--mono);font-size:12px;">NO SENT EMAILS YET</td></tr>`; return; }
+  if(!sent.length){tbody.innerHTML=`<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:32px;font-family:var(--mono);font-size:12px;">NO SENT EMAILS YET</td></tr>`;return;}
   tbody.innerHTML=sent.map(l=>{
     const idx=leads.indexOf(l);
     const ls=l.lastSent?new Date(l.lastSent).toLocaleDateString():'—';
+    const stageColor=STAGE_COLORS[l.pipelineStage]||'#6b7280';
     return `<tr>
       <td style="font-weight:600;">${l.name||'—'}</td>
       <td style="font-family:var(--mono);font-size:12px;">${l.email}</td>
       <td>${l.company||'—'}</td>
-      <td><div style="display:flex;align-items:center;gap:8px;"><span style="font-family:var(--mono);width:24px;">${l.opens||0}</span><div style="flex:1;height:4px;background:var(--border);border-radius:2px;min-width:60px;"><div style="height:100%;background:var(--accent3);border-radius:2px;width:${Math.min((l.opens||0)*15,100)}%;"></div></div></div></td>
-      <td><div style="display:flex;align-items:center;gap:8px;"><span style="font-family:var(--mono);width:24px;">${l.clicks||0}</span><div style="flex:1;height:4px;background:var(--border);border-radius:2px;min-width:60px;"><div style="height:100%;background:var(--accent);border-radius:2px;width:${Math.min((l.clicks||0)*20,100)}%;"></div></div></div></td>
-      <td><span class="badge badge-${(l.status||'').toLowerCase().replace('-','')}">${l.stage||'—'}</span></td>
+      <td><span style="display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-family:var(--mono);background:${stageColor}22;color:${stageColor};">${l.pipelineStage||'—'}</span></td>
+      <td><div style="display:flex;align-items:center;gap:6px;"><span style="font-family:var(--mono);width:20px;">${l.opens||0}</span><div style="flex:1;height:4px;background:var(--border);border-radius:2px;min-width:50px;"><div style="height:100%;background:var(--accent3);border-radius:2px;width:${Math.min((l.opens||0)*15,100)}%;"></div></div></div></td>
+      <td><div style="display:flex;align-items:center;gap:6px;"><span style="font-family:var(--mono);width:20px;">${l.clicks||0}</span><div style="flex:1;height:4px;background:var(--border);border-radius:2px;min-width:50px;"><div style="height:100%;background:var(--accent2);border-radius:2px;width:${Math.min((l.clicks||0)*20,100)}%;"></div></div></div></td>
       <td style="font-family:var(--mono);font-size:11px;">${ls}</td>
       <td style="display:flex;gap:4px;">
         <button class="btn btn-ghost btn-sm" onclick="markReplied(${idx})">✓ Replied</button>
+        <button class="btn btn-blue btn-sm" onclick="openEmailModal(${idx})">✉</button>
       </td>
     </tr>`;
   }).join('');
 }
 
 function markReplied(idx){
-  leads[idx].status='REPLIED'; save(); renderTracking();
+  leads[idx].status='REPLIED'; leads[idx].pipelineStage='WON';
+  save(); renderTracking(); renderPipeline();
   notify(`${leads[idx].name} marked as replied`,'success');
   logActivity(`Marked replied: ${leads[idx].name}`);
 }
@@ -1488,38 +1911,39 @@ function markReplied(idx){
 /************************************************************
  IMPORT / EXPORT
 ************************************************************/
-function importCSV(){ 
-  document.getElementById('csv-paste').value=''; 
+function importCSV(){
+  document.getElementById('csv-paste').value='';
   document.getElementById('csv-file').value='';
   document.getElementById('file-name').textContent='';
-  openModal('importModal'); 
+  openModal('importModal');
 }
 
 function handleFileSelect(input){
-  const file = input.files[0];
-  if(!file) return;
-  document.getElementById('file-name').textContent = 'Selected: ' + file.name;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    document.getElementById('csv-paste').value = e.target.result;
-  };
+  const file=input.files[0]; if(!file) return;
+  document.getElementById('file-name').textContent='Selected: '+file.name;
+  const reader=new FileReader();
+  reader.onload=e=>{ document.getElementById('csv-paste').value=e.target.result; };
   reader.readAsText(file);
 }
 
 function processCSVImport(){
   const lines=document.getElementById('csv-paste').value.trim().split('\n').map(l=>l.trim()).filter(Boolean);
-  if(lines.length<2){ notify('Need header + at least 1 row','error'); return; }
+  if(lines.length<2){notify('Need header + at least 1 row','error');return;}
   const headers=lines[0].split(',').map(h=>h.trim().toLowerCase());
-  const ni=headers.indexOf('name'), ei=headers.indexOf('email');
-  if(ei<0){ notify('CSV must have Email column','error'); return; }
+  const ni=headers.indexOf('name'),ei=headers.indexOf('email'),ci=headers.indexOf('company'),phi=headers.indexOf('phone'),cati=headers.indexOf('category'),tagi=headers.indexOf('tags');
+  if(ei<0){notify('CSV must have Email column','error');return;}
   let added=0;
   for(let i=1;i<lines.length;i++){
     const cols=lines[i].split(',').map(c=>c.trim().replace(/^"|"$/g,''));
-    const email=cols[ei]||'';
-    if(!email||!isValidEmail(email)) continue;
+    const email=cols[ei]||''; if(!email||!isValidEmail(email)) continue;
     if(leads.find(l=>l.email.toLowerCase()===email.toLowerCase())) continue;
     const name=ni>=0?(cols[ni]||email.split('@')[0]):email.split('@')[0];
-    let l={id:'lead_'+(Date.now()+i),name,email:email.toLowerCase(),status:'VALID',stage:'',company:'',role:'',opens:0,clicks:0,score:40,lastSent:'',domain:'',priority:'LOW',createdAt:new Date().toISOString()};
+    let l={id:'lead_'+(Date.now()+i),name,email:email.toLowerCase(),
+      company:ci>=0?cols[ci]||'':'',phone:phi>=0?cols[phi]||'':'',
+      category:cati>=0?cols[cati]||'General':'General',
+      tags:tagi>=0?(cols[tagi]||'').split(';').map(t=>t.trim()).filter(Boolean):[],
+      status:'VALID',pipelineStage:'COLD',stage:'',opens:0,clicks:0,score:40,
+      lastSent:'',domain:'',priority:'LOW',createdAt:new Date().toISOString()};
     leads.push(enrichLead(l)); added++;
   }
   save(); closeModal('importModal'); renderLeads();
@@ -1528,12 +1952,13 @@ function processCSVImport(){
 }
 
 function exportCSV(){
-  const h=['Name','Email','Status','Stage','Company','Role','Domain','Priority','Score','Opens','Clicks','LastSent'];
-  const rows=leads.map(l=>[l.name,l.email,l.status,l.stage,l.company,l.role,l.domain,l.priority,l.score,l.opens,l.clicks,l.lastSent].map(v=>`"${v||''}"`).join(','));
+  const h=['Name','Email','Company','Phone','PipelineStage','Status','Category','Tags','Priority','Score','Opens','Clicks','LastSent'];
+  const rows=leads.map(l=>[l.name,l.email,l.company,l.phone||'',l.pipelineStage||'COLD',l.status,l.category,
+    (l.tags||[]).join(';'),l.priority,l.score,l.opens,l.clicks,l.lastSent].map(v=>`"${v||''}"`).join(','));
   downloadFile([h.join(','),...rows].join('\n'),'leads.csv','text/csv');
 }
 
-function exportJSON(){ downloadFile(JSON.stringify(leads,null,2),'leads.json','application/json'); }
+function exportJSON(){ downloadFile(JSON.stringify({leads,clients,deals},null,2),'crm-export.json','application/json'); }
 
 function downloadFile(content,filename,type){
   const a=document.createElement('a');
@@ -1542,44 +1967,100 @@ function downloadFile(content,filename,type){
 }
 
 function clearAllData(){
-  if(!confirm('Clear ALL leads and activity?'))return;
-  leads=[]; activityLog=[];
-  save(); refreshDashboard(); renderLeads();
+  if(!confirm('Clear ALL leads, clients, deals and activity? This cannot be undone.'))return;
+  leads=[]; clients=[]; deals=[]; activityLog=[];
+  save(); refreshDashboard(); renderLeads(); renderClients(); renderDeals();
   notify('All data cleared','info');
 }
 
 /************************************************************
- HANDLE OAUTH REDIRECT
+ SETTINGS
 ************************************************************/
-function handleOAuthRedirect(){
-  const params=new URLSearchParams(window.location.search);
-  const gmail=params.get('gmail');
-  if(gmail==='connected'){
-    const account=params.get('account');
-    if(!profiles.find(p=>p.user===account && p.type==='gmail')){
-      profiles.push({ id:'gmail_'+Date.now(), type:'gmail', active:true, name:'Gmail Account', user:account });
-      save();
-      notify(`Connected Gmail: ${account}`,'success');
-      logActivity(`Gmail connected: ${account}`);
-    }
-    window.history.replaceState({},'','/');
-  } else if(gmail==='denied'){
-    notify('Gmail connection denied','error');
-    window.history.replaceState({},'','/');
-  } else if(gmail==='error'){
-    notify('Gmail connection error: '+params.get('msg'),'error');
-    window.history.replaceState({},'','/');
+function saveSettings(){
+  settings.openaiKey=document.getElementById('openai-key').value.trim();
+  save(); notify('Settings saved','success');
+}
+
+function renderProfiles(){
+  const list=document.getElementById('profile-list');
+  if(!list) return;
+  if(!profiles.length){
+    list.innerHTML='<div style="color:var(--muted);font-size:12px;padding:8px;border:1px dashed var(--border);border-radius:6px;text-align:center;">No profiles added yet.</div>';
+    return;
   }
+  list.innerHTML=profiles.map((p,i)=>`
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;display:flex;align-items:center;gap:12px;">
+      <input type="checkbox" ${p.active?'checked':''} onchange="toggleProfile(${i})" style="width:16px;height:16px;"/>
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:600;">${p.name} <span style="font-family:var(--mono);font-size:11px;color:var(--muted);">(${p.type.toUpperCase()})</span></div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--accent);">${p.user||p.email||''}</div>
+      </div>
+      <div style="display:flex;gap:6px;">
+        ${p.type==='smtp'?`<button class="btn btn-blue btn-sm" onclick="testExistingSmtp(${i})">⚡ Test</button>`:''}
+        <button class="btn btn-ghost btn-sm" onclick="deleteProfile(${i})" style="color:var(--accent2);">✕</button>
+      </div>
+    </div>`).join('');
+}
+
+async function testExistingSmtp(i){ const p=profiles[i]; await runSmtpTest(p.host,p.port,p.user,p.pass,p.secure,p.name); }
+
+async function testSmtpConnection(){
+  const host=document.getElementById('smtp-host').value.trim();
+  const port=document.getElementById('smtp-port').value.trim();
+  const user=document.getElementById('smtp-user').value.trim();
+  const pass=document.getElementById('smtp-pass').value;
+  const secure=document.getElementById('smtp-secure').checked;
+  const name=document.getElementById('smtp-name').value.trim()||'Test';
+  if(!host||!user||!pass){notify('Host, User, Pass required','error');return;}
+  await runSmtpTest(host,port,user,pass,secure,name);
+}
+
+async function runSmtpTest(host,port,user,pass,secure,name){
+  const testTo=prompt('Send test to:',user); if(!testTo) return;
+  const btn=document.activeElement; const oldText=btn.innerHTML;
+  btn.innerHTML='<span class="spinner"></span>'; btn.disabled=true;
+  try {
+    const res=await fetch('/api/send-smtp',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({leadId:'test',to:testTo,subject:'✅ SMTP Test — Enginerds CRM',body:'SMTP connection working!',senderName:name,smtpConfig:{host,port,user,pass,secure}})});
+    const data=await res.json();
+    if(res.ok) notify('Test email sent!','success'); else throw new Error(data.error||'Failed');
+  } catch(e){ notify('Test failed: '+e.message,'error'); }
+  btn.innerHTML=oldText; btn.disabled=false;
+}
+
+function addSmtpProfile(){
+  const name=document.getElementById('smtp-name').value.trim();
+  const host=document.getElementById('smtp-host').value.trim();
+  const port=document.getElementById('smtp-port').value.trim();
+  const user=document.getElementById('smtp-user').value.trim();
+  const pass=document.getElementById('smtp-pass').value;
+  const secure=document.getElementById('smtp-secure').checked;
+  if(!name||!host||!user||!pass){notify('All fields required','error');return;}
+  profiles.push({id:'profile_'+Date.now(),type:'smtp',active:true,name,host,port,user,pass,secure});
+  save(); closeModal('addSmtpModal'); renderProfiles(); updateSenderListUI();
+  notify('SMTP Profile added','success');
+  ['smtp-name','smtp-host','smtp-user','smtp-pass'].forEach(id=>document.getElementById(id).value='');
+}
+
+function toggleProfile(i){ profiles[i].active=!profiles[i].active; save(); renderProfiles(); updateSenderListUI(); }
+function deleteProfile(i){ if(!confirm('Delete?'))return; profiles.splice(i,1); save(); renderProfiles(); updateSenderListUI(); }
+
+/************************************************************
+ MODALS + NOTIFICATIONS
+************************************************************/
+function openModal(id){ document.getElementById(id).classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+
+function notify(msg,type='info'){
+  const n=document.getElementById('notif');
+  n.textContent=msg; n.className='notif '+type+' show';
+  setTimeout(()=>n.classList.remove('show'),3200);
 }
 
 /************************************************************
  INIT
 ************************************************************/
-handleOAuthRedirect();
-loadData();
-checkApiEnv();
-updateTopBar();
-refreshDashboard();
+checkAuth();
 </script>
 </body>
 </html>
