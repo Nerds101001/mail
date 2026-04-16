@@ -51,16 +51,17 @@ module.exports = async (req, res) => {
     });
     const profile = await profileRes.json();
 
-    // Store tokens in Redis
+    // Store tokens per account so multiple Gmail accounts can coexist
+    const accountKey = profile.email.replace(/[^a-z0-9]/gi, '_');
+    await set(`gmail:access_token:${accountKey}`, tokens.access_token);
+    await set(`gmail:refresh_token:${accountKey}`, tokens.refresh_token || "");
+    await set(`gmail:email:${accountKey}`, profile.email);
+    await set(`gmail:expires_at:${accountKey}`, String(Date.now() + (tokens.expires_in || 3600) * 1000));
+    // Also keep primary key for backwards compat (first/last connected)
     await set("gmail:access_token", tokens.access_token);
     await set("gmail:refresh_token", tokens.refresh_token || "");
     await set("gmail:email", profile.email);
     await set("gmail:expires_at", String(Date.now() + (tokens.expires_in || 3600) * 1000));
-
-    // Verify it saved
-    const { get } = require("./_redis");
-    const saved = await get("gmail:email");
-    console.log("Gmail email saved:", saved, "| Expected:", profile.email);
 
     // Redirect back to the app with success flag
     res.redirect(`${appUrl}/?gmail=connected&account=${encodeURIComponent(profile.email)}`);

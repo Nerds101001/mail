@@ -110,6 +110,7 @@ export default function Leads() {
       const endpoint = profile.type === 'gmail' ? '/api/send-email' : '/api/send-smtp'
       const payload = { leadId:emailLead.id, to:emailLead.email, subject, body, senderName:'Pawan Kumar - Enginerds Tech Solution', replyTo:'contact@enginerds.in' }
       if (profile.type === 'smtp') payload.smtpConfig = profile
+      if (profile.type === 'gmail') payload.gmailUser = profile.user
       const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)

@@ -53,6 +53,7 @@ export default function Campaign() {
       const endpoint = profile.type === 'gmail' ? '/api/send-email' : '/api/send-smtp'
       const payload = { leadId:lead.id, to:lead.email, subject, body, senderName:cfg.sender, replyTo:cfg.replyTo }
       if (profile.type === 'smtp') payload.smtpConfig = profile
+      if (profile.type === 'gmail') payload.gmailUser = profile.user // multi-Gmail support
       const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
       return res.ok
     } catch { return false }

@@ -2,12 +2,14 @@
 const { get, set } = require("./_redis");
 
 // ─── Token refresh ────────────────────────────────────────────────────────────
-async function getValidAccessToken() {
-  const expiresAt = parseInt(await get("gmail:expires_at") || "0");
-  let accessToken = await get("gmail:access_token");
+async function getValidAccessToken(accountEmail = null) {
+  // Support per-account keys for multi-Gmail setup
+  const suffix = accountEmail ? `:${accountEmail.replace(/[^a-z0-9]/gi, '_')}` : '';
+  const expiresAt = parseInt(await get(`gmail:expires_at${suffix}`) || "0");
+  let accessToken = await get(`gmail:access_token${suffix}`);
 
   if (Date.now() > expiresAt - 60000) {
-    const refreshToken = await get("gmail:refresh_token");
+    const refreshToken = await get(`gmail:refresh_token${suffix}`);
     if (!refreshToken) throw new Error("No refresh token — please reconnect Gmail in Settings");
 
     const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -23,8 +25,8 @@ async function getValidAccessToken() {
     const data = await res.json();
     if (data.error) throw new Error(`Token refresh failed: ${data.error_description}`);
     accessToken = data.access_token;
-    await set("gmail:access_token", accessToken);
-    await set("gmail:expires_at", String(Date.now() + data.expires_in * 1000));
+    await set(`gmail:access_token${suffix}`, accessToken);
+    await set(`gmail:expires_at${suffix}`, String(Date.now() + data.expires_in * 1000));
   }
   return accessToken;
 }
@@ -88,22 +90,21 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { leadId, to, subject, body, senderName, replyTo } = req.body;
+  const { leadId, to, subject, body, senderName, replyTo, gmailUser } = req.body;
   const appUrl = process.env.APP_URL;
 
   if (!leadId || !to || !subject || !body)
     return res.status(400).json({ error: "Missing required fields: leadId, to, subject, body" });
 
   try {
-    // Hard unsubscribe check
     const isUnsub = await get(`unsub:${to}`);
     if (isUnsub === "true")
       return res.status(200).json({ success: false, skipped: true, reason: "UNSUBSCRIBED" });
 
-    const accessToken  = await getValidAccessToken();
-    const gmailAccount = await get("gmail:email");
+    // Use per-account token if gmailUser specified (multi-Gmail round-robin)
+    const accessToken  = await getValidAccessToken(gmailUser || null);
+    const gmailAccount = gmailUser || await get("gmail:email");
     if (!gmailAccount) throw new Error("Gmail not connected — please reconnect in Settings");
-
     const from       = `${senderName || "Enginerds Tech"} <${gmailAccount}>`;
     const unsubUrl   = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}`;
     const htmlBody   = buildHtmlBody(body, leadId, to, appUrl);
