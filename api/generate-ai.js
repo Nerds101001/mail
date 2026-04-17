@@ -81,10 +81,11 @@ Return ONLY the JSON array:`;
         messages:    [{ role: "system", content: system }, { role: "user", content: user }],
         temperature: 0.8,
         top_p:       0.9,
-        max_tokens:  variantCount * 800,
+        max_tokens:  Math.min(variantCount * 1000, 4000), // NVIDIA limit usually around 4k for small requests
         stream:      false,
       }),
     });
+    // Trigger redeploy
 
     const data = await response.json();
     if (!response.ok) {

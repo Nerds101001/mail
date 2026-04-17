@@ -5,6 +5,7 @@ import RichEditor, { htmlToPlain } from '../components/RichEditor'
 import { Play, Zap, PenLine, Paperclip, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react'
 
 export default function Campaign() {
+  // Fresh deployment trigger
   const { leads, setLeads, profiles, settings, logActivity } = useCRM()
   const [mode, setMode]       = useState('ai')
   const [cfg, setCfg]         = useState({ batch:30, rate:2, fu1:2, fu2:4, target:'valid', filterVal:'', sender:'Pawan Kumar - Enginerds Tech Solution', replyTo:'contact@enginerds.in' })
