@@ -54,7 +54,8 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl })
 }
 
 // ─── HTML body builder (tracking intact) ─────────────────────────────────────
-function buildHtmlBody(plainText, leadId, email, appUrl) {
+function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
+  const cidParam = campaignId ? `&cid=${campaignId}` : '';
   // Split into paragraphs on double newlines, single newlines become <br>
   const paragraphs = plainText
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -63,13 +64,13 @@ function buildHtmlBody(plainText, leadId, email, appUrl) {
       // Track URLs within each paragraph
       const tracked = para.replace(/\n/g, "<br>").replace(
         /https?:\/\/[^\s<"&]+/g,
-        (url) => `<a href="${appUrl}/api/track/click?id=${leadId}&url=${encodeURIComponent(url)}" style="color:#1a73e8;text-decoration:none;">${url}</a>`
+        (url) => `<a href="${appUrl}/api/track/click?id=${leadId}&url=${encodeURIComponent(url)}${cidParam}" style="color:#1a73e8;text-decoration:none;">${url}</a>`
       )
       return `<p style="margin:0 0 16px 0;line-height:1.6;color:#1a1a1a;">${tracked}</p>`
     })
     .join('')
 
-  const trackingPixel = `<img src="${appUrl}/api/track/open?id=${leadId}" width="1" height="1" alt="" style="display:none;border:0;"/>`
+  const trackingPixel = `<img src="${appUrl}/api/track/open?id=${leadId}${cidParam}" width="1" height="1" alt="" style="display:none;border:0;"/>`
   const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`
 
   return `<!DOCTYPE html>
@@ -98,7 +99,7 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { leadId, to, subject, body, senderName, replyTo, gmailUser } = req.body;
+  const { leadId, to, subject, body, senderName, replyTo, gmailUser, campaignId } = req.body;
   const appUrl = process.env.APP_URL;
 
   if (!leadId || !to || !subject || !body)
@@ -115,7 +116,7 @@ module.exports = async (req, res) => {
     if (!gmailAccount) throw new Error("Gmail not connected — please reconnect in Settings");
     const from       = `${senderName || "Enginerds Tech"} <${gmailAccount}>`;
     const unsubUrl   = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}`;
-    const htmlBody   = buildHtmlBody(body, leadId, to, appUrl);
+    const htmlBody   = buildHtmlBody(body, leadId, to, appUrl, campaignId);
     const raw        = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, unsubscribeUrl: unsubUrl });
 
     const sendRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {

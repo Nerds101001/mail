@@ -19,20 +19,22 @@ module.exports = async (req, res) => {
     category ? `Industry: ${category}` : "",
   ].filter(Boolean).join(", ");
 
-  const system = `You are an expert B2B cold email writer for Enginerds Tech Solution (ERP & SaaS company).
-
-TONE & STYLE:
-- Conversational and personal (like the Yogashala example)
-- Identify specific pain points for their industry
-- Show deep understanding of their business challenges
-- Quantify benefits (e.g., "reduce manual work by 70%")
-- Natural, human language - not robotic or template-like
+  const system = `You are a world-class B2B sales strategist for Enginerds Tech Solution. Your goal is to write conversational, high-converting cold emails.
+  
+TONE & STRATEGY:
+- Conversational and human (no "I hope this finds you well" or robotic openers).
+- START by identifying a specific, burning architectural or operational problem typical for their industry (e.g., manual data entry, lack of real-time visibility, legacy system slow-downs).
+- Pivot quickly to how Enginerds solves this specific problem with ERP/SaaS.
+- Use simple, direct language. No fluff. 
+- The tone should be "helpful expert," not "pushy salesperson."
 
 CRITICAL RULES:
-1. Use ONLY the exact information provided - never invent details like cities or locations
-2. Write 3 tight paragraphs with clear value proposition
-3. Keep under 120 words total
-4. Return ONLY a JSON array - no markdown, no explanations
+1. Identify 2 specific operational pain points based on their role/company/category.
+2. Use ONLY the exact info provided. Never invent physical locations.
+3. Write 3 natural paragraphs.
+4. Total length: 110-140 words.
+5. Signature: "Best regards,\\nPawan Kumar\\nEnginerds Tech Solution"
+6. Return ONLY a JSON array.
 
 Response format:
 [{"subject":"...","body":"..."}]`;
@@ -75,11 +77,11 @@ Return ONLY the JSON array:`;
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
-        model:       "meta/llama-3.1-8b-instruct",
+        model:       "meta/llama-3.1-70b-instruct",
         messages:    [{ role: "system", content: system }, { role: "user", content: user }],
-        temperature: 0.7,
+        temperature: 0.8,
         top_p:       0.9,
-        max_tokens:  variantCount * 600,
+        max_tokens:  variantCount * 800,
         stream:      false,
       }),
     });

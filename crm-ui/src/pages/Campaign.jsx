@@ -21,6 +21,7 @@ export default function Campaign() {
   const [log, setLog]           = useState([])
   const [genLoading, setGenLoading] = useState(false)
   const [previewMode, setPreviewMode] = useState(false)
+  const [campaignName, setCampaignName] = useState(`Campaign ${new Date().toLocaleDateString('en-GB')}`)
   const bodyRef = useRef(null)
 
   const activeProfiles = profiles.filter(p => p.active)
@@ -106,10 +107,10 @@ export default function Campaign() {
     setGenLoading(false)
   }
 
-  async function sendOne(lead, subject, body, profile) {
+  async function sendOne(lead, subject, body, profile, campaignId = null) {
     try {
       const endpoint = profile.type === 'gmail' ? '/api/send-email' : '/api/send-smtp'
-      const payload = { leadId:lead.id, to:lead.email, subject, body, senderName:cfg.sender, replyTo:cfg.replyTo }
+      const payload = { leadId:lead.id, to:lead.email, subject, body, senderName:cfg.sender, replyTo:cfg.replyTo, campaignId }
       if (profile.type === 'smtp') payload.smtpConfig = profile
       if (profile.type === 'gmail') payload.gmailUser = profile.user
       const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
@@ -130,6 +131,29 @@ export default function Campaign() {
   function addLog(msg, type='info') {
     const colors = { success:'text-emerald-600', error:'text-red-500', info:'text-blue-500', warn:'text-amber-500' }
     setLog(prev => [{ msg, color: colors[type], time: new Date().toLocaleTimeString() }, ...prev].slice(0, 100))
+  }
+
+  async function saveDraft() {
+    const targets = getTargets().slice(0, cfg.batch)
+    const campaignData = {
+      name: campaignName,
+      target: cfg.target,
+      sender: cfg.sender,
+      status: 'DRAFT',
+      leads: targets.map(l => ({
+        id: l.id,
+        name: l.name,
+        email: l.email,
+        company: l.company,
+        status: 'DRAFT'
+      })),
+      stats: { sent: 0, failed: 0, skipped: 0 }
+    }
+    try {
+      const res = await fetch('/api/campaigns', { method:'POST', headers:{'Content-Type':'application/json', 'Authorization': `Bearer ${localStorage.getItem('crm_token')}`}, body: JSON.stringify(campaignData) })
+      if (res.ok) toast('Draft saved to History ✓', 'success')
+      else toast('Failed to save draft', 'error')
+    } catch(e) { toast('Error saving draft', 'error') }
   }
 
   async function runCampaign() {
@@ -153,6 +177,7 @@ export default function Campaign() {
     setRunning(true); setLog([]); setProgress(0)
     let processed = 0
     const updatedLeads = [...leads]
+    const campaignId = `camp_${Date.now()}`
 
     for (let i = 0; i < targets.length; i++) {
       const l = targets[i]
@@ -164,11 +189,11 @@ export default function Campaign() {
 
       if (l.stage === '2' && l.lastSent && daysSince(l.lastSent) >= cfg.fu2) {
         const body = `Hi ${l.name},\n\nThis is my last follow-up. If the timing isn't right, no worries — but if you're open to a quick chat about improving operations at ${l.company||'your company'}, I'd love to connect.\n\nThanks,\nPawan Kumar\nEnginerds Tech Solution` + buildAttachmentText()
-        const ok = await sendOne(l, `Following up one last time — ${l.company||'your company'}`, body, profile)
+        const ok = await sendOne(l, `Following up one last time — ${l.company||'your company'}`, body, profile, campaignId)
         if (ok) { updatedLeads[leadIdx] = {...updatedLeads[leadIdx], status:'SENT', stage:'3', lastSent:new Date().toISOString()}; addLog(`FU2 → ${l.name}`, 'warn'); processed++ }
       } else if (l.stage === '1' && l.lastSent && daysSince(l.lastSent) >= cfg.fu1) {
         const body = `Hi ${l.name},\n\nJust checking in — did you get a chance to look at my previous email about streamlining operations at ${l.company||'your company'}?\n\nHappy to hop on a quick call.\n\nRegards,\nPawan Kumar\nEnginerds Tech Solution` + buildAttachmentText()
-        const ok = await sendOne(l, `Quick follow-up — ${l.company||'your company'}`, body, profile)
+        const ok = await sendOne(l, `Quick follow-up — ${l.company||'your company'}`, body, profile, campaignId)
         if (ok) { updatedLeads[leadIdx] = {...updatedLeads[leadIdx], stage:'2', lastSent:new Date().toISOString(), status:'FOLLOW-UP', pipelineStage:'CONTACTED'}; addLog(`FU1 → ${l.name}`, 'info'); processed++ }
       } else if (['VALID','PERSONAL','ROLE-BASED','TYPO'].includes(l.status) || cfg.target === 'all' || cfg.target === 'hot') {
         if (['UNSUBSCRIBED','NOT-INTERESTED'].includes(l.pipelineStage)) continue;
@@ -219,9 +244,14 @@ export default function Campaign() {
   return (
     <div>
       <PageHeader title="AI Campaign" subtitle="Send personalized emails at scale">
-        <Btn variant="primary" onClick={runCampaign} disabled={running}>
-          <Play size={14} /> {running ? 'Running...' : 'Run Campaign'}
-        </Btn>
+        <div className="flex gap-2">
+          <Btn variant="secondary" onClick={saveDraft} disabled={running}>
+            <PenLine size={14} /> Save Draft
+          </Btn>
+          <Btn variant="primary" onClick={runCampaign} disabled={running}>
+            <Play size={14} /> {running ? 'Running...' : 'Run Campaign'}
+          </Btn>
+        </div>
       </PageHeader>
 
       {(running || progress > 0) && (
@@ -241,6 +271,10 @@ export default function Campaign() {
         <Card className="p-5">
           <h3 className="text-sm font-bold text-slate-900 mb-4">Campaign Config</h3>
           <div className="space-y-4">
+            <div>
+              <label className="label">Campaign Name</label>
+              <input className="input border-emerald-200 focus:border-emerald-500" placeholder="e.g. Q2 Outreach - Retail" value={campaignName} onChange={e=>setCampaignName(e.target.value)} />
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="label">Batch Limit</label><input className="input" type="number" value={cfg.batch} onChange={e=>setCfg({...cfg,batch:+e.target.value})} /></div>
               <div><label className="label">Rate (secs)</label><input className="input" type="number" min="0" value={cfg.rate} onChange={e=>setCfg({...cfg,rate:+e.target.value})} /></div>

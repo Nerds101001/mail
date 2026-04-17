@@ -1,11 +1,14 @@
 {
   "rewrites": [
+    { "source": "/api/track/open",             "destination": "/api/track-open" },
+    { "source": "/api/track/click",            "destination": "/api/track-click" },
     { "source": "/api/gmail-status",          "destination": "/api/ops?type=gmail-status" },
     { "source": "/api/tracking-stats",         "destination": "/api/ops?type=tracking" },
     { "source": "/api/tasks",                  "destination": "/api/ops?type=tasks" },
     { "source": "/api/send-reminder",          "destination": "/api/ops?type=reminder" },
     { "source": "/api/get-crm-data",           "destination": "/api/crm?type=load" },
     { "source": "/api/save-crm-data",          "destination": "/api/crm?type=save" },
+    { "source": "/api/campaigns",              "destination": "/api/crm?type=campaigns" },
     { "source": "/((?!api|assets|favicon).*)", "destination": "/public/index.html" }
   ],
   "headers": [

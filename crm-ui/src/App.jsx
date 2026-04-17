@@ -12,9 +12,9 @@ import Clients  from './pages/Clients'
 import Deals    from './pages/Deals'
 import Tracking from './pages/Tracking'
 import Tasks    from './pages/Tasks'
+import CampaignHistory from './pages/CampaignHistory'
 import Settings       from './pages/Settings'
 import Unsubscribes   from './pages/Unsubscribes'
-import CampaignHistory from './pages/CampaignHistory'
 import UsersPage      from './pages/Users'
 
 function ProtectedApp() {
