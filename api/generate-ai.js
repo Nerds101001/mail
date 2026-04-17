@@ -35,11 +35,10 @@ RULES:
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
-        model:       "meta/llama-3.1-8b-instruct",
+        model:       "meta/llama-3.1-70b-instruct",
         messages:    [{ role: "system", content: system }, { role: "user", content: user }],
-        temperature: 0.8,
-        top_p:       0.9,
-        max_tokens:  2000,
+        temperature: 0.7,
+        max_tokens:  3000,
         stream:      false,
       }),
     });
@@ -47,13 +46,22 @@ RULES:
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || `NVIDIA error: ${response.status}`);
 
-    const content = data.choices?.[0]?.message?.content;
+    let content = data.choices?.[0]?.message?.content || "";
     if (!content) throw new Error("Empty response from AI");
 
-    const match = content.match(/\[[\s\S]*\]/);
-    if (!match) throw new Error("AI did not return a valid JSON array");
+    // Robust JSON extraction
+    const jsonMatch = content.match(/\[\s*{[\s\S]*}\s*\]/);
+    if (!jsonMatch) {
+        // Try fallback if AI just gave one object
+        const objMatch = content.match(/{\s*"subject"[\s\S]*"body"[\s\S]*}/);
+        if (objMatch) {
+            const variant = JSON.parse(objMatch[0]);
+            return res.status(200).json({ variants: [variant] });
+        }
+        throw new Error("AI did not return a valid JSON structure");
+    }
     
-    const variants = JSON.parse(match[0]);
+    const variants = JSON.parse(jsonMatch[0]);
     res.status(200).json({ variants });
   } catch (err) {
     console.error("AI Error:", err.message);
