@@ -10,9 +10,9 @@ function buildHtmlBody(plainText, leadId, email, appUrl) {
     .map(para => {
       const tracked = para.replace(/\n/g, "<br>").replace(
         /https?:\/\/[^\s<"&]+/g,
-        (url) => `<a href="${appUrl}/api/track/click?id=${leadId}&url=${encodeURIComponent(url)}" style="color:#1a73e8;">${url}</a>`
+        (url) => `<a href="${appUrl}/api/track/click?id=${leadId}&url=${encodeURIComponent(url)}" style="color:#1a73e8;text-decoration:none;">${url}</a>`
       )
-      return `<p style="margin:0 0 16px 0;line-height:1.7;">${tracked}</p>`
+      return `<p style="margin:0 0 16px 0;line-height:1.6;color:#1a1a1a;">${tracked}</p>`
     })
     .join('')
 
@@ -21,12 +21,18 @@ function buildHtmlBody(plainText, leadId, email, appUrl) {
 
   return `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.7;color:#1a1a1a;">
-  <div style="padding:24px 20px;max-width:600px;">
-    <div>${paragraphs}</div>
-    <div style="margin-top:48px;font-size:11px;color:#cccccc;">
-      <a href="${unsubUrl}" style="color:#cccccc;text-decoration:none;">unsubscribe</a>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+</head>
+<body style="margin:0;padding:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1a1a1a;">
+  <div style="max-width:600px;margin:0 auto;padding:32px 24px;">
+    <div style="background:#ffffff;">
+      ${paragraphs}
+    </div>
+    <div style="margin-top:40px;padding-top:20px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;text-align:center;">
+      <a href="${unsubUrl}" style="color:#9ca3af;text-decoration:underline;">Unsubscribe</a>
     </div>
   </div>
   ${trackingPixel}

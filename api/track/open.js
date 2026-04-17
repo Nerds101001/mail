@@ -10,9 +10,14 @@ module.exports = async (req, res) => {
   const { id } = req.query;
 
   if (id) {
+    console.log(`[TRACK OPEN] Lead ID: ${id}`);
     try {
       // Update Redis counter (for fast stats retrieval)
-      await incr(`track:open:${id}`).catch(e => console.error("Redis incr failed:", e.message));
+      const count = await incr(`track:open:${id}`).catch(e => {
+        console.error("Redis incr failed:", e.message);
+        return null;
+      });
+      console.log(`[TRACK OPEN] Redis count for ${id}: ${count}`);
 
       // Also write to database for detailed event log
       const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
@@ -29,9 +34,12 @@ module.exports = async (req, res) => {
           // Fallback: try individually if transaction fails
           await sql`INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, created_at) VALUES (${id}, 'open', ${ip}, ${ua}, ${Date.now()})`.catch(()=>{});
         });
+        console.log(`[TRACK OPEN] DB event logged for ${id}`);
+      } else {
+        console.warn("[TRACK OPEN] No database URL configured");
       }
     } catch(e) {
-      console.error("Open track error:", e.message);
+      console.error("[TRACK OPEN] Error:", e.message);
     }
   }
 

@@ -63,19 +63,23 @@ module.exports = async (req, res) => {
   if (type === "events") {
     const { leadId } = req.query;
     try {
-      await require("./_redis").get("init"); // Ensure tables exist
-      const sql = require("./_redis.js").getDb();
+      const { neon } = require("@neondatabase/serverless");
+      const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+      if (!dbUrl) return res.json({ events: [] });
+      
+      const sql = neon(dbUrl);
       const rows = await sql`
         SELECT event_type, ip, user_agent, target_url, created_at
         FROM tracking_events
         WHERE lead_id = ${leadId}
         ORDER BY created_at DESC
-        LIMIT 50
+        LIMIT 100
       `;
+      console.log(`Found ${rows.length} events for lead ${leadId}`);
       return res.json({ events: rows });
     } catch(e) {
       console.error("Events error:", e.message);
-      return res.json({ events: [] });
+      return res.json({ events: [], error: e.message });
     }
   }
 

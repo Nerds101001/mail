@@ -13,9 +13,14 @@ module.exports = async (req, res) => {
   const decoded = decodeURIComponent(url || "");
 
   if (id) {
+    console.log(`[TRACK CLICK] Lead ID: ${id}, URL: ${decoded}`);
     try {
       // Update Redis counter (for fast stats retrieval)
-      await incr(`track:click:${id}`).catch(e => console.error("Redis incr failed:", e.message));
+      const count = await incr(`track:click:${id}`).catch(e => {
+        console.error("Redis incr failed:", e.message);
+        return null;
+      });
+      console.log(`[TRACK CLICK] Redis count for ${id}: ${count}`);
 
       // Also write to database for detailed event log
       const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
@@ -30,9 +35,12 @@ module.exports = async (req, res) => {
         ]).catch(async () => {
           await sql`INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, created_at) VALUES (${id}, 'click', ${ip}, ${ua}, ${decoded}, ${Date.now()})`.catch(()=>{});
         });
+        console.log(`[TRACK CLICK] DB event logged for ${id}`);
+      } else {
+        console.warn("[TRACK CLICK] No database URL configured");
       }
     } catch(e) {
-      console.error("Click track error:", e.message);
+      console.error("[TRACK CLICK] Error:", e.message);
     }
   }
 

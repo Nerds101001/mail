@@ -19,35 +19,56 @@ module.exports = async (req, res) => {
     category ? `Industry: ${category}` : "",
   ].filter(Boolean).join(", ");
 
-  const system = `You are an expert cold email writer for Enginerds Tech Solution (ERP & SaaS company).
+  const system = `You are an expert B2B cold email writer for Enginerds Tech Solution (ERP & SaaS company).
+
+TONE & STYLE:
+- Conversational and personal (like the Yogashala example)
+- Identify specific pain points for their industry
+- Show deep understanding of their business challenges
+- Quantify benefits (e.g., "reduce manual work by 70%")
+- Natural, human language - not robotic or template-like
 
 CRITICAL RULES:
-1. Use ONLY the exact information provided - never invent details
-2. Write conversational, personal emails - not marketing templates
-3. Keep emails under 120 words
+1. Use ONLY the exact information provided - never invent details like cities or locations
+2. Write 3 tight paragraphs with clear value proposition
+3. Keep under 120 words total
 4. Return ONLY a JSON array - no markdown, no explanations
-5. Use proper JSON format with escaped newlines
 
 Response format:
 [{"subject":"...","body":"..."}]`;
 
-  const user = `Generate ${variantCount} cold email variant(s).
+  const user = `Generate ${variantCount} cold email variant(s) in the style of this example:
 
-Prospect info:
+EXAMPLE TONE (Yogashala):
+"Hi [Name],
+
+I came across [Company], a renowned [industry descriptor], and noticed that [specific operational challenge] must be a tedious task for your team.
+
+At [Company], you likely struggle with [specific pain point 1] and [specific pain point 2], which not only wastes precious time but also compromises [business outcome].
+
+Enginerds' all-in-one SaaS solution can help you automate these manual tasks, providing real-time visibility and data-driven insights to enhance your operations. With Enginerds, you can reduce manual work by up to 70%.
+
+Would you like to learn more about how Enginerds can transform your [business area]'s efficiency and grow your business? Let's discuss.
+
+Best regards,
+Pawan Kumar
+Enginerds Tech Solution"
+
+NOW WRITE FOR THIS PROSPECT:
 ${context}
 ${customPrompt ? `Special focus: ${customPrompt}` : ""}
 
 Requirements:
-- Subject: Max 9 words, mention their company/industry
-- Body: 3 paragraphs (use \\n\\n between paragraphs):
-  * Para 1: Personal greeting with their name and company
-  * Para 2: Specific pain point for their industry
-  * Para 3: How Enginerds helps + clear CTA
+- Subject: 6-9 words, mention their company/industry, intriguing
+- Body: 3 paragraphs (use \\n\\n between):
+  * Para 1: Show you researched them + identify their specific challenge
+  * Para 2: Elaborate on 2-3 pain points they likely face
+  * Para 3: How Enginerds solves it with specific benefits + clear CTA
 - Signature: "Best regards,\\nPawan Kumar\\nEnginerds Tech Solution"
-- NO placeholders like [Name] or [Company]
+- NO placeholders like [City] - use real data or omit
 - Use "your business" if company name is unclear
 
-Return ONLY the JSON array with proper escaping:`;
+Return ONLY the JSON array:`;
 
   try {
     const response = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {

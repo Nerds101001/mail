@@ -185,8 +185,30 @@ export default function Campaign() {
     }
 
     setLeads(updatedLeads)
+    
+    // Save campaign to history
+    const campaignData = {
+      name: `Campaign - ${new Date().toLocaleDateString()}`,
+      target: cfg.target,
+      sender: cfg.sender,
+      leads: targets.map(l => ({
+        id: l.id,
+        name: l.name,
+        email: l.email,
+        company: l.company,
+        status: updatedLeads.find(ul => ul.id === l.id)?.status || l.status,
+        subject: updatedLeads.find(ul => ul.id === l.id)?.lastEmail?.split('\n')[0] || ''
+      })),
+      stats: {
+        sent: processed,
+        failed: targets.length - processed,
+        skipped: 0
+      }
+    }
+    
     try {
       await fetch('/api/crm?type=save', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ leads: updatedLeads }) })
+      await fetch('/api/crm?type=campaigns', { method:'POST', headers:{'Content-Type':'application/json', 'Authorization': `Bearer ${localStorage.getItem('crm_token')}`}, body: JSON.stringify(campaignData) })
     } catch(e) { console.warn('Save failed', e) }
 
     setStatus(`Done — ${processed} emails sent`); setRunning(false)
