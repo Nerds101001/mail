@@ -145,8 +145,8 @@ module.exports = async (req, res) => {
       }
 
       if (req.method === "POST") {
-        const { name, target, sender, leads: campLeads, stats } = req.body;
-        const campId = `camp_${Date.now()}`;
+        const { id: providedId, name, target, sender, leads: campLeads, stats } = req.body;
+        const campId = providedId || `camp_${Date.now()}`;
         await sql`INSERT INTO campaigns (id,user_id,name,created_at,target,sender,total_sent,total_failed,total_skipped,stats) VALUES (${campId},${userId},${name||"Campaign"},${Date.now()},${target||"all"},${sender||""},${stats?.sent||0},${stats?.failed||0},${stats?.skipped||0},${JSON.stringify(stats||{})}) ON CONFLICT (id) DO UPDATE SET total_sent=EXCLUDED.total_sent,stats=EXCLUDED.stats`;
         if (campLeads?.length) {
           for (const l of campLeads) {

@@ -125,6 +125,7 @@ export default function Campaign() {
     let processed = 0
     const updatedLeads = [...leads]
 
+    const campaignDataLeads = []
     for (let i = 0; i < targets.length; i++) {
         const l = targets[i]; setStatus(`Processing: ${l.name}`); setProgress(Math.round(((i+1)/targets.length)*100))
         const profile = senderProfiles[i % senderProfiles.length]
@@ -134,14 +135,22 @@ export default function Campaign() {
             addLog(`✓ Sent to ${l.name}`, 'success'); processed++
             const idx = updatedLeads.findIndex(x=>x.id===l.id)
             if(idx!==-1) updatedLeads[idx] = {...updatedLeads[idx], status:'SENT', lastSent:new Date().toISOString()}
-        } else { addLog(`✗ Failed for ${l.name}`, 'error') }
+            campaignDataLeads.push({ id: l.id, name: l.name, email: l.email, company: l.company, status: 'SENT', subject })
+        } else { 
+            addLog(`✗ Failed for ${l.name}`, 'error')
+            campaignDataLeads.push({ id: l.id, name: l.name, email: l.email, company: l.company, status: 'FAILED', subject })
+        }
         if (i < targets.length-1 && cfg.rate > 0) await new Promise(r=>setTimeout(r, cfg.rate*1000))
     }
 
     setLeads(updatedLeads)
     const campaignData = {
-        id: campaignId, name: campaignName, target: cfg.target, sender: cfg.sender, stats: { sent: processed, failed: targets.length-processed, skipped: 0 },
-        leads: targets.map(l => ({ id: l.id, name: l.name, email: l.email, company: l.company, status: 'SENT' }))
+        id: campaignId, 
+        name: campaignName, 
+        target: cfg.target, 
+        sender: cfg.sender, 
+        stats: { sent: processed, failed: targets.length-processed, skipped: 0 },
+        leads: campaignDataLeads
     }
     await fetch('/api/campaigns', { method:'POST', headers:{'Content-Type':'application/json', 'Authorization': `Bearer ${localStorage.getItem('crm_token')}`}, body: JSON.stringify(campaignData) })
 
