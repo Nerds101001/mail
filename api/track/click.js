@@ -1,8 +1,7 @@
 // api/track/click.js — Email click tracking
-// Writes to BOTH DB and Redis for dual tracking
+// Uses Postgres-backed KV store for tracking
 
-const { neon } = require("@neondatabase/serverless");
-const { incr } = require("../_redis");
+const { incr, logEvent } = require("../_redis");
 
 function isSafeUrl(u) {
   try { const p = new URL(u).protocol; return p === "http:" || p === "https:"; } catch { return false; }
@@ -15,32 +14,25 @@ module.exports = async (req, res) => {
   if (id) {
     console.log(`[TRACK CLICK] Lead ID: ${id}, URL: ${decoded}`);
     try {
-      // Update Redis counter (for fast stats retrieval)
-      const count = await incr(`track:click:${id}`).catch(e => {
-        console.error("Redis incr failed:", e.message);
-        return null;
+      // Increment counter in kv_store
+      const count = await incr(`track:click:${id}`);
+      console.log(`[TRACK CLICK] Count for ${id}: ${count}`);
+
+      // Log detailed event
+      const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.headers["x-real-ip"] || "unknown";
+      const ua = req.headers["user-agent"] || "unknown";
+      
+      await logEvent({
+        lead_id: id,
+        event_type: 'click',
+        ip: ip,
+        user_agent: ua,
+        target_url: decoded
       });
-      console.log(`[TRACK CLICK] Redis count for ${id}: ${count}`);
-
-      // Also write to database for detailed event log
-      const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
-      if (dbUrl) {
-        const sql = neon(dbUrl);
-        const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.headers["x-real-ip"] || "unknown";
-        const ua = req.headers["user-agent"] || "unknown";
-
-        await sql.transaction([
-          sql`CREATE TABLE IF NOT EXISTS tracking_events (id SERIAL PRIMARY KEY, lead_id TEXT NOT NULL, event_type TEXT NOT NULL, ip TEXT, user_agent TEXT, target_url TEXT, created_at BIGINT NOT NULL)`,
-          sql`INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, created_at) VALUES (${id}, 'click', ${ip}, ${ua}, ${decoded}, ${Date.now()})`,
-        ]).catch(async () => {
-          await sql`INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, created_at) VALUES (${id}, 'click', ${ip}, ${ua}, ${decoded}, ${Date.now()})`.catch(()=>{});
-        });
-        console.log(`[TRACK CLICK] DB event logged for ${id}`);
-      } else {
-        console.warn("[TRACK CLICK] No database URL configured");
-      }
+      
+      console.log(`[TRACK CLICK] Event logged for ${id}`);
     } catch(e) {
-      console.error("[TRACK CLICK] Error:", e.message);
+      console.error("[TRACK CLICK] Error:", e.message, e.stack);
     }
   }
 

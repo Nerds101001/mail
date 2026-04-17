@@ -1,8 +1,7 @@
 // api/track/open.js — Email open tracking
-// Writes to BOTH DB and Redis for dual tracking
+// Uses Postgres-backed KV store for tracking
 
-const { neon } = require("@neondatabase/serverless");
-const { incr } = require("../_redis");
+const { incr, logEvent } = require("../_redis");
 
 const PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
 
@@ -12,34 +11,25 @@ module.exports = async (req, res) => {
   if (id) {
     console.log(`[TRACK OPEN] Lead ID: ${id}`);
     try {
-      // Update Redis counter (for fast stats retrieval)
-      const count = await incr(`track:open:${id}`).catch(e => {
-        console.error("Redis incr failed:", e.message);
-        return null;
+      // Increment counter in kv_store
+      const count = await incr(`track:open:${id}`);
+      console.log(`[TRACK OPEN] Count for ${id}: ${count}`);
+
+      // Log detailed event
+      const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.headers["x-real-ip"] || "unknown";
+      const ua = req.headers["user-agent"] || "unknown";
+      
+      await logEvent({
+        lead_id: id,
+        event_type: 'open',
+        ip: ip,
+        user_agent: ua,
+        target_url: null
       });
-      console.log(`[TRACK OPEN] Redis count for ${id}: ${count}`);
-
-      // Also write to database for detailed event log
-      const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
-      if (dbUrl) {
-        const sql = neon(dbUrl);
-        const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.headers["x-real-ip"] || "unknown";
-        const ua = req.headers["user-agent"] || "unknown";
-
-        // Ensure tables exist then write
-        await sql.transaction([
-          sql`CREATE TABLE IF NOT EXISTS tracking_events (id SERIAL PRIMARY KEY, lead_id TEXT NOT NULL, event_type TEXT NOT NULL, ip TEXT, user_agent TEXT, target_url TEXT, created_at BIGINT NOT NULL)`,
-          sql`INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, created_at) VALUES (${id}, 'open', ${ip}, ${ua}, ${Date.now()})`,
-        ]).catch(async () => {
-          // Fallback: try individually if transaction fails
-          await sql`INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, created_at) VALUES (${id}, 'open', ${ip}, ${ua}, ${Date.now()})`.catch(()=>{});
-        });
-        console.log(`[TRACK OPEN] DB event logged for ${id}`);
-      } else {
-        console.warn("[TRACK OPEN] No database URL configured");
-      }
+      
+      console.log(`[TRACK OPEN] Event logged for ${id}`);
     } catch(e) {
-      console.error("[TRACK OPEN] Error:", e.message);
+      console.error("[TRACK OPEN] Error:", e.message, e.stack);
     }
   }
 

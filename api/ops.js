@@ -63,11 +63,8 @@ module.exports = async (req, res) => {
   if (type === "events") {
     const { leadId } = req.query;
     try {
-      const { neon } = require("@neondatabase/serverless");
-      const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
-      if (!dbUrl) return res.json({ events: [] });
-      
-      const sql = neon(dbUrl);
+      const { getDb } = require("./_redis");
+      const sql = getDb();
       const rows = await sql`
         SELECT event_type, ip, user_agent, target_url, created_at
         FROM tracking_events
@@ -75,10 +72,10 @@ module.exports = async (req, res) => {
         ORDER BY created_at DESC
         LIMIT 100
       `;
-      console.log(`Found ${rows.length} events for lead ${leadId}`);
+      console.log(`[EVENTS] Found ${rows.length} events for lead ${leadId}`);
       return res.json({ events: rows });
     } catch(e) {
-      console.error("Events error:", e.message);
+      console.error("[EVENTS] Error:", e.message, e.stack);
       return res.json({ events: [], error: e.message });
     }
   }
