@@ -46,13 +46,14 @@ export default function Campaign() {
     return '\n\n' + valid.map(a => `📎 ${a.label}: ${a.url}`).join('\n')
   }
 
-  async function getContent(lead, variantPool) {
+  async function getContent(lead, variantPool, index = 0) {
     if (mode === 'custom') {
       const r = s => s.replace(/\[Name\]/g, lead.name||'').replace(/\[Company\]/g, lead.company||'').replace(/\[Role\]/g, lead.role||'')
       return { subject: r(customSubj), body: r(customBody) + buildAttachmentText() }
     }
     if (variantPool && variantPool.length > 0) {
-      const v = variantPool[Math.floor(Math.random() * variantPool.length)]
+      // Guaranteed Sequential Rotation (Round-Robin)
+      const v = variantPool[index % variantPool.length]
       const personalize = s => s
         .replace(/\[Name\]/g, lead.name||'').replace(/\[Company\]/g, lead.company||'')
         .replace(/\[Role\]/g, lead.role||'').replace(/their company/gi, lead.company||'your company')
@@ -128,8 +129,13 @@ export default function Campaign() {
     const campaignDataLeads = []
     for (let i = 0; i < targets.length; i++) {
         const l = targets[i]; setStatus(`Processing: ${l.name}`); setProgress(Math.round(((i+1)/targets.length)*100))
+        
+        // Sequential Round-Robin for Senders and AI Variants
         const profile = senderProfiles[i % senderProfiles.length]
-        const { subject, body } = await getContent(l, variants)
+        const vPool   = variants.length > 0 ? variants : null
+        const vData   = await getContent(l, vPool, i) // Pass index i for round-robin
+        const { subject, body } = vData
+        
         const ok = await sendOne(l, subject, body, profile, campaignId)
         if (ok) {
             addLog(`✓ Sent to ${l.name}`, 'success'); processed++
