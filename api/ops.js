@@ -1,81 +1,54 @@
-// api/ops.js — Unified ops endpoint
+// api/ops.js — Unified ops endpoint with improved tracking
 // GET /api/ops?type=tasks          → daily task list
 // GET /api/ops?type=reminder       → send morning digest email
-// GET /api/ops?type=tracking&ids=  → open/click stats
+// GET /api/ops?type=tracking&ids=  → open/click stats (optimized)
+// GET /api/ops?type=events&leadId= → detailed tracking events
 // GET /api/ops?type=gmail-status   → Gmail connection status
-// GET /api/ops?type=open&id=       → tracking pixel (open)
-// GET /api/ops?type=click&id=&url= → click redirect
 
-const { get, set, incr } = require("./_redis");
+const { get, set, getTrackingStats, getTrackingEvents } = require("./_redis");
 const nodemailer = require("nodemailer");
 
 async function safeGet(key, fallback) {
   try { const v = await get(key); return v ? JSON.parse(v) : fallback; } catch(e) { return fallback; }
 }
 
-const PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
-
 function daysDiff(d)  { if(!d) return null; return Math.ceil((new Date(d)-Date.now())/86400000); }
 function daysSince(d) { if(!d) return null; return Math.floor((Date.now()-new Date(d))/86400000); }
 
 module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
-  const path = req.url.split("?")[0];
-  const { type, ids, id, url } = req.query;
+  const { type, ids, leadId } = req.query;
 
-  // ── OPEN TRACKING PIXEL (via /api/track/open?id=... rewrite) ─────────
-  if (path === "/api/track/open" || type === "open") {
-    if (id) { try { await incr(`track:open:${id}`); } catch(e) {} }
-    res.setHeader("Content-Type", "image/gif");
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-    return res.send(PIXEL);
-  }
-
-  // ── CLICK REDIRECT (via /api/track/click?id=...&url=... rewrite) ─────
-  if (path === "/api/track/click" || type === "click") {
-    if (id) { try { await incr(`track:click:${id}`); } catch(e) {} }
-    const decoded = decodeURIComponent(url || "");
-    try { const u = new URL(decoded); if (["http:","https:"].includes(u.protocol)) return res.redirect(decoded); } catch(e) {}
-    return res.redirect("https://enginerds.in");
-  }
-
-  // ── TRACKING STATS ────────────────────────────────────────────────────
+  // ── TRACKING STATS (optimized with dedicated table) ──────────────────
   if (type === "tracking") {
-    if (!ids) return res.json({});
-    const leadIds = ids.split(",").filter(Boolean);
-    const results = await Promise.all(leadIds.map(async lid => {
-      const [opens, clicks] = await Promise.all([
-        get(`track:open:${lid}`).catch(()=>null),
-        get(`track:click:${lid}`).catch(()=>null),
-      ]);
-      return {
-        id: lid,
-        opens: parseInt(opens) || 0,
-        clicks: parseInt(clicks) || 0
-      };
-    }));
-    const stats = {};
-    results.forEach(({id,opens,clicks}) => { stats[id]={opens,clicks}; });
-    return res.json(stats);
+    try {
+      if (!ids) return res.json({});
+      
+      const leadIds = ids.split(",").filter(Boolean);
+      console.log(`📊 [TRACKING STATS] Fetching stats for ${leadIds.length} leads`);
+      
+      const stats = await getTrackingStats(leadIds);
+      console.log(`✅ [TRACKING STATS] Retrieved stats for ${Object.keys(stats).length} leads`);
+      
+      return res.json(stats);
+    } catch(e) {
+      console.error(`❌ [TRACKING STATS ERROR]:`, e.message);
+      return res.status(500).json({ error: "Failed to fetch tracking stats" });
+    }
   }
 
-  // ── TRACKING EVENTS (detailed log) ───────────────────────────────────
+  // ── TRACKING EVENTS (detailed log with better error handling) ────────
   if (type === "events") {
-    const { leadId } = req.query;
     try {
-      const { getDb } = require("./_redis");
-      const sql = getDb();
-      const rows = await sql`
-        SELECT event_type, ip, user_agent, target_url, created_at
-        FROM tracking_events
-        WHERE lead_id = ${leadId}
-        ORDER BY created_at DESC
-        LIMIT 100
-      `;
-      console.log(`[EVENTS] Found ${rows.length} events for lead ${leadId}`);
-      return res.json({ events: rows });
+      if (!leadId) return res.json({ events: [], error: "Missing leadId parameter" });
+      
+      console.log(`📋 [TRACKING EVENTS] Fetching events for lead ${leadId}`);
+      const events = await getTrackingEvents(leadId, 100);
+      
+      console.log(`✅ [TRACKING EVENTS] Found ${events.length} events for lead ${leadId}`);
+      return res.json({ events });
     } catch(e) {
-      console.error("[EVENTS] Error:", e.message, e.stack);
+      console.error(`❌ [TRACKING EVENTS ERROR] Lead ${leadId}:`, e.message);
       return res.json({ events: [], error: e.message });
     }
   }
