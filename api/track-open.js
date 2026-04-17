@@ -19,8 +19,8 @@ module.exports = async (req, res) => {
       if (cid) {
         const sql = getDb();
         tasks.push(
-          sql`UPDATE campaign_leads SET opens = opens + 1, last_open = ${Date.now()} WHERE campaign_id = ${cid} AND lead_id = ${id}`.catch(() => {}),
-          sql`UPDATE campaigns SET stats = jsonb_set(stats::jsonb, '{opens}', (COALESCE(stats::jsonb->>'opens','0')::int + 1)::text::jsonb) WHERE id = ${cid}`.catch(() => {})
+          sql`UPDATE campaign_leads SET opens = opens + 1, status = 'opened', last_open = ${Date.now()} WHERE campaign_id = ${cid} AND lead_id = ${id}`.catch(() => {}),
+          sql`UPDATE campaigns SET stats = jsonb_set(COALESCE(stats, '{}'::jsonb), '{opens}', (COALESCE(stats->>'opens','0')::int + 1)::text::jsonb) WHERE id = ${cid}`.catch(() => {})
         );
       }
 

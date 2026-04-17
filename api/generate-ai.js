@@ -35,7 +35,7 @@ RULES:
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
       body: JSON.stringify({
-        model:       "meta/llama-3.1-70b-instruct",
+        model:       "meta/llama-3.1-8b-instruct",
         messages:    [{ role: "system", content: system }, { role: "user", content: user }],
         temperature: 0.7,
         max_tokens:  3000,

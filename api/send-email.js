@@ -80,13 +80,11 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="x-apple-disable-message-reformatting">
 </head>
-<body style="margin:0;padding:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1a1a1a;">
-  <div style="max-width:600px;margin:0 auto;padding:32px 24px;">
-    <div style="background:#ffffff;">
-      ${paragraphs}
-    </div>
-    <div style="margin-top:40px;padding-top:20px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;text-align:center;">
-      <a href="${unsubUrl}" style="color:#9ca3af;text-decoration:underline;">Unsubscribe</a>
+<body style="margin:0;padding:20px;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.5;color:#000000;text-align:left;">
+  <div style="width:100% !important;min-width:100% !important;">
+    ${paragraphs}
+    <div style="margin-top:40px;padding-top:10px;font-size:12px;color:#888888;">
+      <a href="${unsubUrl}" style="color:#888888;text-decoration:none;">Unsubscribe</a>
     </div>
   </div>
   ${trackingPixel}
