@@ -1,3 +1,5 @@
+const { incr, logEvent } = require("./_redis");
+
 const PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
 
 module.exports = async (req, res) => {
@@ -25,39 +27,19 @@ module.exports = async (req, res) => {
 
           console.log(`🔍 [TRACK OPEN] Lead ID: ${id}, IP: ${ip}, UA: ${ua.substring(0, 50)}...`);
 
-          // Simple database operations using basic SQL
-          try {
-            const { neon } = require("@neondatabase/serverless");
-            const sql = neon(process.env.DATABASE_URL || process.env.POSTGRES_URL);
-            
-            // Create tables if they don't exist (simple version)
-            await sql`
-              CREATE TABLE IF NOT EXISTS simple_tracking (
-                lead_id TEXT PRIMARY KEY,
-                opens INTEGER DEFAULT 0,
-                clicks INTEGER DEFAULT 0,
-                last_open BIGINT,
-                last_click BIGINT
-              )
-            `;
-            
-            // Simple increment operation
-            await sql`
-              INSERT INTO simple_tracking (lead_id, opens, last_open)
-              VALUES (${id}, 1, ${Date.now()})
-              ON CONFLICT (lead_id) DO UPDATE
-                SET opens = simple_tracking.opens + 1,
-                    last_open = ${Date.now()}
-            `;
-            
-            console.log(`✅ [TRACK OPEN SUCCESS] Lead ${id} tracking completed`);
+          // Use simplified tracking system
+          const openCount = await incr(`track:open:${id}`);
+          await logEvent({ 
+            lead_id: id, 
+            event_type: "open", 
+            ip, 
+            user_agent: ua 
+          });
 
-          } catch (dbError) {
-            console.error(`❌ [TRACK OPEN DB ERROR] Lead ${id}:`, dbError.message);
-          }
+          console.log(`✅ [TRACK OPEN SUCCESS] Lead ${id} - Open count: ${openCount}`);
 
         } catch(e) {
-          console.error(`❌ [TRACK OPEN CRITICAL] Lead ${id}:`, e.message);
+          console.error(`❌ [TRACK OPEN ERROR] Lead ${id}:`, e.message);
         }
       });
     }

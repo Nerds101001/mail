@@ -1,4 +1,4 @@
-const { incr, logEvent, getDb } = require("./_redis");
+const { incr, logEvent } = require("./_redis");
 
 function isSafeUrl(urlString) {
   try {
@@ -32,40 +32,20 @@ module.exports = async (req, res) => {
 
         console.log(`🔗 [TRACK CLICK] Lead ID: ${id}, URL: ${decoded}, IP: ${ip}, UA: ${ua.substring(0, 50)}...`);
 
-        // Run tracking operations in parallel
-        const trackingPromises = [
-          incr(`track:click:${id}`).catch(e => console.error("Click counter increment failed:", e.message)),
-          logEvent({ lead_id: id, event_type: "click", ip, user_agent: ua, target_url: decoded }).catch(e => console.error("Click event logging failed:", e.message))
-        ];
+        // Use simplified tracking system
+        const clickCount = await incr(`track:click:${id}`);
+        await logEvent({ 
+          lead_id: id, 
+          event_type: "click", 
+          ip, 
+          user_agent: ua, 
+          target_url: decoded 
+        });
 
-        // Campaign specific click tracking
-        if (cid) {
-          const sql = getDb();
-          trackingPromises.push(
-            sql`UPDATE campaign_leads SET 
-                  clicks = clicks + 1, 
-                  status = CASE WHEN status IN ('sent', 'opened') THEN 'clicked' ELSE status END,
-                  last_click = ${Date.now()} 
-                WHERE campaign_id = ${cid} AND lead_id = ${id}`
-              .catch(e => console.error("Campaign click update failed:", e.message)),
-            
-            sql`UPDATE campaigns SET 
-                  stats = jsonb_set(
-                    COALESCE(stats, '{}'::jsonb), 
-                    '{clicks}', 
-                    (COALESCE(stats->>'clicks','0')::int + 1)::text::jsonb
-                  ) 
-                WHERE id = ${cid}`
-              .catch(e => console.error("Campaign click stats failed:", e.message))
-          );
-        }
-
-        // Execute tracking
-        await Promise.all(trackingPromises);
-        console.log(`✅ [TRACK CLICK SUCCESS] Lead ${id} click tracking completed`);
+        console.log(`✅ [TRACK CLICK SUCCESS] Lead ${id} - Click count: ${clickCount}`);
 
       } catch(e) {
-        console.error(`❌ [TRACK CLICK CRITICAL] Lead ${id}:`, e.message);
+        console.error(`❌ [TRACK CLICK ERROR] Lead ${id}:`, e.message);
       }
     });
   }

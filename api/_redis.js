@@ -1,4 +1,4 @@
-// api/_redis.js — Neon Postgres database helper with proper error handling
+// api/_redis.js — Simplified Neon Postgres database helper
 const { neon } = require("@neondatabase/serverless");
 
 function getDb() {
@@ -7,73 +7,58 @@ function getDb() {
   return neon(url);
 }
 
-// Retry wrapper for database operations
-async function withRetry(operation, maxRetries = 3) {
+// Simplified retry wrapper
+async function withRetry(operation, maxRetries = 2) {
   for (let i = 0; i < maxRetries; i++) {
     try {
       return await operation();
     } catch (e) {
       console.error(`DB operation failed (attempt ${i + 1}/${maxRetries}):`, e.message);
       if (i === maxRetries - 1) throw e;
-      await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+      await new Promise(r => setTimeout(r, 500));
     }
   }
 }
 
-// Table creation with proper error handling
-let tableReadyPromise = null;
-function ensureTable() {
-  if (!tableReadyPromise) {
-    tableReadyPromise = withRetry(async () => {
-      const sql = getDb();
-      
-      // Create tables with proper indexes
-      await sql`
-        CREATE TABLE IF NOT EXISTS kv_store (
-          key        TEXT PRIMARY KEY,
-          value      TEXT NOT NULL,
-          expires_at BIGINT DEFAULT NULL
-        )
-      `;
-      
-      await sql`
-        CREATE TABLE IF NOT EXISTS tracking_events (
-          id           SERIAL PRIMARY KEY,
-          lead_id      TEXT NOT NULL,
-          event_type   TEXT NOT NULL,
-          ip           TEXT,
-          user_agent   TEXT,
-          target_url   TEXT,
-          created_at   BIGINT NOT NULL
-        )
-      `;
-      
-      await sql`
-        CREATE TABLE IF NOT EXISTS tracking_counters (
-          lead_id     TEXT PRIMARY KEY,
-          opens       INTEGER DEFAULT 0,
-          clicks      INTEGER DEFAULT 0,
-          updated_at  BIGINT DEFAULT 0
-        )
-      `;
-      
-      // Add indexes for better performance
-      await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_lead_id ON tracking_events(lead_id)`;
-      await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_created_at ON tracking_events(created_at DESC)`;
-      await sql`CREATE INDEX IF NOT EXISTS idx_kv_store_expires ON kv_store(expires_at) WHERE expires_at IS NOT NULL`;
-      
-      console.log("✅ Database tables initialized successfully");
-    }).catch(e => { 
-      tableReadyPromise = null; 
-      console.error("❌ Database initialization failed:", e.message);
-      throw e; 
-    });
+// Simplified table initialization
+let tablesInitialized = false;
+async function ensureTable() {
+  if (tablesInitialized) return;
+  
+  try {
+    const sql = getDb();
+    
+    // Create simple tracking table
+    await sql`
+      CREATE TABLE IF NOT EXISTS simple_tracking (
+        lead_id TEXT PRIMARY KEY,
+        opens INTEGER DEFAULT 0,
+        clicks INTEGER DEFAULT 0,
+        last_open BIGINT,
+        last_click BIGINT
+      )
+    `;
+    
+    // Create basic kv store
+    await sql`
+      CREATE TABLE IF NOT EXISTS kv_store (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        expires_at BIGINT DEFAULT NULL
+      )
+    `;
+    
+    tablesInitialized = true;
+    console.log("✅ Database tables initialized successfully");
+  } catch (e) {
+    console.error("❌ Database initialization failed:", e.message);
+    throw e;
   }
-  return tableReadyPromise;
 }
 
+// Simplified database operations
 async function get(key) {
-  return withRetry(async () => {
+  try {
     await ensureTable();
     const sql = getDb();
     const rows = await sql`
@@ -83,11 +68,14 @@ async function get(key) {
       LIMIT 1
     `;
     return rows[0]?.value ?? null;
-  });
+  } catch (e) {
+    console.error(`Get failed for key ${key}:`, e.message);
+    return null;
+  }
 }
 
 async function set(key, value, exSeconds = null) {
-  return withRetry(async () => {
+  try {
     await ensureTable();
     const sql = getDb();
     const expiresAt = exSeconds ? Date.now() + exSeconds * 1000 : null;
@@ -98,44 +86,49 @@ async function set(key, value, exSeconds = null) {
         SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at
     `;
     return "OK";
-  });
+  } catch (e) {
+    console.error(`Set failed for key ${key}:`, e.message);
+    throw e;
+  }
 }
 
-// Improved tracking counter increment with atomic operations
+// Simplified tracking increment
 async function incr(key) {
-  return withRetry(async () => {
+  try {
     await ensureTable();
     const sql = getDb();
     
-    // For tracking counters, use dedicated table for better performance
+    // Handle tracking keys specially
     if (key.startsWith('track:open:') || key.startsWith('track:click:')) {
       const leadId = key.split(':')[2];
-      const field = key.startsWith('track:open:') ? 'opens' : 'clicks';
+      const isOpen = key.startsWith('track:open:');
       
-      if (field === 'opens') {
+      if (isOpen) {
         const rows = await sql`
-          INSERT INTO tracking_counters (lead_id, opens, updated_at)
+          INSERT INTO simple_tracking (lead_id, opens, last_open)
           VALUES (${leadId}, 1, ${Date.now()})
           ON CONFLICT (lead_id) DO UPDATE
-            SET opens = tracking_counters.opens + 1,
-                updated_at = ${Date.now()}
+            SET opens = simple_tracking.opens + 1,
+                last_open = ${Date.now()}
           RETURNING opens
         `;
+        console.log(`✅ [INCR] Open count for ${leadId}: ${rows[0].opens}`);
         return parseInt(rows[0].opens);
       } else {
         const rows = await sql`
-          INSERT INTO tracking_counters (lead_id, clicks, updated_at)
+          INSERT INTO simple_tracking (lead_id, clicks, last_click)
           VALUES (${leadId}, 1, ${Date.now()})
           ON CONFLICT (lead_id) DO UPDATE
-            SET clicks = tracking_counters.clicks + 1,
-                updated_at = ${Date.now()}
+            SET clicks = simple_tracking.clicks + 1,
+                last_click = ${Date.now()}
           RETURNING clicks
         `;
+        console.log(`✅ [INCR] Click count for ${leadId}: ${rows[0].clicks}`);
         return parseInt(rows[0].clicks);
       }
     }
     
-    // Fallback to kv_store for other counters
+    // Fallback for other keys
     const rows = await sql`
       INSERT INTO kv_store (key, value, expires_at)
       VALUES (${key}, '1', NULL)
@@ -144,16 +137,22 @@ async function incr(key) {
       RETURNING value
     `;
     return parseInt(rows[0].value);
-  });
+  } catch (e) {
+    console.error(`Incr failed for key ${key}:`, e.message);
+    throw e;
+  }
 }
 
 async function del(key) {
-  return withRetry(async () => {
+  try {
     await ensureTable();
     const sql = getDb();
     await sql`DELETE FROM kv_store WHERE key = ${key}`;
     return 1;
-  });
+  } catch (e) {
+    console.error(`Delete failed for key ${key}:`, e.message);
+    return 0;
+  }
 }
 
 async function hset(hash, field, value) {
@@ -161,7 +160,7 @@ async function hset(hash, field, value) {
 }
 
 async function hgetall(hash) {
-  return withRetry(async () => {
+  try {
     await ensureTable();
     const sql = getDb();
     const rows = await sql`
@@ -173,24 +172,44 @@ async function hgetall(hash) {
     const prefix = hash + ":";
     rows.forEach(r => { obj[r.key.slice(prefix.length)] = r.value; });
     return obj;
-  });
+  } catch (e) {
+    console.error(`Hgetall failed for hash ${hash}:`, e.message);
+    return {};
+  }
 }
 
+// Simplified event logging
 async function logEvent({ lead_id, event_type, ip, user_agent, target_url = null }) {
-  return withRetry(async () => {
+  try {
     await ensureTable();
     const sql = getDb();
+    
+    // Create events table if it doesn't exist
+    await sql`
+      CREATE TABLE IF NOT EXISTS tracking_events (
+        id SERIAL PRIMARY KEY,
+        lead_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        ip TEXT,
+        user_agent TEXT,
+        target_url TEXT,
+        created_at BIGINT NOT NULL
+      )
+    `;
+    
     await sql`
       INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, created_at)
       VALUES (${lead_id}, ${event_type}, ${ip}, ${user_agent}, ${target_url}, ${Date.now()})
     `;
     console.log(`✅ [EVENT LOGGED] ${event_type.toUpperCase()} for lead ${lead_id}`);
-  }, 2); // Only 2 retries for logging to avoid delays
+  } catch (e) {
+    console.error(`❌ [EVENT LOG FAILED] ${event_type} for lead ${lead_id}:`, e.message);
+  }
 }
 
-// Get tracking stats for multiple leads efficiently
+// Get tracking stats
 async function getTrackingStats(leadIds) {
-  return withRetry(async () => {
+  try {
     await ensureTable();
     const sql = getDb();
     
@@ -198,7 +217,7 @@ async function getTrackingStats(leadIds) {
     
     const rows = await sql`
       SELECT lead_id, opens, clicks 
-      FROM tracking_counters 
+      FROM simple_tracking 
       WHERE lead_id = ANY(${leadIds})
     `;
     
@@ -218,12 +237,15 @@ async function getTrackingStats(leadIds) {
     });
     
     return stats;
-  });
+  } catch (e) {
+    console.error(`Get tracking stats failed:`, e.message);
+    return {};
+  }
 }
 
-// Get tracking events for a specific lead
+// Get tracking events
 async function getTrackingEvents(leadId, limit = 100) {
-  return withRetry(async () => {
+  try {
     await ensureTable();
     const sql = getDb();
     
@@ -236,7 +258,10 @@ async function getTrackingEvents(leadId, limit = 100) {
     `;
     
     return rows;
-  });
+  } catch (e) {
+    console.error(`Get tracking events failed for lead ${leadId}:`, e.message);
+    return [];
+  }
 }
 
 module.exports = { 
