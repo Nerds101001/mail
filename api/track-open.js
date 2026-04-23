@@ -2,16 +2,16 @@ const PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBR
 
 module.exports = async (req, res) => {
   try {
-    // Always return pixel headers first - don't wait for anything
+    // Always return pixel headers first
     res.setHeader("Content-Type", "image/gif");
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
     res.setHeader("Access-Control-Allow-Origin", "*");
 
-    const { id, cid } = req.query; // id=leadId, cid=campaignId
+    const { id, cid } = req.query;
 
-    // Return pixel immediately, then do tracking in background
+    // Return pixel immediately
     res.send(PIXEL);
 
     // Do tracking asynchronously after response is sent
@@ -20,51 +20,40 @@ module.exports = async (req, res) => {
         try {
           const ip = (req.headers["x-forwarded-for"]?.split(",")[0]?.trim()) || 
                      req.headers["x-real-ip"] || 
-                     req.connection?.remoteAddress || 
                      "unknown";
           const ua = req.headers["user-agent"] || "unknown";
 
           console.log(`🔍 [TRACK OPEN] Lead ID: ${id}, IP: ${ip}, UA: ${ua.substring(0, 50)}...`);
 
-          // Try to import and use database functions, but don't fail if they don't work
+          // Simple database operations using basic SQL
           try {
-            const { incr, logEvent, getDb } = require("./_redis");
+            const { neon } = require("@neondatabase/serverless");
+            const sql = neon(process.env.DATABASE_URL || process.env.POSTGRES_URL);
             
-            // Run tracking operations but don't block
-            const trackingPromises = [
-              incr(`track:open:${id}`).catch(e => console.error("Counter increment failed:", e.message)),
-              logEvent({ lead_id: id, event_type: "open", ip, user_agent: ua }).catch(e => console.error("Event logging failed:", e.message))
-            ];
-
-            // If campaign ID exists, update campaign-specific stats
-            if (cid) {
-              const sql = getDb();
-              trackingPromises.push(
-                sql`UPDATE campaign_leads SET 
-                      opens = opens + 1, 
-                      status = CASE WHEN status = 'sent' THEN 'opened' ELSE status END,
-                      last_open = ${Date.now()} 
-                    WHERE campaign_id = ${cid} AND lead_id = ${id}`
-                  .catch(e => console.error("Campaign lead update failed:", e.message)),
-                
-                sql`UPDATE campaigns SET 
-                      stats = jsonb_set(
-                        COALESCE(stats, '{}'::jsonb), 
-                        '{opens}', 
-                        (COALESCE(stats->>'opens','0')::int + 1)::text::jsonb
-                      ) 
-                    WHERE id = ${cid}`
-                  .catch(e => console.error("Campaign stats update failed:", e.message))
-              );
-            }
-
-            // Execute all tracking operations
-            await Promise.all(trackingPromises);
+            // Create tables if they don't exist (simple version)
+            await sql`
+              CREATE TABLE IF NOT EXISTS simple_tracking (
+                lead_id TEXT PRIMARY KEY,
+                opens INTEGER DEFAULT 0,
+                clicks INTEGER DEFAULT 0,
+                last_open BIGINT,
+                last_click BIGINT
+              )
+            `;
+            
+            // Simple increment operation
+            await sql`
+              INSERT INTO simple_tracking (lead_id, opens, last_open)
+              VALUES (${id}, 1, ${Date.now()})
+              ON CONFLICT (lead_id) DO UPDATE
+                SET opens = simple_tracking.opens + 1,
+                    last_open = ${Date.now()}
+            `;
+            
             console.log(`✅ [TRACK OPEN SUCCESS] Lead ${id} tracking completed`);
 
           } catch (dbError) {
             console.error(`❌ [TRACK OPEN DB ERROR] Lead ${id}:`, dbError.message);
-            // Continue without database tracking - at least the pixel was served
           }
 
         } catch(e) {

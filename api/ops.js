@@ -19,7 +19,7 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   const { type, ids, leadId } = req.query;
 
-  // ── TRACKING STATS (optimized with dedicated table) ──────────────────
+  // ── TRACKING STATS (simplified with direct database access) ──────────────────
   if (type === "tracking") {
     try {
       if (!ids) return res.json({});
@@ -27,10 +27,46 @@ module.exports = async (req, res) => {
       const leadIds = ids.split(",").filter(Boolean);
       console.log(`📊 [TRACKING STATS] Fetching stats for ${leadIds.length} leads`);
       
-      const stats = await getTrackingStats(leadIds);
-      console.log(`✅ [TRACKING STATS] Retrieved stats for ${Object.keys(stats).length} leads`);
+      // Direct database access with simple query
+      const { neon } = require("@neondatabase/serverless");
+      const sql = neon(process.env.DATABASE_URL || process.env.POSTGRES_URL);
       
+      // Create table if it doesn't exist
+      await sql`
+        CREATE TABLE IF NOT EXISTS simple_tracking (
+          lead_id TEXT PRIMARY KEY,
+          opens INTEGER DEFAULT 0,
+          clicks INTEGER DEFAULT 0,
+          last_open BIGINT,
+          last_click BIGINT
+        )
+      `;
+      
+      // Get stats for requested leads
+      const rows = await sql`
+        SELECT lead_id, opens, clicks 
+        FROM simple_tracking 
+        WHERE lead_id = ANY(${leadIds})
+      `;
+      
+      const stats = {};
+      rows.forEach(row => {
+        stats[row.lead_id] = {
+          opens: parseInt(row.opens) || 0,
+          clicks: parseInt(row.clicks) || 0
+        };
+      });
+      
+      // Fill in missing leads with zero counts
+      leadIds.forEach(id => {
+        if (!stats[id]) {
+          stats[id] = { opens: 0, clicks: 0 };
+        }
+      });
+      
+      console.log(`✅ [TRACKING STATS] Retrieved stats for ${Object.keys(stats).length} leads`);
       return res.json(stats);
+      
     } catch(e) {
       console.error(`❌ [TRACKING STATS ERROR]:`, e.message);
       return res.status(500).json({ error: "Failed to fetch tracking stats" });
