@@ -112,15 +112,27 @@ async function incr(key) {
       const leadId = key.split(':')[2];
       const field = key.startsWith('track:open:') ? 'opens' : 'clicks';
       
-      const rows = await sql`
-        INSERT INTO tracking_counters (lead_id, ${sql(field)}, updated_at)
-        VALUES (${leadId}, 1, ${Date.now()})
-        ON CONFLICT (lead_id) DO UPDATE
-          SET ${sql(field)} = tracking_counters.${sql(field)} + 1,
-              updated_at = ${Date.now()}
-        RETURNING ${sql(field)}
-      `;
-      return parseInt(rows[0][field]);
+      if (field === 'opens') {
+        const rows = await sql`
+          INSERT INTO tracking_counters (lead_id, opens, updated_at)
+          VALUES (${leadId}, 1, ${Date.now()})
+          ON CONFLICT (lead_id) DO UPDATE
+            SET opens = tracking_counters.opens + 1,
+                updated_at = ${Date.now()}
+          RETURNING opens
+        `;
+        return parseInt(rows[0].opens);
+      } else {
+        const rows = await sql`
+          INSERT INTO tracking_counters (lead_id, clicks, updated_at)
+          VALUES (${leadId}, 1, ${Date.now()})
+          ON CONFLICT (lead_id) DO UPDATE
+            SET clicks = tracking_counters.clicks + 1,
+                updated_at = ${Date.now()}
+          RETURNING clicks
+        `;
+        return parseInt(rows[0].clicks);
+      }
     }
     
     // Fallback to kv_store for other counters
