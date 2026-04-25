@@ -5,7 +5,10 @@ module.exports = async (req, res) => {
   try {
     const { ids } = req.query;
     
+    console.log(`📊 [TRACKING STATS] Raw query:`, req.query);
+    
     if (!ids) {
+      console.log(`📊 [TRACKING STATS] No IDs provided`);
       return res.json({});
     }
     
@@ -14,12 +17,18 @@ module.exports = async (req, res) => {
     
     const sql = neon(process.env.DATABASE_URL || process.env.POSTGRES_URL);
     
+    // Debug: Check what's in the table
+    const allRows = await sql`SELECT * FROM simple_tracking LIMIT 10`;
+    console.log(`📊 [TRACKING STATS] All rows in simple_tracking:`, allRows);
+    
     // Get stats from simple_tracking table
     const rows = await sql`
       SELECT lead_id, opens, clicks 
       FROM simple_tracking 
       WHERE lead_id = ANY(${leadIds})
     `;
+    
+    console.log(`📊 [TRACKING STATS] Query result:`, rows);
     
     const stats = {};
     rows.forEach(row => {
@@ -36,11 +45,11 @@ module.exports = async (req, res) => {
       }
     });
     
-    console.log(`✅ [TRACKING STATS] Returning stats:`, stats);
+    console.log(`✅ [TRACKING STATS] Final stats:`, stats);
     return res.json(stats);
     
   } catch (error) {
-    console.error(`❌ [TRACKING STATS ERROR]:`, error.message);
-    return res.status(500).json({ error: "Failed to fetch tracking stats" });
+    console.error(`❌ [TRACKING STATS ERROR]:`, error.message, error.stack);
+    return res.status(500).json({ error: "Failed to fetch tracking stats", details: error.message });
   }
 };
