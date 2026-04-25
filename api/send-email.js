@@ -105,8 +105,13 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
     })
     .join('')
 
-  const trackingPixel = `<img src="${appUrl}/api/track/open?id=${leadId}${cidParam}" width="1" height="1" alt="" style="display:none;border:0;"/>`
-  const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`
+  // Build tracking pixel with proper encoding to avoid HTML entity issues
+  const trackingPixelUrl = `${appUrl}/api/track/open?id=${leadId}${cidParam}`;
+  const trackingPixel = `<img src="${trackingPixelUrl}" width="1" height="1" alt="" style="display:none;border:0;" />`;
+  const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`;
+
+  console.log(`🔍 [EMAIL BUILD] Tracking pixel URL: ${trackingPixelUrl}`);
+  console.log(`🔍 [EMAIL BUILD] Lead ID: ${leadId}, Campaign ID: ${campaignId}`);
 
   return `<!DOCTYPE html>
 <html lang="en">
