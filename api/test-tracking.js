@@ -1,4 +1,4 @@
-// api/test-tracking.js — Simple tracking test endpoint
+// api/test-tracking.js — Simple tracking test endpoint (updated)
 const { incr, logEvent, getTrackingStats, ensureTable } = require("./_redis");
 
 module.exports = async (req, res) => {
