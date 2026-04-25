@@ -95,6 +95,7 @@ async function set(key, value, exSeconds = null) {
 // Simplified tracking increment
 async function incr(key) {
   try {
+    console.log(`🔍 [INCR] Starting increment for key: ${key}`);
     await ensureTable();
     const sql = getDb();
     
@@ -102,6 +103,8 @@ async function incr(key) {
     if (key.startsWith('track:open:') || key.startsWith('track:click:')) {
       const leadId = key.split(':')[2];
       const isOpen = key.startsWith('track:open:');
+      
+      console.log(`🔍 [INCR] Processing ${isOpen ? 'OPEN' : 'CLICK'} for lead: ${leadId}`);
       
       if (isOpen) {
         const rows = await sql`
@@ -138,7 +141,7 @@ async function incr(key) {
     `;
     return parseInt(rows[0].value);
   } catch (e) {
-    console.error(`Incr failed for key ${key}:`, e.message);
+    console.error(`❌ [INCR] Failed for key ${key}:`, e.message, e.stack);
     throw e;
   }
 }
