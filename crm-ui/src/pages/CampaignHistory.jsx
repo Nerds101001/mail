@@ -8,6 +8,7 @@ export default function CampaignHistory() {
   const [loading, setLoading]     = useState(true)
   const [expanded, setExpanded]   = useState(null)
   const [detail, setDetail]       = useState(null)
+  const [trackingData, setTrackingData] = useState({})
 
   useEffect(() => { load() }, [])
 
@@ -21,12 +22,48 @@ export default function CampaignHistory() {
   }
 
   async function expand(id) {
-    if (expanded === id) { setExpanded(null); setDetail(null); return }
+    if (expanded === id) { setExpanded(null); setDetail(null); setTrackingData({}); return }
     setExpanded(id)
     try {
       const res = await fetch(`/api/campaigns?id=${id}`)
-      if (res.ok) setDetail(await res.json())
-    } catch(e) {}
+      if (res.ok) {
+        const campaignDetail = await res.json()
+        setDetail(campaignDetail)
+        
+        // Fetch tracking data for all leads in this campaign
+        if (campaignDetail.leads?.length > 0) {
+          const leadIds = campaignDetail.leads.map(l => l.lead_id).filter(Boolean).join(',')
+          if (leadIds) {
+            try {
+              const trackingRes = await fetch(`/api/tracking-stats?ids=${leadIds}`)
+              if (trackingRes.ok) {
+                const tracking = await trackingRes.json()
+                setTrackingData(tracking)
+                console.log('📊 [CAMPAIGN] Loaded tracking data:', tracking)
+              }
+            } catch (trackingError) {
+              console.error('Failed to load tracking data:', trackingError)
+            }
+          }
+        }
+      }
+    } catch(e) {
+      console.error('Failed to load campaign details:', e)
+    }
+  }
+
+  // Enhanced status logic with tracking data
+  function getEnhancedStatus(lead) {
+    const leadTracking = trackingData[lead.lead_id]
+    if (leadTracking) {
+      if (leadTracking.clicks > 0) {
+        return { status: 'clicked', display: `clicked ${leadTracking.clicks}x` }
+      }
+      if (leadTracking.opens > 0) {
+        return { status: 'opened', display: `opened ${leadTracking.opens}x` }
+      }
+    }
+    return { status: lead.status, display: lead.status }
   }
 
   const statusColor = {
@@ -103,18 +140,41 @@ export default function CampaignHistory() {
                     <tbody>
                       {detail.leads?.length === 0 ? (
                         <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-400">No lead details recorded</td></tr>
-                      ) : detail.leads?.map((l, i) => (
-                        <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
-                          <td className="px-4 py-2 font-semibold text-slate-800">{l.lead_name || '—'}</td>
-                          <td className="px-4 py-2 text-slate-500 font-mono">{l.lead_email}</td>
-                          <td className="px-4 py-2 text-slate-600">{l.lead_company || '—'}</td>
-                          <td className="px-4 py-2">
-                            <span className={`badge text-[10px] ${statusColor[l.status] || 'bg-slate-100 text-slate-600'}`}>{l.status}</span>
-                          </td>
-                          <td className="px-4 py-2 text-slate-500 max-w-[200px] truncate">{l.subject || '—'}</td>
-                          <td className="px-4 py-2 text-slate-400">{l.sent_at ? new Date(parseInt(l.sent_at)).toLocaleTimeString('en-IN') : '—'}</td>
-                        </tr>
-                      ))}
+                      ) : detail.leads?.map((l, i) => {
+                        const enhancedStatus = getEnhancedStatus(l)
+                        const leadTracking = trackingData[l.lead_id]
+                        
+                        return (
+                          <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                            <td className="px-4 py-2 font-semibold text-slate-800">{l.lead_name || '—'}</td>
+                            <td className="px-4 py-2 text-slate-500 font-mono">{l.lead_email}</td>
+                            <td className="px-4 py-2 text-slate-600">{l.lead_company || '—'}</td>
+                            <td className="px-4 py-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`badge text-[10px] ${statusColor[enhancedStatus.status] || 'bg-slate-100 text-slate-600'}`}>
+                                  {enhancedStatus.display}
+                                </span>
+                                {leadTracking && (leadTracking.opens > 0 || leadTracking.clicks > 0) && (
+                                  <div className="flex items-center gap-1 text-xs text-slate-400">
+                                    {leadTracking.opens > 0 && (
+                                      <span className="flex items-center gap-1">
+                                        <Eye size={10} />{leadTracking.opens}
+                                      </span>
+                                    )}
+                                    {leadTracking.clicks > 0 && (
+                                      <span className="flex items-center gap-1">
+                                        <MousePointer size={10} />{leadTracking.clicks}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-2 text-slate-500 max-w-[200px] truncate">{l.subject || '—'}</td>
+                            <td className="px-4 py-2 text-slate-400">{l.sent_at ? new Date(parseInt(l.sent_at)).toLocaleTimeString('en-IN') : '—'}</td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
