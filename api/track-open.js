@@ -27,19 +27,30 @@ module.exports = async (req, res) => {
 
           console.log(`🔍 [TRACK OPEN] Lead ID: ${id}, IP: ${ip}, UA: ${ua.substring(0, 50)}...`);
 
-          // Use simplified tracking system
-          const openCount = await incr(`track:open:${id}`);
-          await logEvent({ 
-            lead_id: id, 
-            event_type: "open", 
-            ip, 
-            user_agent: ua 
-          });
+          // Use simplified tracking system with proper error handling
+          try {
+            const openCount = await incr(`track:open:${id}`);
+            console.log(`✅ [TRACK OPEN] Incr successful - Lead ${id}, Count: ${openCount}`);
+          } catch (incrError) {
+            console.error(`❌ [TRACK OPEN] Incr failed for ${id}:`, incrError.message, incrError.stack);
+          }
+          
+          try {
+            await logEvent({ 
+              lead_id: id, 
+              event_type: "open", 
+              ip, 
+              user_agent: ua 
+            });
+            console.log(`✅ [TRACK OPEN] LogEvent successful for ${id}`);
+          } catch (logError) {
+            console.error(`❌ [TRACK OPEN] LogEvent failed for ${id}:`, logError.message);
+          }
 
-          console.log(`✅ [TRACK OPEN SUCCESS] Lead ${id} - Open count: ${openCount}`);
+          console.log(`✅ [TRACK OPEN SUCCESS] Lead ${id} tracking completed`);
 
         } catch(e) {
-          console.error(`❌ [TRACK OPEN ERROR] Lead ${id}:`, e.message);
+          console.error(`❌ [TRACK OPEN ERROR] Lead ${id}:`, e.message, e.stack);
         }
       });
     }
