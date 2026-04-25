@@ -5,6 +5,7 @@
     { "source": "/api/gmail-auth",             "destination": "/api/gmail?type=auth" },
     { "source": "/api/gmail-callback",         "destination": "/api/gmail?type=callback" },
     { "source": "/api/gmail-status",           "destination": "/api/gmail?type=status" },
+    { "source": "/api/auth",                   "destination": "/api/quick-fix-auth" },
     { "source": "/api/tasks",                  "destination": "/api/ops?type=tasks" },
     { "source": "/api/send-reminder",          "destination": "/api/ops?type=reminder" },
     { "source": "/api/get-crm-data",           "destination": "/api/crm?type=load" },
