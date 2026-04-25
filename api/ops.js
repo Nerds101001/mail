@@ -22,19 +22,25 @@ module.exports = async (req, res) => {
   // ── TRACKING STATS (using simplified tracking system) ──────────────────
   if (type === "tracking") {
     try {
-      if (!ids) return res.json({});
+      console.log(`📊 [OPS TRACKING] Request received:`, { type, ids, leadId, query: req.query });
+      
+      if (!ids) {
+        console.log(`📊 [OPS TRACKING] No IDs provided, returning empty object`);
+        return res.json({});
+      }
       
       const leadIds = ids.split(",").filter(Boolean);
-      console.log(`📊 [TRACKING STATS] Fetching stats for ${leadIds.length} leads`);
+      console.log(`📊 [OPS TRACKING] Processing ${leadIds.length} lead IDs:`, leadIds);
       
       const stats = await getTrackingStats(leadIds);
+      console.log(`📊 [OPS TRACKING] Retrieved stats:`, stats);
       
-      console.log(`✅ [TRACKING STATS] Retrieved stats for ${Object.keys(stats).length} leads`);
+      console.log(`✅ [OPS TRACKING] Returning stats for ${Object.keys(stats).length} leads`);
       return res.json(stats);
       
     } catch(e) {
-      console.error(`❌ [TRACKING STATS ERROR]:`, e.message);
-      return res.status(500).json({ error: "Failed to fetch tracking stats" });
+      console.error(`❌ [OPS TRACKING ERROR]:`, e.message, e.stack);
+      return res.status(500).json({ error: "Failed to fetch tracking stats", details: e.message });
     }
   }
 
