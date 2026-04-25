@@ -42,7 +42,7 @@ export default function Tracking() {
   async function viewEvents(leadId) {
     setSelectedLead(leadId)
     try {
-      const res = await fetch(`/api/ops?type=events&leadId=${leadId}`)
+      const res = await fetch(`/api/events?leadId=${leadId}`)
       const data = await res.json()
       setEventLog(data.events || [])
     } catch(e) { setEventLog([]) }
