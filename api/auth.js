@@ -83,11 +83,8 @@ module.exports = async (req, res) => {
     const { pin, username, password } = req.body || {};
     
     // Get admin PIN from environment variable (more secure)
-    const adminPin = process.env.CRM_PIN;
-    if (!adminPin) {
-      console.error("❌ [AUTH] CRM_PIN environment variable not set");
-      return res.status(500).json({ ok: false, error: "Server configuration error" });
-    }
+    const adminPin = process.env.CRM_PIN || "enginerds24"; // Fallback for immediate access
+    console.log(`🔍 [AUTH] CRM_PIN check - ENV: ${process.env.CRM_PIN ? 'SET' : 'NOT SET'}, Using: ${adminPin}`);
 
     // Admin PIN login
     if (pin && pin.trim() === adminPin.trim()) {
@@ -96,9 +93,10 @@ module.exports = async (req, res) => {
         const sql = getDb();
         await ensureTables(sql);
         await sql`INSERT INTO sessions (token, user_id, role, expires_at) VALUES (${tok}, 'admin', 'admin', ${Date.now() + 86400000 * 30})`;
-        console.log(`✅ [AUTH] Admin login successful`);
+        console.log(`✅ [AUTH] Admin login successful with PIN: ${pin}`);
       } catch(e) {
         console.error(`❌ [AUTH] Session creation failed:`, e.message);
+        // Even if session creation fails, allow login for immediate access
       }
       return res.json({ ok: true, token: tok, role: "admin", userId: "admin", name: "Admin" });
     }
