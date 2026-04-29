@@ -1625,7 +1625,7 @@ async function sendEmailFromModal(){
  AI EMAIL
 ************************************************************/
 async function generateAIEmail(name,company,apiKey,customPrompt='',role='',category=''){
-  const res=await fetch('/api/generate-ai',{method:'POST',headers:{'Content-Type':'application/json'},
+  const res=await fetch('/api/generate-ai-simple',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({name,company,role,category,apiKey,customPrompt})});
   const data=await res.json();
   if(!res.ok) throw new Error(data.error||'AI generation failed');
