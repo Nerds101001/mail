@@ -1978,7 +1978,9 @@ function clearAllData(){
 ************************************************************/
 function saveSettings(){
   settings.openaiKey=document.getElementById('openai-key').value.trim();
-  save(); notify('Settings saved','success');
+  save(); 
+  pushDataToRedis(); // Sync to server so API key persists
+  notify('Settings saved','success');
 }
 
 function renderProfiles(){

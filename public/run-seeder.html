@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Run Demo Seeder</title>
+    <style>
+        body { font-family: system-ui; max-width: 600px; margin: 50px auto; padding: 20px; }
+        .btn { background: #2563eb; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; }
+        .btn:hover { background: #1d4ed8; }
+        .result { margin-top: 20px; padding: 15px; border-radius: 6px; }
+        .success { background: #dcfce7; border: 1px solid #16a34a; color: #15803d; }
+        .error { background: #fef2f2; border: 1px solid #ef4444; color: #dc2626; }
+        .loading { background: #fef3c7; border: 1px solid #f59e0b; color: #d97706; }
+        pre { background: #f8fafc; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h1>🌱 Demo Data Seeder</h1>
+    <p>Click the button below to populate your CRM with demo campaigns, leads, and tracking data.</p>
+    
+    <button class="btn" onclick="runSeeder()">🚀 Create Demo Data</button>
+    
+    <div id="result"></div>
+    
+    <script>
+        async function runSeeder() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<div class="result loading">⏳ Creating demo data... This may take a few seconds.</div>';
+            
+            try {
+                const response = await fetch('/api/seed-demo', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <div class="result success">
+                            <h3>✅ ${data.message}</h3>
+                            <p><strong>Created:</strong></p>
+                            <ul>
+                                <li>${data.data.campaigns} campaigns</li>
+                                <li>${data.data.leads} leads</li>
+                                <li>${data.data.tracking_events} tracking events</li>
+                            </ul>
+                            <p><strong>Next Steps:</strong></p>
+                            <ul>
+                                ${data.next_steps.map(step => `<li>${step}</li>`).join('')}
+                            </ul>
+                            <p><a href="/#/campaign-history">→ View Campaign History</a></p>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="result error">
+                            <h3>❌ Error</h3>
+                            <p>${data.error}</p>
+                            <pre>${data.stack || ''}</pre>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <h3>❌ Network Error</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>

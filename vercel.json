@@ -10,7 +10,8 @@
     { "source": "/api/get-crm-data",           "destination": "/api/crm?type=load" },
     { "source": "/api/save-crm-data",          "destination": "/api/crm?type=save" },
     { "source": "/api/campaigns",              "destination": "/api/crm?type=campaigns" },
-    { "source": "/((?!api|assets|favicon).*)", "destination": "/public/index.html" }
+    { "source": "/api/generate-ai",            "destination": "/api/generate-ai" },
+    { "source": "/((?!api|assets|favicon|public).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
