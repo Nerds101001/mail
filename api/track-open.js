@@ -2,17 +2,38 @@ const { trackOpen } = require("./_redis");
 
 const PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
 
-// Bot/Prefetch detection patterns
+// Bot/Prefetch detection patterns - ENHANCED
 const BOT_PATTERNS = [
   /bot/i, /crawler/i, /spider/i, /scraper/i,
   /prerender/i, /preview/i, /prefetch/i,
   /googleimageproxy/i, /outlooksafelinks/i,
-  /mailscanner/i, /antivirus/i, /security/i
+  /mailscanner/i, /antivirus/i, /security/i,
+  /headless/i, /phantom/i, /selenium/i,
+  /curl/i, /wget/i, /python/i, /java/i,
+  /http/i, /okhttp/i, /go-http/i,
+  /scanner/i, /checker/i, /monitor/i,
+  /validator/i, /test/i, /probe/i,
+  /fetch/i, /request/i, /client/i,
+  /link.*check/i, /url.*check/i,
+  /email.*check/i, /spam.*check/i,
+  /safe.*brows/i, /threat/i, /malware/i
 ];
 
 function isLikelyBot(userAgent) {
-  if (!userAgent || userAgent === 'unknown') return true;
-  return BOT_PATTERNS.some(pattern => pattern.test(userAgent));
+  if (!userAgent || userAgent === 'unknown') {
+    console.log(`🤖 [BOT CHECK] No user agent - treating as bot`);
+    return true;
+  }
+  
+  const isBot = BOT_PATTERNS.some(pattern => pattern.test(userAgent));
+  
+  if (isBot) {
+    console.log(`🤖 [BOT CHECK] Bot detected: ${userAgent.substring(0, 100)}`);
+  } else {
+    console.log(`✅ [BOT CHECK] Real user: ${userAgent.substring(0, 100)}`);
+  }
+  
+  return isBot;
 }
 
 module.exports = async (req, res) => {
@@ -38,7 +59,13 @@ module.exports = async (req, res) => {
                      "unknown";
           const ua = req.headers["user-agent"] || "unknown";
 
-          console.log(`🔍 [TRACK OPEN] Lead ID: ${id}, IP: ${ip}, UA: ${ua.substring(0, 50)}...`);
+          console.log(`🔍 [TRACK OPEN] ========================================`);
+          console.log(`🔍 [TRACK OPEN] Lead ID: ${id}`);
+          console.log(`🔍 [TRACK OPEN] IP: ${ip}`);
+          console.log(`🔍 [TRACK OPEN] User Agent: ${ua}`);
+          console.log(`🔍 [TRACK OPEN] Campaign ID: ${cid || 'none'}`);
+          console.log(`🔍 [TRACK OPEN] All Headers:`, JSON.stringify(req.headers, null, 2));
+          console.log(`🔍 [TRACK OPEN] ========================================`);
 
           // Filter out bots and prefetchers
           if (isLikelyBot(ua)) {
