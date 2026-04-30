@@ -68,6 +68,10 @@ async function getValidAccessToken(accountEmail = null) {
 // ─── RFC 2822 builder ─────────────────────────────────────────────────────────
 function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl }) {
   const msgId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@enginerds.in>`;
+  
+  // Use base64 encoding for HTML body to prevent quoted-printable issues
+  const htmlBodyBase64 = Buffer.from(htmlBody, 'utf-8').toString('base64');
+  
   const lines = [
     `From: ${from}`,
     `Reply-To: ${replyTo}`,
@@ -77,10 +81,11 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl })
     `Message-ID: ${msgId}`,
     `MIME-Version: 1.0`,
     `Content-Type: text/html; charset=utf-8`,
+    `Content-Transfer-Encoding: base64`,
     `List-Unsubscribe: <${unsubscribeUrl}>`,
     `List-Unsubscribe-Post: List-Unsubscribe=One-Click`,
     ``,
-    htmlBody,
+    htmlBodyBase64,
   ].join("\r\n");
 
   return Buffer.from(lines).toString("base64")
