@@ -69,9 +69,8 @@ async function getValidAccessToken(accountEmail = null) {
 function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl }) {
   const msgId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@enginerds.in>`;
   
-  // Use base64 encoding for HTML body to prevent quoted-printable issues
-  const htmlBodyBase64 = Buffer.from(htmlBody, 'utf-8').toString('base64');
-  
+  // Build email with proper MIME structure
+  // Use 8bit encoding to preserve HTML exactly as-is
   const lines = [
     `From: ${from}`,
     `Reply-To: ${replyTo}`,
@@ -81,14 +80,15 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl })
     `Message-ID: ${msgId}`,
     `MIME-Version: 1.0`,
     `Content-Type: text/html; charset=utf-8`,
-    `Content-Transfer-Encoding: base64`,
+    `Content-Transfer-Encoding: 8bit`,
     `List-Unsubscribe: <${unsubscribeUrl}>`,
     `List-Unsubscribe-Post: List-Unsubscribe=One-Click`,
     ``,
-    htmlBodyBase64,
+    htmlBody,
   ].join("\r\n");
 
-  return Buffer.from(lines).toString("base64")
+  // Gmail API requires the entire message to be base64url encoded
+  return Buffer.from(lines, 'utf-8').toString("base64")
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
