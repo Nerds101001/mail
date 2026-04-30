@@ -281,9 +281,20 @@ export default function CampaignHistory() {
               <div>
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Email Body</label>
                 <div className="mt-2 bg-slate-50 rounded-lg p-4 border border-slate-200">
-                  <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                    {viewingEmail.body || 'Email body not available'}
-                  </p>
+                  {viewingEmail.body ? (
+                    <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                      {viewingEmail.body}
+                    </p>
+                  ) : (
+                    <div className="text-center py-8">
+                      <p className="text-sm text-slate-500 mb-2">Email body not available</p>
+                      <p className="text-xs text-slate-400">
+                        This campaign was sent before the body tracking feature was added.
+                        <br />
+                        New campaigns will have full email body saved.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
               {trackingData[viewingEmail.lead_id] && (
