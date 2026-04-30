@@ -36,7 +36,7 @@ export default function Tracking() {
     if (!sent.length) { setSyncing(false); return }
     try {
       const ids = sent.map(l => l.id).join(',')
-      const res = await fetch(`/api/tracking-stats?ids=${ids}`)
+      const res = await fetch(`/api/ops?type=tracking&ids=${ids}`)
       if (!res.ok) throw new Error('API unavailable')
       const stats = await res.json()
 
