@@ -267,7 +267,118 @@ async function getTrackingEvents(leadId, limit = 100) {
   }
 }
 
+// Deduplicated tracking for opens (only count unique opens within 1 hour window)
+async function trackOpen(leadId, ip, userAgent, campaignId = null) {
+  try {
+    await ensureTable();
+    const sql = getDb();
+    
+    // Create deduplication key based on lead + IP + UA
+    const dedupeKey = `${leadId}:${ip}:${userAgent.substring(0, 50)}`;
+    const dedupeHash = require('crypto').createHash('md5').update(dedupeKey).digest('hex');
+    const now = Date.now();
+    const oneHourAgo = now - (60 * 60 * 1000); // 1 hour window
+    
+    // Check if this exact open was already tracked recently
+    const existing = await sql`
+      SELECT created_at FROM tracking_events
+      WHERE lead_id = ${leadId}
+        AND event_type = 'open'
+        AND ip = ${ip}
+        AND created_at > ${oneHourAgo}
+      LIMIT 1
+    `;
+    
+    if (existing.length > 0) {
+      // Duplicate within 1 hour window - don't count
+      return { counted: false, reason: '1 hour window', count: 0 };
+    }
+    
+    // This is a unique open - count it
+    const rows = await sql`
+      INSERT INTO simple_tracking (lead_id, opens, last_open)
+      VALUES (${leadId}, 1, ${now})
+      ON CONFLICT (lead_id) DO UPDATE
+        SET opens = simple_tracking.opens + 1,
+            last_open = ${now}
+      RETURNING opens
+    `;
+    
+    // Log the event
+    await logEvent({
+      lead_id: leadId,
+      event_type: 'open',
+      ip,
+      user_agent: userAgent,
+      target_url: campaignId ? `campaign:${campaignId}` : null
+    });
+    
+    const count = parseInt(rows[0].opens);
+    console.log(`✅ [TRACK OPEN] Unique open counted for ${leadId}, total: ${count}`);
+    
+    return { counted: true, count };
+  } catch (e) {
+    console.error(`❌ [TRACK OPEN] Failed for ${leadId}:`, e.message);
+    throw e;
+  }
+}
+
+// Deduplicated tracking for clicks (only count unique clicks within 5 minute window)
+async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
+  try {
+    await ensureTable();
+    const sql = getDb();
+    
+    const now = Date.now();
+    const fiveMinutesAgo = now - (5 * 60 * 1000); // 5 minute window
+    
+    // Check if this exact click was already tracked recently
+    const existing = await sql`
+      SELECT created_at FROM tracking_events
+      WHERE lead_id = ${leadId}
+        AND event_type = 'click'
+        AND ip = ${ip}
+        AND target_url = ${targetUrl}
+        AND created_at > ${fiveMinutesAgo}
+      LIMIT 1
+    `;
+    
+    if (existing.length > 0) {
+      // Duplicate within 5 minutes - don't count
+      return { counted: false, reason: '5 minute window', count: 0 };
+    }
+    
+    // This is a unique click - count it
+    const rows = await sql`
+      INSERT INTO simple_tracking (lead_id, clicks, last_click)
+      VALUES (${leadId}, 1, ${now})
+      ON CONFLICT (lead_id) DO UPDATE
+        SET clicks = simple_tracking.clicks + 1,
+            last_click = ${now}
+      RETURNING clicks
+    `;
+    
+    // Log the event
+    await logEvent({
+      lead_id: leadId,
+      event_type: 'click',
+      ip,
+      user_agent: userAgent,
+      target_url: targetUrl
+    });
+    
+    const count = parseInt(rows[0].clicks);
+    console.log(`✅ [TRACK CLICK] Unique click counted for ${leadId}, total: ${count}`);
+    
+    return { counted: true, count };
+  } catch (e) {
+    console.error(`❌ [TRACK CLICK] Failed for ${leadId}:`, e.message);
+    throw e;
+  }
+}
+
 module.exports = { 
   get, set, incr, del, hset, hgetall, logEvent, getDb, 
-  getTrackingStats, getTrackingEvents, withRetry, ensureTable 
+  getTrackingStats, getTrackingEvents, withRetry, ensureTable,
+  trackOpen, trackClick
 };

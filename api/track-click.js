@@ -1,4 +1,17 @@
-const { incr, logEvent } = require("./_redis");
+const { trackClick } = require("./_redis");
+
+// Bot/Prefetch detection patterns
+const BOT_PATTERNS = [
+  /bot/i, /crawler/i, /spider/i, /scraper/i,
+  /prerender/i, /preview/i, /prefetch/i,
+  /googleimageproxy/i, /outlooksafelinks/i,
+  /mailscanner/i, /antivirus/i, /security/i
+];
+
+function isLikelyBot(userAgent) {
+  if (!userAgent || userAgent === 'unknown') return true;
+  return BOT_PATTERNS.some(pattern => pattern.test(userAgent));
+}
 
 function isSafeUrl(urlString) {
   try {
@@ -32,17 +45,20 @@ module.exports = async (req, res) => {
 
         console.log(`🔗 [TRACK CLICK] Lead ID: ${id}, URL: ${decoded}, IP: ${ip}, UA: ${ua.substring(0, 50)}...`);
 
-        // Use simplified tracking system
-        const clickCount = await incr(`track:click:${id}`);
-        await logEvent({ 
-          lead_id: id, 
-          event_type: "click", 
-          ip, 
-          user_agent: ua, 
-          target_url: decoded 
-        });
+        // Filter out bots
+        if (isLikelyBot(ua)) {
+          console.log(`🤖 [TRACK CLICK] Bot detected, skipping count for ${id}`);
+          return;
+        }
 
-        console.log(`✅ [TRACK CLICK SUCCESS] Lead ${id} - Click count: ${clickCount}`);
+        // Use deduplicated tracking
+        const result = await trackClick(id, ip, ua, decoded, cid);
+        
+        if (result.counted) {
+          console.log(`✅ [TRACK CLICK] Real click counted - Lead ${id}, Total: ${result.count}`);
+        } else {
+          console.log(`⏭️ [TRACK CLICK] Duplicate click ignored - Lead ${id} (within ${result.reason})`);
+        }
 
       } catch(e) {
         console.error(`❌ [TRACK CLICK ERROR] Lead ${id}:`, e.message);

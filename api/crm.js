@@ -128,9 +128,10 @@ module.exports = async (req, res) => {
       const sql = neon(dbUrl);
 
       await sql`CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, created_at BIGINT, target TEXT, sender TEXT, total_sent INT DEFAULT 0, total_failed INT DEFAULT 0, total_skipped INT DEFAULT 0, stats JSONB DEFAULT '{}')`;
-      await sql`CREATE TABLE IF NOT EXISTS campaign_leads (id SERIAL PRIMARY KEY, campaign_id TEXT, user_id TEXT, lead_id TEXT, lead_name TEXT, lead_email TEXT, lead_company TEXT, status TEXT DEFAULT 'sent', subject TEXT, sent_at BIGINT, opens INT DEFAULT 0, clicks INT DEFAULT 0)`;
-      // Ensure subject column exists for existing tables
+      await sql`CREATE TABLE IF NOT EXISTS campaign_leads (id SERIAL PRIMARY KEY, campaign_id TEXT, user_id TEXT, lead_id TEXT, lead_name TEXT, lead_email TEXT, lead_company TEXT, status TEXT DEFAULT 'sent', subject TEXT, body TEXT, sent_at BIGINT, opens INT DEFAULT 0, clicks INT DEFAULT 0)`;
+      // Ensure all columns exist for existing tables
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS subject TEXT`.catch(()=>{});
+      await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS body TEXT`.catch(()=>{});
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS opens INT DEFAULT 0`.catch(()=>{});
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS clicks INT DEFAULT 0`.catch(()=>{});
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS last_open BIGINT`.catch(()=>{});
@@ -156,7 +157,7 @@ module.exports = async (req, res) => {
         await sql`INSERT INTO campaigns (id,user_id,name,created_at,target,sender,total_sent,total_failed,total_skipped,stats) VALUES (${campId},${userId},${name||"Campaign"},${Date.now()},${target||"all"},${sender||""},${stats?.sent||0},${stats?.failed||0},${stats?.skipped||0},${JSON.stringify(stats||{})}) ON CONFLICT (id) DO UPDATE SET total_sent=EXCLUDED.total_sent,stats=EXCLUDED.stats`;
         if (campLeads?.length) {
           for (const l of campLeads) {
-            await sql`INSERT INTO campaign_leads (campaign_id,user_id,lead_id,lead_name,lead_email,lead_company,status,subject,sent_at) VALUES (${campId},${userId},${l.id},${l.name},${l.email},${l.company||""},${l.status||"sent"},${l.subject||""},${Date.now()}) ON CONFLICT DO NOTHING`.catch(()=>{});
+            await sql`INSERT INTO campaign_leads (campaign_id,user_id,lead_id,lead_name,lead_email,lead_company,status,subject,body,sent_at) VALUES (${campId},${userId},${l.id},${l.name},${l.email},${l.company||""},${l.status||"sent"},${l.subject||""},${l.body||""},${Date.now()}) ON CONFLICT DO NOTHING`.catch(()=>{});
           }
         }
         return res.json({ok:true,id:campId});

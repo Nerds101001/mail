@@ -1,6 +1,19 @@
-const { incr, logEvent } = require("./_redis");
+const { trackOpen } = require("./_redis");
 
 const PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
+
+// Bot/Prefetch detection patterns
+const BOT_PATTERNS = [
+  /bot/i, /crawler/i, /spider/i, /scraper/i,
+  /prerender/i, /preview/i, /prefetch/i,
+  /googleimageproxy/i, /outlooksafelinks/i,
+  /mailscanner/i, /antivirus/i, /security/i
+];
+
+function isLikelyBot(userAgent) {
+  if (!userAgent || userAgent === 'unknown') return true;
+  return BOT_PATTERNS.some(pattern => pattern.test(userAgent));
+}
 
 module.exports = async (req, res) => {
   try {
@@ -27,27 +40,20 @@ module.exports = async (req, res) => {
 
           console.log(`🔍 [TRACK OPEN] Lead ID: ${id}, IP: ${ip}, UA: ${ua.substring(0, 50)}...`);
 
-          // Use simplified tracking system with proper error handling
-          try {
-            const openCount = await incr(`track:open:${id}`);
-            console.log(`✅ [TRACK OPEN] Incr successful - Lead ${id}, Count: ${openCount}`);
-          } catch (incrError) {
-            console.error(`❌ [TRACK OPEN] Incr failed for ${id}:`, incrError.message, incrError.stack);
-          }
-          
-          try {
-            await logEvent({ 
-              lead_id: id, 
-              event_type: "open", 
-              ip, 
-              user_agent: ua 
-            });
-            console.log(`✅ [TRACK OPEN] LogEvent successful for ${id}`);
-          } catch (logError) {
-            console.error(`❌ [TRACK OPEN] LogEvent failed for ${id}:`, logError.message);
+          // Filter out bots and prefetchers
+          if (isLikelyBot(ua)) {
+            console.log(`🤖 [TRACK OPEN] Bot/Prefetch detected, skipping count for ${id}`);
+            return;
           }
 
-          console.log(`✅ [TRACK OPEN SUCCESS] Lead ${id} tracking completed`);
+          // Use deduplicated tracking (only counts unique opens within time window)
+          const result = await trackOpen(id, ip, ua, cid);
+          
+          if (result.counted) {
+            console.log(`✅ [TRACK OPEN] Real open counted - Lead ${id}, Total: ${result.count}`);
+          } else {
+            console.log(`⏭️ [TRACK OPEN] Duplicate open ignored - Lead ${id} (within ${result.reason})`);
+          }
 
         } catch(e) {
           console.error(`❌ [TRACK OPEN ERROR] Lead ${id}:`, e.message, e.stack);

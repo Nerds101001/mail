@@ -9,6 +9,7 @@ export default function CampaignHistory() {
   const [expanded, setExpanded]   = useState(null)
   const [detail, setDetail]       = useState(null)
   const [trackingData, setTrackingData] = useState({})
+  const [viewingEmail, setViewingEmail] = useState(null) // For email body modal
 
   useEffect(() => { load() }, [])
 
@@ -195,14 +196,14 @@ export default function CampaignHistory() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
-                        {['Name','Email','Company','Status','Subject','Sent At'].map(h => (
+                        {['Name','Email','Company','Status','Subject','Sent At','Actions'].map(h => (
                           <th key={h} className="px-4 py-2 text-left font-bold text-slate-500 uppercase tracking-wide">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {detail.leads?.length === 0 ? (
-                        <tr><td colSpan={6} className="px-4 py-6 text-center text-slate-400">No lead details recorded</td></tr>
+                        <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-400">No lead details recorded</td></tr>
                       ) : detail.leads?.map((l, i) => {
                         const enhancedStatus = getEnhancedStatus(l)
                         const leadTracking = trackingData[l.lead_id]
@@ -210,7 +211,7 @@ export default function CampaignHistory() {
                         return (
                           <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
                             <td className="px-4 py-2 font-semibold text-slate-800">{l.lead_name || '—'}</td>
-                            <td className="px-4 py-2 text-slate-500 font-mono">{l.lead_email}</td>
+                            <td className="px-4 py-2 text-slate-500 font-mono text-[11px]">{l.lead_email}</td>
                             <td className="px-4 py-2 text-slate-600">{l.lead_company || '—'}</td>
                             <td className="px-4 py-2">
                               <div className="flex items-center gap-2">
@@ -235,6 +236,16 @@ export default function CampaignHistory() {
                             </td>
                             <td className="px-4 py-2 text-slate-500 max-w-[200px] truncate">{l.subject || '—'}</td>
                             <td className="px-4 py-2 text-slate-400">{l.sent_at ? new Date(parseInt(l.sent_at)).toLocaleTimeString('en-IN') : '—'}</td>
+                            <td className="px-4 py-2">
+                              {l.subject && (
+                                <button
+                                  onClick={() => setViewingEmail(l)}
+                                  className="text-blue-600 hover:text-blue-700 text-xs font-medium flex items-center gap-1"
+                                >
+                                  <Eye size={12} /> View Email
+                                </button>
+                              )}
+                            </td>
                           </tr>
                         )
                       })}
@@ -244,6 +255,56 @@ export default function CampaignHistory() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Email Body Modal */}
+      {viewingEmail && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setViewingEmail(null)}>
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-slate-200">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Email Sent to {viewingEmail.lead_name}</h3>
+                <p className="text-xs text-slate-500">{viewingEmail.lead_email}</p>
+              </div>
+              <button onClick={() => setViewingEmail(null)} className="text-slate-400 hover:text-slate-600">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[calc(80vh-80px)]">
+              <div className="mb-4">
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Subject</label>
+                <p className="text-sm font-semibold text-slate-900 mt-1">{viewingEmail.subject || 'No subject'}</p>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Email Body</label>
+                <div className="mt-2 bg-slate-50 rounded-lg p-4 border border-slate-200">
+                  <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                    {viewingEmail.body || 'Email body not available'}
+                  </p>
+                </div>
+              </div>
+              {trackingData[viewingEmail.lead_id] && (
+                <div className="mt-4 pt-4 border-t border-slate-200">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Engagement Stats</label>
+                  <div className="flex gap-4 mt-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Eye size={14} className="text-emerald-600" />
+                      <span className="font-semibold">{trackingData[viewingEmail.lead_id].opens || 0}</span>
+                      <span className="text-slate-500">opens</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <MousePointer size={14} className="text-amber-600" />
+                      <span className="font-semibold">{trackingData[viewingEmail.lead_id].clicks || 0}</span>
+                      <span className="text-slate-500">clicks</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

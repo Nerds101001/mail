@@ -141,10 +141,10 @@ export default function Campaign() {
             addLog(`✓ Sent to ${l.name}`, 'success'); processed++
             const idx = updatedLeads.findIndex(x=>x.id===l.id)
             if(idx!==-1) updatedLeads[idx] = {...updatedLeads[idx], status:'SENT', lastSent:new Date().toISOString()}
-            campaignDataLeads.push({ id: l.id, name: l.name, email: l.email, company: l.company, status: 'SENT', subject })
+            campaignDataLeads.push({ id: l.id, name: l.name, email: l.email, company: l.company, status: 'SENT', subject, body })
         } else { 
             addLog(`✗ Failed for ${l.name}`, 'error')
-            campaignDataLeads.push({ id: l.id, name: l.name, email: l.email, company: l.company, status: 'FAILED', subject })
+            campaignDataLeads.push({ id: l.id, name: l.name, email: l.email, company: l.company, status: 'FAILED', subject, body })
         }
         if (i < targets.length-1 && cfg.rate > 0) await new Promise(r=>setTimeout(r, cfg.rate*1000))
     }
