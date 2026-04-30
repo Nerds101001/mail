@@ -65,12 +65,26 @@ async function getValidAccessToken(accountEmail = null) {
   return accessToken;
 }
 
-// ─── RFC 2822 builder ─────────────────────────────────────────────────────────
+// ─── RFC 2822 builder with proper MIME multipart structure ─────────────────
 function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl }) {
   const msgId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@enginerds.in>`;
+  const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   
-  // Build email with proper MIME structure
-  // Use 8bit encoding to preserve HTML exactly as-is
+  // Extract plain text from HTML for text/plain version
+  const plainText = htmlBody
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\n\s*\n\s*\n/g, '\n\n')
+    .trim();
+  
+  // Use base64 encoding for HTML to prevent Gmail from applying quoted-printable
+  const htmlBodyBase64 = Buffer.from(htmlBody, 'utf-8').toString('base64');
+  
   const lines = [
     `From: ${from}`,
     `Reply-To: ${replyTo}`,
@@ -79,12 +93,23 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl })
     `Date: ${new Date().toUTCString()}`,
     `Message-ID: ${msgId}`,
     `MIME-Version: 1.0`,
-    `Content-Type: text/html; charset=utf-8`,
-    `Content-Transfer-Encoding: 8bit`,
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
     `List-Unsubscribe: <${unsubscribeUrl}>`,
     `List-Unsubscribe-Post: List-Unsubscribe=One-Click`,
     ``,
-    htmlBody,
+    `--${boundary}`,
+    `Content-Type: text/plain; charset="UTF-8"`,
+    `Content-Transfer-Encoding: 7bit`,
+    ``,
+    plainText,
+    ``,
+    `--${boundary}`,
+    `Content-Type: text/html; charset="UTF-8"`,
+    `Content-Transfer-Encoding: base64`,
+    ``,
+    htmlBodyBase64,
+    ``,
+    `--${boundary}--`
   ].join("\r\n");
 
   // Gmail API requires the entire message to be base64url encoded
@@ -110,9 +135,12 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
     })
     .join('')
 
-  // Build tracking pixel with proper encoding to avoid HTML entity issues
-  const trackingPixelUrl = `${appUrl}/api/track/open?id=${leadId}${cidParam}`;
-  const trackingPixel = `<img src="${trackingPixelUrl}" width="1" height="1" alt="" style="display:none;border:0;" />`;
+  // Build tracking pixel URL - use URL encoding to avoid quoted-printable issues
+  // Encode the entire query string to avoid & and = characters being mangled
+  const trackingParams = new URLSearchParams({ id: leadId });
+  if (campaignId) trackingParams.append('cid', campaignId);
+  const trackingPixelUrl = `${appUrl}/api/track/open?${trackingParams.toString()}`;
+  const trackingPixel = `<img src="${trackingPixelUrl}" width="1" height="1" alt="" style="display:none;border:0;">`;
   const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`;
 
   console.log(`🔍 [EMAIL BUILD] Tracking pixel URL: ${trackingPixelUrl}`);
