@@ -127,37 +127,58 @@ module.exports = async (req, res) => {
       const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
       const sql = neon(dbUrl);
 
-      await sql`CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, created_at BIGINT, target TEXT, sender TEXT, total_sent INT DEFAULT 0, total_failed INT DEFAULT 0, total_skipped INT DEFAULT 0, stats JSONB DEFAULT '{}')`;
-      await sql`CREATE TABLE IF NOT EXISTS campaign_leads (id SERIAL PRIMARY KEY, campaign_id TEXT, user_id TEXT, lead_id TEXT, lead_name TEXT, lead_email TEXT, lead_company TEXT, status TEXT DEFAULT 'sent', subject TEXT, body TEXT, sent_at BIGINT, opens INT DEFAULT 0, clicks INT DEFAULT 0)`;
-      // Ensure all columns exist for existing tables
+      await sql`CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, created_at BIGINT, target TEXT, sender TEXT, total_sent INT DEFAULT 0, total_failed INT DEFAULT 0, total_skipped INT DEFAULT 0, stats JSONB DEFAULT '{}', brief JSONB DEFAULT '{}', variants JSONB DEFAULT '[]')`;
+      await sql`CREATE TABLE IF NOT EXISTS campaign_leads (id SERIAL PRIMARY KEY, campaign_id TEXT, user_id TEXT, lead_id TEXT, lead_name TEXT, lead_email TEXT, lead_company TEXT, status TEXT DEFAULT 'sent', subject TEXT, body TEXT, sent_at BIGINT, opens INT DEFAULT 0, clicks INT DEFAULT 0, last_open BIGINT, last_click BIGINT, variant_index INT DEFAULT 0)`;
+      // Ensure columns exist on existing tables
+      await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS brief JSONB DEFAULT '{}'`.catch(()=>{});
+      await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS variants JSONB DEFAULT '[]'`.catch(()=>{});
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS subject TEXT`.catch(()=>{});
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS body TEXT`.catch(()=>{});
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS opens INT DEFAULT 0`.catch(()=>{});
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS clicks INT DEFAULT 0`.catch(()=>{});
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS last_open BIGINT`.catch(()=>{});
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS last_click BIGINT`.catch(()=>{});
+      await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS variant_index INT DEFAULT 0`.catch(()=>{});
 
       if (req.method === "GET" && id) {
         const [camp] = await sql`SELECT * FROM campaigns WHERE id=${id} AND (user_id=${userId} OR ${userId}='admin')`;
         if (!camp) return res.status(404).json({error:"Not found"});
         const leads = await sql`SELECT * FROM campaign_leads WHERE campaign_id=${id} ORDER BY sent_at DESC`;
-        return res.json({...camp, stats:JSON.parse(camp.stats||"{}"), leads});
+        return res.json({
+          ...camp,
+          stats:    typeof camp.stats    === 'string' ? JSON.parse(camp.stats    ||"{}") : (camp.stats    || {}),
+          brief:    typeof camp.brief    === 'string' ? JSON.parse(camp.brief    ||"{}") : (camp.brief    || {}),
+          variants: typeof camp.variants === 'string' ? JSON.parse(camp.variants ||"[]") : (camp.variants || []),
+          leads,
+        });
       }
 
       if (req.method === "GET") {
         const camps = userId === "admin"
           ? await sql`SELECT * FROM campaigns ORDER BY created_at DESC LIMIT 100`
           : await sql`SELECT * FROM campaigns WHERE user_id=${userId} ORDER BY created_at DESC LIMIT 100`;
-        return res.json(camps.map(c=>({...c,stats:JSON.parse(c.stats||"{}")})));
+        return res.json(camps.map(c=>({
+          ...c,
+          stats:    typeof c.stats    === 'string' ? JSON.parse(c.stats    ||"{}") : (c.stats    || {}),
+          brief:    typeof c.brief    === 'string' ? JSON.parse(c.brief    ||"{}") : (c.brief    || {}),
+          variants: typeof c.variants === 'string' ? JSON.parse(c.variants ||"[]") : (c.variants || []),
+        })));
       }
 
       if (req.method === "POST") {
-        const { id: providedId, name, target, sender, leads: campLeads, stats } = req.body;
+        const { id: providedId, name, target, sender, leads: campLeads, stats, brief, variants } = req.body;
         const campId = providedId || `camp_${Date.now()}`;
-        await sql`INSERT INTO campaigns (id,user_id,name,created_at,target,sender,total_sent,total_failed,total_skipped,stats) VALUES (${campId},${userId},${name||"Campaign"},${Date.now()},${target||"all"},${sender||""},${stats?.sent||0},${stats?.failed||0},${stats?.skipped||0},${JSON.stringify(stats||{})}) ON CONFLICT (id) DO UPDATE SET total_sent=EXCLUDED.total_sent,stats=EXCLUDED.stats`;
+        await sql`
+          INSERT INTO campaigns (id,user_id,name,created_at,target,sender,total_sent,total_failed,total_skipped,stats,brief,variants)
+          VALUES (${campId},${userId},${name||"Campaign"},${Date.now()},${target||"all"},${sender||""},${stats?.sent||0},${stats?.failed||0},${stats?.skipped||0},${JSON.stringify(stats||{})},${JSON.stringify(brief||{})},${JSON.stringify(variants||[])})
+          ON CONFLICT (id) DO UPDATE SET total_sent=EXCLUDED.total_sent, stats=EXCLUDED.stats, brief=EXCLUDED.brief, variants=EXCLUDED.variants
+        `;
         if (campLeads?.length) {
           for (const l of campLeads) {
-            await sql`INSERT INTO campaign_leads (campaign_id,user_id,lead_id,lead_name,lead_email,lead_company,status,subject,body,sent_at) VALUES (${campId},${userId},${l.id},${l.name},${l.email},${l.company||""},${l.status||"sent"},${l.subject||""},${l.body||""},${Date.now()}) ON CONFLICT DO NOTHING`.catch(()=>{});
+            await sql`
+              INSERT INTO campaign_leads (campaign_id,user_id,lead_id,lead_name,lead_email,lead_company,status,subject,body,sent_at,variant_index)
+              VALUES (${campId},${userId},${l.id},${l.name||""},${l.email||""},${l.company||""},${l.status||"sent"},${l.subject||""},${l.body||""},${Date.now()},${l.variantIndex||0})
+            `.catch(()=>{});
           }
         }
         return res.json({ok:true,id:campId});

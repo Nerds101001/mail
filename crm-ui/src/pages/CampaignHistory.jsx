@@ -155,24 +155,66 @@ export default function CampaignHistory() {
                 </div>
               </div>
 
-              {/* Expanded lead list */}
+              {/* Expanded detail */}
               {expanded === c.id && detail && (
                 <div className="border-t border-slate-100">
+
+                  {/* Campaign Brief + Variants summary */}
+                  {(detail.brief?.product || detail.variants?.length > 0) && (
+                    <div className="px-5 py-4 bg-slate-50 border-b border-slate-100 grid grid-cols-2 gap-6">
+                      {detail.brief?.product && (
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Campaign Brief</p>
+                          <div className="space-y-1 text-xs text-slate-600">
+                            {detail.brief.product      && <div><span className="font-semibold text-slate-700">Product:</span> {detail.brief.product}</div>}
+                            {detail.brief.industries   && <div><span className="font-semibold text-slate-700">Industries:</span> {detail.brief.industries}</div>}
+                            {detail.brief.problems     && <div><span className="font-semibold text-slate-700">Problems:</span> {detail.brief.problems}</div>}
+                            {detail.brief.solutions    && <div><span className="font-semibold text-slate-700">Solutions:</span> {detail.brief.solutions}</div>}
+                            {detail.brief.technologies && <div><span className="font-semibold text-slate-700">Tech/USP:</span> {detail.brief.technologies}</div>}
+                          </div>
+                        </div>
+                      )}
+                      {detail.variants?.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">AI Variants Used ({detail.variants.length})</p>
+                          <div className="space-y-1 max-h-32 overflow-y-auto">
+                            {detail.variants.map((v, vi) => {
+                              // count how many leads got this variant
+                              const used = detail.leads?.filter(l => (l.variant_index ?? 0) === vi).length || 0
+                              const opens  = detail.leads?.filter(l => (l.variant_index ?? 0) === vi).reduce((s,l) => s + (trackingData[l.lead_id]?.opens||0), 0) || 0
+                              const clicks = detail.leads?.filter(l => (l.variant_index ?? 0) === vi).reduce((s,l) => s + (trackingData[l.lead_id]?.clicks||0), 0) || 0
+                              return (
+                                <div key={vi} className="flex items-center gap-2 text-xs">
+                                  <span className="w-5 h-5 flex items-center justify-center bg-slate-200 rounded-full text-[10px] font-bold text-slate-600 shrink-0">{vi+1}</span>
+                                  <span className="text-slate-700 font-medium truncate flex-1" title={v.subject}>{v.subject}</span>
+                                  <span className="text-slate-400 shrink-0">{used} sent</span>
+                                  {opens > 0  && <span className="text-blue-500 shrink-0">{opens} opens</span>}
+                                  {clicks > 0 && <span className="text-amber-500 shrink-0">{clicks} clicks</span>}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Lead table */}
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
-                        {['Name','Email','Company','Status','Subject','Sent At','Actions'].map(h => (
+                        {['Name','Email','Company','Status','Variant #','Subject','Sent At','Actions'].map(h => (
                           <th key={h} className="px-4 py-2 text-left font-bold text-slate-500 uppercase tracking-wide">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {detail.leads?.length === 0 ? (
-                        <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-400">No lead details recorded</td></tr>
+                        <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-400">No lead details recorded</td></tr>
                       ) : detail.leads?.map((l, i) => {
                         const enhancedStatus = getEnhancedStatus(l)
-                        const leadTracking = trackingData[l.lead_id]
-                        
+                        const leadTracking   = trackingData[l.lead_id]
+                        const varNum         = (l.variant_index ?? 0) + 1
                         return (
                           <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
                             <td className="px-4 py-2 font-semibold text-slate-800">{l.lead_name || '—'}</td>
@@ -184,30 +226,22 @@ export default function CampaignHistory() {
                                   {enhancedStatus.display}
                                 </span>
                                 {leadTracking && (leadTracking.opens > 0 || leadTracking.clicks > 0) && (
-                                  <div className="flex items-center gap-1 text-xs text-slate-400">
-                                    {leadTracking.opens > 0 && (
-                                      <span className="flex items-center gap-1">
-                                        <Eye size={10} />{leadTracking.opens}
-                                      </span>
-                                    )}
-                                    {leadTracking.clicks > 0 && (
-                                      <span className="flex items-center gap-1">
-                                        <MousePointer size={10} />{leadTracking.clicks}
-                                      </span>
-                                    )}
+                                  <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                                    {leadTracking.opens  > 0 && <span className="flex items-center gap-0.5"><Eye size={9}/>{leadTracking.opens}</span>}
+                                    {leadTracking.clicks > 0 && <span className="flex items-center gap-0.5"><MousePointer size={9}/>{leadTracking.clicks}</span>}
                                   </div>
                                 )}
                               </div>
                             </td>
-                            <td className="px-4 py-2 text-slate-500 max-w-[200px] truncate">{l.subject || '—'}</td>
+                            <td className="px-4 py-2 text-center">
+                              <span className="w-5 h-5 inline-flex items-center justify-center bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold">{varNum}</span>
+                            </td>
+                            <td className="px-4 py-2 text-slate-500 max-w-[180px] truncate">{l.subject || '—'}</td>
                             <td className="px-4 py-2 text-slate-400">{l.sent_at ? new Date(parseInt(l.sent_at)).toLocaleTimeString('en-IN') : '—'}</td>
                             <td className="px-4 py-2">
                               {l.subject && (
-                                <button
-                                  onClick={() => setViewingEmail(l)}
-                                  className="text-blue-600 hover:text-blue-700 text-xs font-medium flex items-center gap-1"
-                                >
-                                  <Eye size={12} /> View Email
+                                <button onClick={() => setViewingEmail(l)} className="text-blue-600 hover:text-blue-700 text-xs font-medium flex items-center gap-1">
+                                  <Eye size={12}/> View
                                 </button>
                               )}
                             </td>

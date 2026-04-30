@@ -1,7 +1,7 @@
 {
   "rewrites": [
-    { "source": "/api/track/open",             "destination": "/api/track-open" },
-    { "source": "/api/track/click",            "destination": "/api/track-click" },
+    { "source": "/api/track/open/:path*",      "destination": "/api/track-open" },
+    { "source": "/api/track/click/:path*",     "destination": "/api/track-click" },
     { "source": "/api/gmail-auth",             "destination": "/api/gmail?type=auth" },
     { "source": "/api/gmail-callback",         "destination": "/api/gmail?type=callback" },
     { "source": "/api/gmail-status",           "destination": "/api/gmail?type=status" },
@@ -10,6 +10,7 @@
     { "source": "/api/get-crm-data",           "destination": "/api/crm?type=load" },
     { "source": "/api/save-crm-data",          "destination": "/api/crm?type=save" },
     { "source": "/api/campaigns",              "destination": "/api/crm?type=campaigns" },
+    { "source": "/api/events",                 "destination": "/api/ops?type=events" },
     { "source": "/((?!api|assets|favicon|public).*)", "destination": "/index.html" }
   ],
   "headers": [

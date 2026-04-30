@@ -4,6 +4,19 @@ import { fmtDate } from '../utils'
 import { StatCard, Empty, PageHeader, Btn, toast } from '../components/ui'
 import { Send, Eye, MousePointer, MessageSquare, RefreshCw } from 'lucide-react'
 
+function parseBrowser(ua) {
+  if (!ua || ua === '—') return '—'
+  if (/iPhone|iPad/.test(ua)) return 'Safari / iOS'
+  if (/Android/.test(ua) && /Chrome/.test(ua)) return 'Chrome / Android'
+  if (/Android/.test(ua)) return 'Browser / Android'
+  if (/Edg\//.test(ua)) return 'Edge / Desktop'
+  if (/OPR\/|Opera/.test(ua)) return 'Opera / Desktop'
+  if (/Firefox\//.test(ua)) return 'Firefox / Desktop'
+  if (/Chrome\//.test(ua)) return 'Chrome / Desktop'
+  if (/Safari\//.test(ua)) return 'Safari / Desktop'
+  return ua.substring(0, 50)
+}
+
 export default function Tracking() {
   const { leads, setLeads, pushToRedis, logActivity } = useCRM()
   const [syncing, setSyncing] = useState(false)
@@ -26,30 +39,11 @@ export default function Tracking() {
       const res = await fetch(`/api/tracking-stats?ids=${ids}`)
       if (!res.ok) throw new Error('API unavailable')
       const stats = await res.json()
-      
-      // Add demo tracking data for better presentation
-      const demoStats = {
-        'lead_1776000001': { opens: 5, clicks: 2 },
-        'lead_1776000002': { opens: 3, clicks: 1 },
-        'lead_1776000003': { opens: 1, clicks: 0 },
-        'lead_1776000004': { opens: 0, clicks: 0 },
-        'lead_1776000005': { opens: 7, clicks: 3 },
-        'lead_1776000006': { opens: 2, clicks: 0 },
-        'lead_1776000007': { opens: 4, clicks: 2 },
-        'lead_1776000008': { opens: 1, clicks: 1 },
-        'lead_1776000009': { opens: 6, clicks: 1 },
-        'lead_1776000010': { opens: 2, clicks: 2 },
-        'lead_1776339277390': { opens: 1, clicks: 0 },
-        'lead_1776331658479': { opens: 1, clicks: 0 }
-      };
-      
-      // Merge real stats with demo stats
-      const finalStats = { ...demoStats, ...stats };
-      
+
       let updated = 0
       const newLeads = leads.map(l => {
-        if (!finalStats[l.id]) return l
-        const so = finalStats[l.id].opens || 0, sc = finalStats[l.id].clicks || 0
+        if (!stats[l.id]) return l
+        const so = stats[l.id].opens || 0, sc = stats[l.id].clicks || 0
         if (so !== l.opens || sc !== l.clicks) { updated++; return { ...l, opens: so, clicks: sc } }
         return l
       })
@@ -61,51 +55,14 @@ export default function Tracking() {
 
   async function viewEvents(leadId) {
     setSelectedLead(leadId)
+    setEventLog([])
     try {
-      // Try direct events endpoint first, fallback to ops
-      let res = await fetch(`/api/events?leadId=${leadId}`)
-      if (!res.ok) {
-        res = await fetch(`/api/ops?type=events&leadId=${leadId}`)
-      }
+      const res = await fetch(`/api/ops?type=events&leadId=${leadId}`)
+      if (!res.ok) throw new Error('API unavailable')
       const data = await res.json()
-      
-      // Add demo events for better presentation
-      const demoEvents = [
-        {
-          event_type: 'open',
-          ip: '192.168.1.100',
-          user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          created_at: Date.now() - (2 * 60 * 60 * 1000) // 2 hours ago
-        },
-        {
-          event_type: 'open',
-          ip: '192.168.1.100',
-          user_agent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X)',
-          created_at: Date.now() - (24 * 60 * 60 * 1000) // 1 day ago
-        },
-        {
-          event_type: 'click',
-          ip: '192.168.1.100',
-          user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          target_url: 'https://enginerds.in/demo',
-          created_at: Date.now() - (3 * 60 * 60 * 1000) // 3 hours ago
-        }
-      ];
-      
-      const events = data.events || [];
-      // Add demo events if no real events exist
-      const finalEvents = events.length > 0 ? events : demoEvents;
-      setEventLog(finalEvents)
-    } catch(e) { 
-      // Fallback demo events
-      setEventLog([
-        {
-          event_type: 'open',
-          ip: '192.168.1.100',
-          user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          created_at: Date.now() - (2 * 60 * 60 * 1000)
-        }
-      ])
+      setEventLog(data.events || [])
+    } catch(e) {
+      setEventLog([])
     }
   }
 
@@ -192,7 +149,7 @@ export default function Tracking() {
             <button className="text-slate-400 hover:text-slate-600 text-lg leading-none" onClick={()=>setSelectedLead(null)}>✕</button>
           </div>
           {eventLog.length === 0 ? (
-            <div className="p-8 text-center text-sm text-slate-400">No events recorded yet. Events appear after email is opened or links are clicked.</div>
+            <div className="p-8 text-center text-sm text-slate-400">No tracking events yet. Events appear when the recipient opens the email or clicks a link.</div>
           ) : (
             <table className="w-full text-xs">
               <thead>
@@ -212,7 +169,7 @@ export default function Tracking() {
                     </td>
                     <td className="px-4 py-2.5 text-slate-600 font-mono">{new Date(parseInt(e.created_at)).toLocaleString('en-IN')}</td>
                     <td className="px-4 py-2.5 text-slate-500 font-mono">{e.ip || '—'}</td>
-                    <td className="px-4 py-2.5 text-slate-400 max-w-[280px] truncate">{e.user_agent || '—'}</td>
+                    <td className="px-4 py-2.5 text-slate-600">{parseBrowser(e.user_agent)}</td>
                   </tr>
                 ))}
               </tbody>

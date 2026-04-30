@@ -139,243 +139,149 @@ module.exports = async (req, res) => {
     return res.json({ ok: true });
   }
 
-  // ── AI EMAIL GENERATION (MULTIPLE VARIANTS) ──────────────────────────
+  // ── AI EMAIL GENERATION ───────────────────────────────────────────────
   if (type === "generate-ai" && req.method === "POST") {
     try {
-      const { name, company, role, category, apiKey, customPrompt, count = 1 } = req.body;
+      const { name, company, role, category, apiKey, customPrompt, count = 1, brief = {} } = req.body;
 
-      if (!apiKey) {
-        return res.status(400).json({ error: 'NVIDIA API key is required' });
-      }
+      if (!apiKey) return res.status(400).json({ error: 'NVIDIA API key is required' });
 
-      console.log(`🤖 [AI GENERATION] Generating ${count} variants for ${company}`);
+      const variantCount = Math.min(Math.max(1, parseInt(count) || 1), 15);
+      console.log(`🤖 [AI] Generating ${variantCount} variants — product: ${brief.product || 'n/a'}`);
 
-      // Generate multiple variants
+      // Build the seller context block from campaign brief
+      const sellerContext = [
+        brief.product      ? `Product/Service: ${brief.product}` : null,
+        brief.industries   ? `Target Industries: ${brief.industries}` : null,
+        brief.problems     ? `Problems We Solve: ${brief.problems}` : null,
+        brief.solutions    ? `Our Solutions: ${brief.solutions}` : null,
+        brief.technologies ? `Technologies/USP: ${brief.technologies}` : null,
+        category           ? `Recipient Industry: ${category}` : null,
+      ].filter(Boolean).join('\n');
+
+      // 15 distinct sales-pitch approaches
+      const approaches = [
+        { name:'Pain-Agitate-Solve',          hook:'Describe one painful problem → amplify the business cost → reveal your fix',       cta:'ask for a 15-min call' },
+        { name:'ROI Lead',                     hook:'Open with a specific metric (%, time, money) your clients gain → prove it → invite',cta:'offer a free audit or demo' },
+        { name:'Burning Question',             hook:'Open with a sharp question that makes them think about a gap they have',           cta:'offer to show the answer on a call' },
+        { name:'Before & After',               hook:'Paint the painful "before" state → contrast with the better "after" your product creates', cta:'ask if they want the same' },
+        { name:'Industry Insight',             hook:'Share a real trend in their sector → connect it to the risk of doing nothing → position your offer', cta:'offer a strategy session' },
+        { name:'Competitor Gap',               hook:'Mention what top players in their industry are doing that most businesses miss → offer to bridge that gap', cta:'request a quick intro call' },
+        { name:'Cost of Inaction',             hook:'Quantify what it costs them every month to NOT solve this problem → make delay feel expensive', cta:'offer a no-obligation chat' },
+        { name:'Social Proof',                 hook:'Reference a specific type of company you helped → result they got → why this matters for the prospect', cta:'offer to share case study' },
+        { name:'Founder-to-Founder',           hook:'Direct, peer-to-peer tone — one business person to another — share a core belief about their problem', cta:'ask a direct yes/no question' },
+        { name:'The Challenge',                hook:'Challenge a common assumption they likely hold → present a counterintuitive insight → position your solution', cta:'offer to prove it in 15 min' },
+        { name:'Compliment + Gap',             hook:'Genuine compliment about something specific about their business → pivot to a gap → your bridge', cta:'ask for feedback or a reaction' },
+        { name:'Quick Win Offer',              hook:'Lead with an immediate concrete value you can deliver before they commit anything', cta:'invite them to claim the quick win' },
+        { name:'Data-Driven Urgency',          hook:'Use an industry statistic to create mild urgency → connect to their situation → your solution', cta:'invite them to act before competitors do' },
+        { name:'Story-Based',                  hook:'2-sentence mini story about a client who had their exact problem → outcome → bridge to prospect', cta:'ask if this story sounds familiar' },
+        { name:'Direct Pitch',                 hook:'No fluff — state exactly what you do, who you help, what result they get, why now',  cta:'clear, confident ask for a call time' },
+      ];
+
       const variants = [];
-      const variantCount = Math.min(Math.max(1, parseInt(count) || 1), 10); // Limit to 1-10 variants
 
       for (let i = 0; i < variantCount; i++) {
-        // Vary the temperature and approach for each variant
-        const temperature = 0.6 + (i * 0.15); // 0.6, 0.75, 0.9, 1.05, 1.2
-        const approaches = [
-          {
-            name: 'Pain Points & Solutions',
-            style: 'Start by identifying a specific challenge they face, then present your solution',
-            tone: 'empathetic and solution-focused',
-            structure: 'Problem → Impact → Solution → CTA'
-          },
-          {
-            name: 'ROI & Quantifiable Benefits',
-            style: 'Lead with data and measurable outcomes, use specific percentages and metrics',
-            tone: 'data-driven and results-oriented',
-            structure: 'Metric → Benefit → Proof → CTA'
-          },
-          {
-            name: 'Consultative Question-Based',
-            style: 'Ask thought-provoking questions about their business challenges',
-            tone: 'curious and advisory',
-            structure: 'Question → Insight → Value Prop → CTA'
-          },
-          {
-            name: 'Social Proof & Case Studies',
-            style: 'Reference similar companies you\'ve helped and their success stories',
-            tone: 'credible and evidence-based',
-            structure: 'Story → Results → Relevance → CTA'
-          },
-          {
-            name: 'Industry-Specific Insights',
-            style: 'Share a recent trend or insight specific to their industry',
-            tone: 'knowledgeable and timely',
-            structure: 'Insight → Implication → Opportunity → CTA'
-          }
-        ];
-        const approach = approaches[i % approaches.length];
+        const approach   = approaches[i % approaches.length];
+        const temperature = Math.min(0.55 + i * 0.06, 1.1); // 0.55 → 1.1 across 15 variants
 
-        // Construct the AI prompt with strong variation instructions
-        const systemPrompt = `You are an expert B2B email copywriter. Generate a UNIQUE and DIFFERENT email variant.
+        const systemPrompt = `You are a world-class B2B sales email copywriter. Your emails consistently get 30%+ reply rates because they feel human, are razor-sharp on the prospect's pain, and make a compelling case for action.
 
-CRITICAL: This is variant ${i + 1} of ${variantCount}. Make it DISTINCTLY DIFFERENT from other variants in:
-- Subject line style and wording
-- Opening sentence and hook
-- Body structure and flow
-- Specific pain points or benefits mentioned
-- Call-to-action phrasing
+SELLER CONTEXT (use this to make the pitch specific and credible):
+${sellerContext || 'No brief provided — write a general outreach email for a tech company.'}
 
-Email Requirements:
-1. Length: 150-200 words
-2. Tone: ${approach.tone}
-3. Structure: ${approach.structure}
-4. Style: ${approach.style}
-5. Must be conversational and natural
-6. Avoid being overly salesy
-
-Approach: ${approach.name}
-
-Context:
-- Recipient: ${name || '[Name]'}
+RECIPIENT:
+- Name: ${name || '[Name]'}
 - Company: ${company || '[Company]'}
 - Role: ${role || 'decision maker'}
-- Industry: ${category || 'business'}
+${customPrompt ? `\nEXTRA INSTRUCTIONS: ${customPrompt}` : ''}
 
-${customPrompt ? `Additional instructions: ${customPrompt}` : ''}
+THIS VARIANT (#${i + 1} of ${variantCount}) — Approach: "${approach.name}"
+Technique: ${approach.hook}
+Call-to-action style: ${approach.cta}
 
-IMPORTANT: Return ONLY valid JSON with "subject" and "body" fields. No markdown, no code blocks, just pure JSON.
-Example format: {"subject":"Your subject here","body":"Your email body here"}`;
+RULES:
+1. Length: 120–180 words total (short emails get more replies)
+2. Subject line: 5–8 words, intriguing, not clickbait, no ALL CAPS
+3. Opening: never start with "I hope this email finds you well" or "My name is"
+4. Body: make the problem/solution SPECIFIC to their industry — use details from the seller context
+5. Tone: confident but not arrogant, human not corporate
+6. CTA: one single clear ask — make it easy to say yes (15-min call, quick chat, yes/no question)
+7. Signature: end with "Best,\nPawan Kumar\nEnginerds Tech Solution"
+8. This must read like a genuine sales pitch that could convert a cold prospect into a reply
 
-        const userPrompt = `Create variant ${i + 1} of ${variantCount} using the "${approach.name}" approach. Make the SUBJECT and BODY completely different from other variants. Be creative and vary the opening, middle, and closing. For ${name || '[Name]'} at ${company || '[Company]'}.`;
+CRITICAL: Return ONLY valid JSON. No markdown. No code fences. Exactly this format:
+{"subject":"...","body":"..."}`;
+
+        const userPrompt = `Write variant ${i + 1} of ${variantCount} using the "${approach.name}" approach. The subject and opening must be completely different from any other variant. Be bold and specific.`;
 
         try {
-          // Call NVIDIA NIM API
           const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
             method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${apiKey}`,
-              'Content-Type': 'application/json'
-            },
+            headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
               model: 'meta/llama-3.1-405b-instruct',
-              messages: [
-                {
-                  role: 'system',
-                  content: systemPrompt
-                },
-                {
-                  role: 'user', 
-                  content: userPrompt
-                }
-              ],
-              temperature: temperature,
-              max_tokens: 600,
-              top_p: 0.9
+              messages: [{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }],
+              temperature,
+              max_tokens: 700,
+              top_p: 0.95,
             })
           });
 
-          if (!response.ok) {
-            const errorData = await response.text();
-            console.error(`❌ NVIDIA API Error for variant ${i + 1}:`, response.status, errorData);
-            throw new Error(`API returned ${response.status}`);
-          }
-
+          if (!response.ok) throw new Error(`NVIDIA API ${response.status}`);
           const data = await response.json();
-          
-          if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-            throw new Error('Invalid response from NVIDIA API');
-          }
+          if (!data.choices?.[0]?.message) throw new Error('Empty response from NVIDIA');
 
-          const aiResponse = data.choices[0].message.content;
-          
-          // Try to parse as JSON first
+          const raw = data.choices[0].message.content;
           let result;
           try {
-            // Remove markdown code blocks if present
-            const cleanedResponse = aiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-            result = JSON.parse(cleanedResponse);
-          } catch (parseError) {
-            // If not JSON, extract subject and body manually
-            const lines = aiResponse.split('\n').filter(line => line.trim());
-            
-            let subject = `Quick idea for ${company || '[Company]'}`;
-            let body = aiResponse;
-            
-            // Look for subject line patterns
-            for (const line of lines) {
-              if (line.toLowerCase().includes('subject:') || line.toLowerCase().includes('subject line:')) {
-                subject = line.replace(/subject:?/i, '').trim().replace(/^["']|["']$/g, '');
-                break;
-              }
-            }
-            
-            // Remove subject line from body if found
-            body = aiResponse.replace(/subject:?[^\n]*/i, '').trim();
-            
-            result = { subject, body };
+            const cleaned = raw.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
+            result = JSON.parse(cleaned);
+          } catch {
+            // extract subject/body from free text
+            const subMatch = raw.match(/subject[:\s]+["']?(.+?)["']?\n/i);
+            result = {
+              subject: subMatch ? subMatch[1].trim() : `Opportunity for ${company || '[Company]'}`,
+              body:    raw.replace(/subject[:\s]+.+?\n/i,'').trim(),
+            };
           }
 
-          // Ensure we have both subject and body
-          if (!result.subject) {
-            result.subject = `Quick idea for ${company || '[Company]'}`;
-          }
-          
-          if (!result.body) {
-            result.body = `Hi ${name || '[Name]'},\n\nI hope this email finds you well. I wanted to reach out because I believe we could help ${company || '[Company]'} achieve your business goals.\n\nWould you be open to a brief conversation to explore potential opportunities?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`;
-          }
+          result.subject = (result.subject || '').replace(/^["']|["']$/g,'').trim();
+          result.body    = (result.body    || '').replace(/^["']|["']$/g,'').trim();
+          result.approach = approach.name;
 
-          // Clean up the content
-          result.subject = result.subject.replace(/^["']|["']$/g, '').trim();
-          result.body = result.body.replace(/^["']|["']$/g, '').trim();
+          if (!result.subject) result.subject = `Opportunity for ${company || '[Company]'}`;
+          if (!result.body)    result.body    = `Hi ${name || '[Name]'},\n\nWould you be open to a quick 15-minute chat?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution`;
 
           variants.push(result);
-          console.log(`✅ Variant ${i + 1}/${variantCount} generated:`, result.subject.substring(0, 50) + '...');
+          console.log(`✅ Variant ${i+1}/${variantCount} [${approach.name}]:`, result.subject.substring(0,60));
 
-        } catch (variantError) {
-          console.error(`❌ Error generating variant ${i + 1}:`, variantError.message);
-          
-          // Add fallback variant with varied content
-          const fallbackBodies = [
-            `Hi ${name || '[Name]'},\n\nI noticed ${company || '[Company]'} is doing great work in ${category || 'your industry'}. I wanted to reach out because we've helped similar companies overcome specific challenges around operational efficiency.\n\nMany businesses struggle with manual processes that waste time and resources. Our solution has helped companies reduce operational overhead by up to 60%.\n\nWould you be open to a quick 15-minute call to explore if we could help ${company || '[Company]'} achieve similar results?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
-            
-            `Hi ${name || '[Name]'},\n\nQuick question: How much time does your team at ${company || '[Company]'} spend on repetitive tasks each week?\n\nWe've worked with companies in ${category || 'your sector'} and found that most teams lose 15-20 hours weekly on manual work. Our clients have automated these processes and redirected that time to strategic initiatives.\n\nInterested in learning how this could work for ${company || '[Company]'}?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
-            
-            `Hi ${name || '[Name]'},\n\nI came across ${company || '[Company]'} and was impressed by your growth. We recently helped a similar company in ${category || 'your industry'} increase their operational efficiency by 70% in just 3 months.\n\nThey were facing challenges with data management and workflow automation - issues that many ${role || 'leaders'} tell us keep them up at night.\n\nWould you like to see how we achieved these results? Happy to share a brief case study.\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
-            
-            `Hi ${name || '[Name]'},\n\nThere's a trend we're seeing in ${category || 'your industry'} right now: companies are struggling to scale their operations without proportionally increasing costs.\n\n${company || 'Your company'} might be experiencing this too. We've developed solutions that help businesses grow revenue while keeping operational costs flat.\n\nWould you be interested in a brief conversation about how this applies to ${company || '[Company]'}?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
-            
-            `Hi ${name || '[Name]'},\n\nI hope this email finds you well. As a ${role || 'leader'} at ${company || '[Company]'}, you're probably focused on improving efficiency and reducing costs.\n\nWe specialize in helping companies like yours streamline operations through smart automation. Our clients typically see ROI within 90 days and save an average of 25 hours per week.\n\nWould you be open to exploring how this could benefit ${company || '[Company]'}?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`
+        } catch (err) {
+          console.error(`❌ Variant ${i+1} failed:`, err.message);
+          // Deterministic fallback using brief context so it's still relevant
+          const prob  = brief.problems  || 'operational inefficiencies';
+          const sol   = brief.solutions || 'smart automation and modern tech';
+          const prod  = brief.product   || 'our solution';
+          const fallbacks = [
+            { subject:`Is ${company||'[Company]'} losing time to ${prob.split(',')[0].trim().toLowerCase()}?`,
+              body:`Hi ${name||'[Name]'},\n\nMost ${category||'businesses'} we talk to are quietly losing 10–20 hours a week to ${prob.split(',')[0].trim().toLowerCase()}.\n\nWe built ${prod} to fix exactly this — ${sol.split(',')[0].trim().toLowerCase()}. Clients typically see results in under 60 days.\n\nWould a quick 15-min call make sense this week?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution` },
+            { subject:`Quick ROI question for ${company||'[Company]'}`,
+              body:`Hi ${name||'[Name]'},\n\nIf I could show you how ${company||'[Company]'} could cut costs from ${prob.split(',')[0].trim().toLowerCase()} by 30%, would that be worth 15 minutes?\n\nWe've helped similar ${category||'companies'} do this using ${sol.split(',').slice(0,2).join(' and ').toLowerCase()}.\n\nHappy to share specifics on a call — does Thursday or Friday work?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution` },
+            { subject:`What the top ${category||'companies'} are doing differently`,
+              body:`Hi ${name||'[Name]'},\n\nThe fastest-growing ${category||'businesses'} in ${new Date().getFullYear()} have one thing in common: they've stopped tolerating ${prob.split(',')[0].trim().toLowerCase()}.\n\nWe help companies like ${company||'[Company]'} make that shift using ${prod} — ${sol.split(',')[0].trim().toLowerCase()}.\n\nWould you like to see how?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution` },
           ];
-          
-          variants.push({
-            subject: `${['Quick idea', 'Opportunity', 'Partnership idea', 'Question', 'Collaboration'][i % 5]} for ${company || '[Company]'}`,
-            body: fallbackBodies[i % fallbackBodies.length],
-            fallback: true
-          });
+          const fb = fallbacks[i % fallbacks.length];
+          variants.push({ ...fb, approach: approach.name, fallback: true });
         }
 
-        // Add small delay between API calls to avoid rate limiting
-        if (i < variantCount - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
+        if (i < variantCount - 1) await new Promise(r => setTimeout(r, 400));
       }
 
-      console.log(`✅ [AI GENERATION] Generated ${variants.length} variants successfully`);
-
-      return res.json({ 
-        variants: variants,
-        count: variants.length
-      });
+      console.log(`✅ [AI] Done — ${variants.length} variants ready`);
+      return res.json({ variants, count: variants.length });
 
     } catch (error) {
-      console.error('❌ AI Generation Error:', error);
-      
-      // Return fallback variants on any error
-      const { name, company, count = 1 } = req.body;
-      const fallbackVariants = [];
-      const variantCount = Math.min(Math.max(1, parseInt(count) || 1), 10);
-      
-      const fallbackBodies = [
-        `Hi ${name || '[Name]'},\n\nI noticed ${company || '[Company]'} is doing great work in your industry. I wanted to reach out because we've helped similar companies overcome specific challenges around operational efficiency.\n\nMany businesses struggle with manual processes that waste time and resources. Our solution has helped companies reduce operational overhead by up to 60%.\n\nWould you be open to a quick 15-minute call to explore if we could help ${company || '[Company]'} achieve similar results?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
-        
-        `Hi ${name || '[Name]'},\n\nQuick question: How much time does your team at ${company || '[Company]'} spend on repetitive tasks each week?\n\nWe've worked with companies in your sector and found that most teams lose 15-20 hours weekly on manual work. Our clients have automated these processes and redirected that time to strategic initiatives.\n\nInterested in learning how this could work for ${company || '[Company]'}?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
-        
-        `Hi ${name || '[Name]'},\n\nI came across ${company || '[Company]'} and was impressed by your growth. We recently helped a similar company in your industry increase their operational efficiency by 70% in just 3 months.\n\nThey were facing challenges with data management and workflow automation - issues that many leaders tell us keep them up at night.\n\nWould you like to see how we achieved these results? Happy to share a brief case study.\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
-        
-        `Hi ${name || '[Name]'},\n\nThere's a trend we're seeing in your industry right now: companies are struggling to scale their operations without proportionally increasing costs.\n\n${company || 'Your company'} might be experiencing this too. We've developed solutions that help businesses grow revenue while keeping operational costs flat.\n\nWould you be interested in a brief conversation about how this applies to ${company || '[Company]'}?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
-        
-        `Hi ${name || '[Name]'},\n\nI hope this email finds you well. As a leader at ${company || '[Company]'}, you're probably focused on improving efficiency and reducing costs.\n\nWe specialize in helping companies like yours streamline operations through smart automation. Our clients typically see ROI within 90 days and save an average of 25 hours per week.\n\nWould you be open to exploring how this could benefit ${company || '[Company]'}?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`
-      ];
-      
-      for (let i = 0; i < variantCount; i++) {
-        fallbackVariants.push({
-          subject: `${['Quick idea', 'Opportunity', 'Partnership idea', 'Question', 'Collaboration'][i % 5]} for ${company || '[Company]'}`,
-          body: fallbackBodies[i % fallbackBodies.length],
-          fallback: true
-        });
-      }
-      
-      return res.json({
-        variants: fallbackVariants,
-        count: fallbackVariants.length,
-        error: error.message
-      });
+      console.error('❌ AI Generation fatal error:', error.message);
+      return res.status(500).json({ error: error.message });
     }
   }
 
