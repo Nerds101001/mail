@@ -156,37 +156,73 @@ module.exports = async (req, res) => {
 
       for (let i = 0; i < variantCount; i++) {
         // Vary the temperature and approach for each variant
-        const temperature = 0.6 + (i * 0.1); // 0.6, 0.7, 0.8, 0.9, 1.0
+        const temperature = 0.6 + (i * 0.15); // 0.6, 0.75, 0.9, 1.05, 1.2
         const approaches = [
-          'Focus on pain points and solutions',
-          'Emphasize ROI and quantifiable benefits',
-          'Use a consultative, question-based approach',
-          'Highlight case studies and social proof',
-          'Lead with industry-specific insights'
+          {
+            name: 'Pain Points & Solutions',
+            style: 'Start by identifying a specific challenge they face, then present your solution',
+            tone: 'empathetic and solution-focused',
+            structure: 'Problem → Impact → Solution → CTA'
+          },
+          {
+            name: 'ROI & Quantifiable Benefits',
+            style: 'Lead with data and measurable outcomes, use specific percentages and metrics',
+            tone: 'data-driven and results-oriented',
+            structure: 'Metric → Benefit → Proof → CTA'
+          },
+          {
+            name: 'Consultative Question-Based',
+            style: 'Ask thought-provoking questions about their business challenges',
+            tone: 'curious and advisory',
+            structure: 'Question → Insight → Value Prop → CTA'
+          },
+          {
+            name: 'Social Proof & Case Studies',
+            style: 'Reference similar companies you\'ve helped and their success stories',
+            tone: 'credible and evidence-based',
+            structure: 'Story → Results → Relevance → CTA'
+          },
+          {
+            name: 'Industry-Specific Insights',
+            style: 'Share a recent trend or insight specific to their industry',
+            tone: 'knowledgeable and timely',
+            structure: 'Insight → Implication → Opportunity → CTA'
+          }
         ];
         const approach = approaches[i % approaches.length];
 
-        // Construct the AI prompt with variation
-        const systemPrompt = `You are an expert email copywriter specializing in B2B sales emails. Generate a personalized, professional email that:
-1. Is concise and engaging (150-200 words max)
-2. Focuses on value proposition for the recipient
-3. Has a clear call-to-action
-4. Sounds natural and conversational
-5. Avoids being overly salesy
+        // Construct the AI prompt with strong variation instructions
+        const systemPrompt = `You are an expert B2B email copywriter. Generate a UNIQUE and DIFFERENT email variant.
 
-Approach for this variant: ${approach}
+CRITICAL: This is variant ${i + 1} of ${variantCount}. Make it DISTINCTLY DIFFERENT from other variants in:
+- Subject line style and wording
+- Opening sentence and hook
+- Body structure and flow
+- Specific pain points or benefits mentioned
+- Call-to-action phrasing
+
+Email Requirements:
+1. Length: 150-200 words
+2. Tone: ${approach.tone}
+3. Structure: ${approach.structure}
+4. Style: ${approach.style}
+5. Must be conversational and natural
+6. Avoid being overly salesy
+
+Approach: ${approach.name}
 
 Context:
 - Recipient: ${name || '[Name]'}
 - Company: ${company || '[Company]'}
 - Role: ${role || 'decision maker'}
-- Category: ${category || 'business professional'}
+- Industry: ${category || 'business'}
 
 ${customPrompt ? `Additional instructions: ${customPrompt}` : ''}
 
-Generate both a subject line and email body. Return ONLY valid JSON with "subject" and "body" fields, no markdown formatting.`;
+IMPORTANT: Return ONLY valid JSON with "subject" and "body" fields. No markdown, no code blocks, just pure JSON.
+Example format: {"subject":"Your subject here","body":"Your email body here"}`;
 
-        const userPrompt = `Generate variant ${i + 1} of ${variantCount}: A personalized B2B sales email for ${name || '[Name]'} at ${company || '[Company]'}. Make it professional, valuable, and engaging. Use the ${approach} approach.`;
+        const userPrompt = `Create variant ${i + 1} of ${variantCount} using the "${approach.name}" approach. Make the SUBJECT and BODY completely different from other variants. Be creative and vary the opening, middle, and closing. For ${name || '[Name]'} at ${company || '[Company]'}.`;
 
         try {
           // Call NVIDIA NIM API
@@ -274,10 +310,22 @@ Generate both a subject line and email body. Return ONLY valid JSON with "subjec
         } catch (variantError) {
           console.error(`❌ Error generating variant ${i + 1}:`, variantError.message);
           
-          // Add fallback variant
+          // Add fallback variant with varied content
+          const fallbackBodies = [
+            `Hi ${name || '[Name]'},\n\nI noticed ${company || '[Company]'} is doing great work in ${category || 'your industry'}. I wanted to reach out because we've helped similar companies overcome specific challenges around operational efficiency.\n\nMany businesses struggle with manual processes that waste time and resources. Our solution has helped companies reduce operational overhead by up to 60%.\n\nWould you be open to a quick 15-minute call to explore if we could help ${company || '[Company]'} achieve similar results?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
+            
+            `Hi ${name || '[Name]'},\n\nQuick question: How much time does your team at ${company || '[Company]'} spend on repetitive tasks each week?\n\nWe've worked with companies in ${category || 'your sector'} and found that most teams lose 15-20 hours weekly on manual work. Our clients have automated these processes and redirected that time to strategic initiatives.\n\nInterested in learning how this could work for ${company || '[Company]'}?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
+            
+            `Hi ${name || '[Name]'},\n\nI came across ${company || '[Company]'} and was impressed by your growth. We recently helped a similar company in ${category || 'your industry'} increase their operational efficiency by 70% in just 3 months.\n\nThey were facing challenges with data management and workflow automation - issues that many ${role || 'leaders'} tell us keep them up at night.\n\nWould you like to see how we achieved these results? Happy to share a brief case study.\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
+            
+            `Hi ${name || '[Name]'},\n\nThere's a trend we're seeing in ${category || 'your industry'} right now: companies are struggling to scale their operations without proportionally increasing costs.\n\n${company || 'Your company'} might be experiencing this too. We've developed solutions that help businesses grow revenue while keeping operational costs flat.\n\nWould you be interested in a brief conversation about how this applies to ${company || '[Company]'}?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
+            
+            `Hi ${name || '[Name]'},\n\nI hope this email finds you well. As a ${role || 'leader'} at ${company || '[Company]'}, you're probably focused on improving efficiency and reducing costs.\n\nWe specialize in helping companies like yours streamline operations through smart automation. Our clients typically see ROI within 90 days and save an average of 25 hours per week.\n\nWould you be open to exploring how this could benefit ${company || '[Company]'}?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`
+          ];
+          
           variants.push({
             subject: `${['Quick idea', 'Opportunity', 'Partnership idea', 'Question', 'Collaboration'][i % 5]} for ${company || '[Company]'}`,
-            body: `Hi ${name || '[Name]'},\n\nI hope this email finds you well. I wanted to reach out because I believe we could help ${company || '[Company]'} streamline operations and drive growth.\n\nWe've helped similar companies in your industry achieve significant improvements in efficiency and ROI. I'd love to share some specific examples that might be relevant to your current challenges.\n\nWould you be open to a brief 15-minute call this week to explore how we might be able to help?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
+            body: fallbackBodies[i % fallbackBodies.length],
             fallback: true
           });
         }
@@ -303,10 +351,22 @@ Generate both a subject line and email body. Return ONLY valid JSON with "subjec
       const fallbackVariants = [];
       const variantCount = Math.min(Math.max(1, parseInt(count) || 1), 10);
       
+      const fallbackBodies = [
+        `Hi ${name || '[Name]'},\n\nI noticed ${company || '[Company]'} is doing great work in your industry. I wanted to reach out because we've helped similar companies overcome specific challenges around operational efficiency.\n\nMany businesses struggle with manual processes that waste time and resources. Our solution has helped companies reduce operational overhead by up to 60%.\n\nWould you be open to a quick 15-minute call to explore if we could help ${company || '[Company]'} achieve similar results?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
+        
+        `Hi ${name || '[Name]'},\n\nQuick question: How much time does your team at ${company || '[Company]'} spend on repetitive tasks each week?\n\nWe've worked with companies in your sector and found that most teams lose 15-20 hours weekly on manual work. Our clients have automated these processes and redirected that time to strategic initiatives.\n\nInterested in learning how this could work for ${company || '[Company]'}?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
+        
+        `Hi ${name || '[Name]'},\n\nI came across ${company || '[Company]'} and was impressed by your growth. We recently helped a similar company in your industry increase their operational efficiency by 70% in just 3 months.\n\nThey were facing challenges with data management and workflow automation - issues that many leaders tell us keep them up at night.\n\nWould you like to see how we achieved these results? Happy to share a brief case study.\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
+        
+        `Hi ${name || '[Name]'},\n\nThere's a trend we're seeing in your industry right now: companies are struggling to scale their operations without proportionally increasing costs.\n\n${company || 'Your company'} might be experiencing this too. We've developed solutions that help businesses grow revenue while keeping operational costs flat.\n\nWould you be interested in a brief conversation about how this applies to ${company || '[Company]'}?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
+        
+        `Hi ${name || '[Name]'},\n\nI hope this email finds you well. As a leader at ${company || '[Company]'}, you're probably focused on improving efficiency and reducing costs.\n\nWe specialize in helping companies like yours streamline operations through smart automation. Our clients typically see ROI within 90 days and save an average of 25 hours per week.\n\nWould you be open to exploring how this could benefit ${company || '[Company]'}?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`
+      ];
+      
       for (let i = 0; i < variantCount; i++) {
         fallbackVariants.push({
           subject: `${['Quick idea', 'Opportunity', 'Partnership idea', 'Question', 'Collaboration'][i % 5]} for ${company || '[Company]'}`,
-          body: `Hi ${name || '[Name]'},\n\nI hope this email finds you well. I wanted to reach out because I believe we could help ${company || '[Company]'} streamline operations and drive growth.\n\nWe've helped similar companies achieve significant improvements in efficiency and ROI. I'd love to share some specific examples that might be relevant to your current challenges.\n\nWould you be open to a brief 15-minute call this week to explore how we might be able to help?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
+          body: fallbackBodies[i % fallbackBodies.length],
           fallback: true
         });
       }
