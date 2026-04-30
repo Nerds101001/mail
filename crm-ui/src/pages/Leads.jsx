@@ -91,7 +91,7 @@ export default function Leads() {
     if (!settings.openaiKey) { toast('Set NVIDIA API key in Settings', 'error'); return }
     setGenLoading(true)
     try {
-      const res = await fetch('/api/generate-ai', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:emailLead.name, company:emailLead.company||'their company', role:emailLead.role||'', category:emailLead.category||'', apiKey:settings.openaiKey }) })
+      const res = await fetch('/api/ops?type=generate-ai', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:emailLead.name, company:emailLead.company||'their company', role:emailLead.role||'', category:emailLead.category||'', apiKey:settings.openaiKey }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
       setEmailSubject(data.subject); setEmailBody(data.body)

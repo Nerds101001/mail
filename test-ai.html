@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test AI Generation</title>
+    <style>
+        body { font-family: system-ui; max-width: 600px; margin: 50px auto; padding: 20px; }
+        .btn { background: #2563eb; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; }
+        .result { margin-top: 20px; padding: 15px; border-radius: 6px; background: #f8fafc; }
+        input, textarea { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>🤖 Test AI Generation</h1>
+    
+    <div>
+        <label>Name:</label>
+        <input type="text" id="name" value="John Doe" />
+        
+        <label>Company:</label>
+        <input type="text" id="company" value="TechCorp Inc" />
+        
+        <label>NVIDIA API Key:</label>
+        <input type="password" id="apiKey" placeholder="nvapi-..." />
+        
+        <label>Custom Prompt:</label>
+        <textarea id="customPrompt" placeholder="Focus on ERP solutions..."></textarea>
+        
+        <button class="btn" onclick="testAI()">🚀 Test AI Generation</button>
+    </div>
+    
+    <div id="result"></div>
+    
+    <script>
+        async function testAI() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '⏳ Testing AI generation...';
+            
+            const name = document.getElementById('name').value;
+            const company = document.getElementById('company').value;
+            const apiKey = document.getElementById('apiKey').value;
+            const customPrompt = document.getElementById('customPrompt').value;
+            
+            try {
+                console.log('Calling:', '/api/ops?type=generate-ai');
+                
+                const response = await fetch('/api/ops?type=generate-ai', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        company: company,
+                        apiKey: apiKey,
+                        customPrompt: customPrompt
+                    })
+                });
+                
+                console.log('Response status:', response.status);
+                
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = `
+                        <h3>✅ Success!</h3>
+                        <p><strong>Subject:</strong> ${data.subject}</p>
+                        <p><strong>Body:</strong></p>
+                        <pre style="white-space: pre-wrap; background: #fff; padding: 10px; border-radius: 4px;">${data.body}</pre>
+                        ${data.fallback ? '<p><em>Note: This is a fallback response (API key issue or NVIDIA API error)</em></p>' : ''}
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <h3>❌ Error</h3>
+                        <p><strong>Status:</strong> ${response.status}</p>
+                        <p><strong>Error:</strong> ${data.error || 'Unknown error'}</p>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                }
+            } catch (error) {
+                console.error('Test error:', error);
+                resultDiv.innerHTML = `
+                    <h3>❌ Network Error</h3>
+                    <p>${error.message}</p>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>

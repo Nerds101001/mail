@@ -69,7 +69,7 @@ export default function Campaign() {
     if (!settings.openaiKey) { toast('Set NVIDIA API key in Settings', 'error'); return }
     setGenLoading(true)
     try {
-      const res = await fetch('/api/generate-ai', { method:'POST', headers:{'Content-Type':'application/json'},
+      const res = await fetch('/api/ops?type=generate-ai', { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ name:'[Name]', company:'[Company]', role:'[Role]', category: cfg.filterVal || 'Business', apiKey:settings.openaiKey, customPrompt:aiPrompt, count: variantCount }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'AI generation failed')
