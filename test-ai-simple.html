@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple AI Test</title>
+    <style>
+        body { font-family: system-ui; max-width: 800px; margin: 50px auto; padding: 20px; }
+        .btn { background: #2563eb; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; margin: 10px 0; }
+        .result { margin-top: 20px; padding: 15px; border-radius: 6px; background: #f8fafc; border: 1px solid #e2e8f0; }
+        input { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .success { background: #dcfce7; color: #166534; }
+        .error { background: #fee2e2; color: #dc2626; }
+        .info { background: #dbeafe; color: #1d4ed8; }
+    </style>
+</head>
+<body>
+    <h1>🤖 AI Generation Test - enginerdsmail.vercel.app</h1>
+    
+    <div class="info status">
+        <strong>Testing:</strong> POST /api/ops?type=generate-ai<br>
+        <strong>Domain:</strong> <span id="domain"></span><br>
+        <strong>Time:</strong> <span id="timestamp"></span>
+    </div>
+    
+    <div>
+        <label>NVIDIA API Key (required):</label>
+        <input type="password" id="apiKey" placeholder="nvapi-..." />
+        
+        <button class="btn" onclick="testEndpoint()">🚀 Test AI Endpoint</button>
+        <button class="btn" onclick="testWithoutKey()" style="background: #dc2626;">Test Without Key</button>
+    </div>
+    
+    <div id="result"></div>
+    
+    <script>
+        document.getElementById('domain').textContent = window.location.hostname;
+        document.getElementById('timestamp').textContent = new Date().toLocaleString();
+        
+        async function testEndpoint() {
+            const resultDiv = document.getElementById('result');
+            const apiKey = document.getElementById('apiKey').value;
+            
+            if (!apiKey) {
+                resultDiv.innerHTML = '<div class="error status">❌ Please enter NVIDIA API key</div>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<div class="info status">⏳ Testing AI generation endpoint...</div>';
+            
+            try {
+                console.log('Testing endpoint:', '/api/ops?type=generate-ai');
+                console.log('Payload:', { name: 'John Doe', company: 'TechCorp', apiKey: '***' });
+                
+                const response = await fetch('/api/ops?type=generate-ai', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        name: 'John Doe',
+                        company: 'TechCorp Inc',
+                        role: 'CTO',
+                        category: 'Technology',
+                        apiKey: apiKey,
+                        customPrompt: 'Focus on ERP solutions and ROI'
+                    })
+                });
+                
+                console.log('Response status:', response.status);
+                console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+                
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok) {
+                    resultDiv.innerHTML = `
+                        <div class="success status">✅ AI Generation Successful!</div>
+                        <div class="result">
+                            <h3>Generated Email:</h3>
+                            <p><strong>Subject:</strong> ${data.subject}</p>
+                            <p><strong>Body:</strong></p>
+                            <pre style="white-space: pre-wrap; background: #fff; padding: 15px; border-radius: 4px; border: 1px solid #e2e8f0;">${data.body}</pre>
+                            ${data.fallback ? '<div class="info status"><em>Note: This is a fallback response (NVIDIA API issue)</em></div>' : ''}
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="error status">❌ API Error</div>
+                        <div class="result">
+                            <p><strong>Status:</strong> ${response.status}</p>
+                            <p><strong>Error:</strong> ${data.error || 'Unknown error'}</p>
+                            <pre style="background: #fff; padding: 10px; border-radius: 4px;">${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Network error:', error);
+                resultDiv.innerHTML = `
+                    <div class="error status">❌ Network Error</div>
+                    <div class="result">
+                        <p><strong>Error:</strong> ${error.message}</p>
+                        <p>This could indicate:</p>
+                        <ul>
+                            <li>404 - Endpoint not found (deployment issue)</li>
+                            <li>Network connectivity issue</li>
+                            <li>CORS issue</li>
+                        </ul>
+                    </div>
+                `;
+            }
+        }
+        
+        async function testWithoutKey() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<div class="info status">⏳ Testing endpoint without API key...</div>';
+            
+            try {
+                const response = await fetch('/api/ops?type=generate-ai', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        name: 'John Doe',
+                        company: 'TechCorp Inc'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.status === 400 && data.error && data.error.includes('API key')) {
+                    resultDiv.innerHTML = `
+                        <div class="success status">✅ Endpoint Found - Validation Working</div>
+                        <div class="result">
+                            <p>The endpoint exists and correctly validates API key requirement.</p>
+                            <p><strong>Response:</strong> ${data.error}</p>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="info status">ℹ Unexpected Response</div>
+                        <div class="result">
+                            <p><strong>Status:</strong> ${response.status}</p>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error status">❌ Endpoint Not Found</div>
+                    <div class="result">
+                        <p>The endpoint /api/ops?type=generate-ai is not accessible.</p>
+                        <p><strong>Error:</strong> ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>
