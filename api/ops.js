@@ -178,11 +178,10 @@ module.exports = async (req, res) => {
         { name:'Direct Pitch',                 hook:'No fluff — state exactly what you do, who you help, what result they get, why now',  cta:'clear, confident ask for a call time' },
       ];
 
-      const variants = [];
-
-      for (let i = 0; i < variantCount; i++) {
-        const approach   = approaches[i % approaches.length];
-        const temperature = Math.min(0.55 + i * 0.06, 1.1); // 0.55 → 1.1 across 15 variants
+      // Build one prompt per variant, then fire ALL in parallel — avoids Vercel timeout
+      function buildPrompt(i) {
+        const approach    = approaches[i % approaches.length];
+        const temperature = Math.min(0.55 + i * 0.06, 1.0);
 
         const systemPrompt = `You are a world-class B2B sales email copywriter. Your emails consistently get 30%+ reply rates because they feel human, are razor-sharp on the prospect's pain, and make a compelling case for action.
 
@@ -203,17 +202,21 @@ RULES:
 1. Length: 120–180 words total (short emails get more replies)
 2. Subject line: 5–8 words, intriguing, not clickbait, no ALL CAPS
 3. Opening: never start with "I hope this email finds you well" or "My name is"
-4. Body: make the problem/solution SPECIFIC to their industry — use details from the seller context
+4. Body: make the problem/solution SPECIFIC — use details from the seller context above
 5. Tone: confident but not arrogant, human not corporate
-6. CTA: one single clear ask — make it easy to say yes (15-min call, quick chat, yes/no question)
+6. CTA: one single clear ask — make it easy to say yes
 7. Signature: end with "Best,\nPawan Kumar\nEnginerds Tech Solution"
-8. This must read like a genuine sales pitch that could convert a cold prospect into a reply
 
-CRITICAL: Return ONLY valid JSON. No markdown. No code fences. Exactly this format:
+CRITICAL: Return ONLY valid JSON. No markdown. No code fences. Exactly:
 {"subject":"...","body":"..."}`;
 
-        const userPrompt = `Write variant ${i + 1} of ${variantCount} using the "${approach.name}" approach. The subject and opening must be completely different from any other variant. Be bold and specific.`;
+        const userPrompt = `Write variant ${i + 1} using the "${approach.name}" approach. Subject and opening must differ from all other variants.`;
 
+        return { approach, temperature, systemPrompt, userPrompt };
+      }
+
+      async function fetchVariant(i) {
+        const { approach, temperature, systemPrompt, userPrompt } = buildPrompt(i);
         try {
           const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
             method: 'POST',
@@ -222,22 +225,20 @@ CRITICAL: Return ONLY valid JSON. No markdown. No code fences. Exactly this form
               model: 'meta/llama-3.1-405b-instruct',
               messages: [{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }],
               temperature,
-              max_tokens: 700,
+              max_tokens: 600,
               top_p: 0.95,
             })
           });
 
           if (!response.ok) throw new Error(`NVIDIA API ${response.status}`);
           const data = await response.json();
-          if (!data.choices?.[0]?.message) throw new Error('Empty response from NVIDIA');
+          if (!data.choices?.[0]?.message) throw new Error('Empty NVIDIA response');
 
           const raw = data.choices[0].message.content;
           let result;
           try {
-            const cleaned = raw.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
-            result = JSON.parse(cleaned);
+            result = JSON.parse(raw.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim());
           } catch {
-            // extract subject/body from free text
             const subMatch = raw.match(/subject[:\s]+["']?(.+?)["']?\n/i);
             result = {
               subject: subMatch ? subMatch[1].trim() : `Opportunity for ${company || '[Company]'}`,
@@ -245,36 +246,33 @@ CRITICAL: Return ONLY valid JSON. No markdown. No code fences. Exactly this form
             };
           }
 
-          result.subject = (result.subject || '').replace(/^["']|["']$/g,'').trim();
-          result.body    = (result.body    || '').replace(/^["']|["']$/g,'').trim();
+          result.subject  = (result.subject || '').replace(/^["']|["']$/g,'').trim() || `Opportunity for ${company || '[Company]'}`;
+          result.body     = (result.body    || '').replace(/^["']|["']$/g,'').trim() || `Hi ${name || '[Name]'},\n\nWould you be open to a quick 15-minute chat?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution`;
           result.approach = approach.name;
 
-          if (!result.subject) result.subject = `Opportunity for ${company || '[Company]'}`;
-          if (!result.body)    result.body    = `Hi ${name || '[Name]'},\n\nWould you be open to a quick 15-minute chat?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution`;
-
-          variants.push(result);
-          console.log(`✅ Variant ${i+1}/${variantCount} [${approach.name}]:`, result.subject.substring(0,60));
+          console.log(`✅ Variant ${i+1} [${approach.name}]:`, result.subject.substring(0, 60));
+          return result;
 
         } catch (err) {
-          console.error(`❌ Variant ${i+1} failed:`, err.message);
-          // Deterministic fallback using brief context so it's still relevant
-          const prob  = brief.problems  || 'operational inefficiencies';
-          const sol   = brief.solutions || 'smart automation and modern tech';
-          const prod  = brief.product   || 'our solution';
+          console.error(`❌ Variant ${i+1} fallback:`, err.message);
+          const prob = brief.problems  || 'operational inefficiencies';
+          const sol  = brief.solutions || 'smart automation';
+          const prod = brief.product   || 'our solution';
           const fallbacks = [
             { subject:`Is ${company||'[Company]'} losing time to ${prob.split(',')[0].trim().toLowerCase()}?`,
-              body:`Hi ${name||'[Name]'},\n\nMost ${category||'businesses'} we talk to are quietly losing 10–20 hours a week to ${prob.split(',')[0].trim().toLowerCase()}.\n\nWe built ${prod} to fix exactly this — ${sol.split(',')[0].trim().toLowerCase()}. Clients typically see results in under 60 days.\n\nWould a quick 15-min call make sense this week?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution` },
+              body:`Hi ${name||'[Name]'},\n\nMost ${category||'businesses'} we talk to lose 10–20 hours a week to ${prob.split(',')[0].trim().toLowerCase()}.\n\nWe built ${prod} to fix exactly this — ${sol.split(',')[0].trim().toLowerCase()}. Clients typically see results in under 60 days.\n\nWould a quick 15-min call make sense this week?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution` },
             { subject:`Quick ROI question for ${company||'[Company]'}`,
-              body:`Hi ${name||'[Name]'},\n\nIf I could show you how ${company||'[Company]'} could cut costs from ${prob.split(',')[0].trim().toLowerCase()} by 30%, would that be worth 15 minutes?\n\nWe've helped similar ${category||'companies'} do this using ${sol.split(',').slice(0,2).join(' and ').toLowerCase()}.\n\nHappy to share specifics on a call — does Thursday or Friday work?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution` },
-            { subject:`What the top ${category||'companies'} are doing differently`,
-              body:`Hi ${name||'[Name]'},\n\nThe fastest-growing ${category||'businesses'} in ${new Date().getFullYear()} have one thing in common: they've stopped tolerating ${prob.split(',')[0].trim().toLowerCase()}.\n\nWe help companies like ${company||'[Company]'} make that shift using ${prod} — ${sol.split(',')[0].trim().toLowerCase()}.\n\nWould you like to see how?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution` },
+              body:`Hi ${name||'[Name]'},\n\nIf I could show you how ${company||'[Company]'} could reduce ${prob.split(',')[0].trim().toLowerCase()} by 30%, would that be worth 15 minutes?\n\nWe've helped similar companies do this using ${sol.split(',').slice(0,2).join(' and ').toLowerCase()}.\n\nDoes Thursday or Friday work for a quick call?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution` },
+            { subject:`What top ${category||'companies'} are doing differently`,
+              body:`Hi ${name||'[Name]'},\n\nThe fastest-growing ${category||'businesses'} have one thing in common: they've stopped tolerating ${prob.split(',')[0].trim().toLowerCase()}.\n\nWe help companies like ${company||'[Company]'} make that shift with ${prod}.\n\nWorth a 15-min look?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution` },
           ];
-          const fb = fallbacks[i % fallbacks.length];
-          variants.push({ ...fb, approach: approach.name, fallback: true });
+          return { ...fallbacks[i % fallbacks.length], approach: approach.name, fallback: true };
         }
-
-        if (i < variantCount - 1) await new Promise(r => setTimeout(r, 400));
       }
+
+      // Fire all variant requests in parallel — stays within Vercel's timeout
+      const variantPromises = Array.from({ length: variantCount }, (_, i) => fetchVariant(i));
+      const variants = await Promise.all(variantPromises);
 
       console.log(`✅ [AI] Done — ${variants.length} variants ready`);
       return res.json({ variants, count: variants.length });

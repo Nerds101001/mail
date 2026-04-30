@@ -4,19 +4,21 @@ const PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBR
 
 // Bot/Prefetch detection patterns - ENHANCED
 const BOT_PATTERNS = [
-  /bot/i, /crawler/i, /spider/i, /scraper/i,
-  /prerender/i, /preview/i, /prefetch/i,
-  /googleimageproxy/i, /outlooksafelinks/i,
-  /mailscanner/i, /antivirus/i, /security/i,
-  /headless/i, /phantom/i, /selenium/i,
-  /curl/i, /wget/i, /python/i, /java/i,
-  /http/i, /okhttp/i, /go-http/i,
-  /scanner/i, /checker/i, /monitor/i,
-  /validator/i, /test/i, /probe/i,
-  /fetch/i, /request/i, /client/i,
-  /link.*check/i, /url.*check/i,
-  /email.*check/i, /spam.*check/i,
-  /safe.*brows/i, /threat/i, /malware/i
+  // Explicit bots / crawlers
+  /bot\b/i, /crawler/i, /spider/i, /scraper/i,
+  // Email security scanners that pre-fetch
+  /googleimageproxy/i, /outlooksafelinks/i, /safelinks\.protection/i,
+  /barracuda/i, /mimecast/i, /proofpoint/i, /ironport/i,
+  /mailscanner/i, /spamassassin/i,
+  // Headless / automation
+  /headlesschrome/i, /phantomjs/i, /selenium/i, /puppeteer/i, /playwright/i,
+  // CLI tools
+  /^curl\//i, /^wget\//i, /^python-requests/i, /^go-http-client/i,
+  /^okhttp/i, /^java\//i, /^libwww/i, /^lwp-/i,
+  // Link checkers
+  /link.*check/i, /url.*check/i, /link.*validator/i,
+  // Preview / prefetch services
+  /preview/i, /prerender/i, /prefetch/i,
 ];
 
 function isLikelyBot(userAgent) {

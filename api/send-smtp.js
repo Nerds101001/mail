@@ -2,21 +2,30 @@
 const nodemailer = require("nodemailer");
 const { get }    = require("./_redis");
 
-// ─── HTML body builder (tracking intact) ─────────────────────────────────────
-function buildHtmlBody(plainText, leadId, email, appUrl) {
+// ─── HTML body builder ────────────────────────────────────────────────────────
+function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
+  const trackingPath = campaignId
+    ? `/api/track/open/${leadId}/${campaignId}`
+    : `/api/track/open/${leadId}`;
+
   const paragraphs = plainText
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .split(/\n{2,}/)
     .map(para => {
       const tracked = para.replace(/\n/g, "<br>").replace(
         /https?:\/\/[^\s<"&]+/g,
-        (url) => `<a href="${appUrl}/api/track/click?id=${leadId}&url=${encodeURIComponent(url)}" style="color:#1a73e8;text-decoration:none;">${url}</a>`
+        (url) => {
+          const clickPath = campaignId
+            ? `/api/track/click/${leadId}/${campaignId}/${encodeURIComponent(url)}`
+            : `/api/track/click/${leadId}/${encodeURIComponent(url)}`;
+          return `<a href="${appUrl}${clickPath}" style="color:#1a73e8;text-decoration:none;">${url}</a>`;
+        }
       )
       return `<p style="margin:0 0 16px 0;line-height:1.6;color:#1a1a1a;">${tracked}</p>`
     })
     .join('')
 
-  const trackingPixel = `<img src="${appUrl}/api/track/open?id=${leadId}" width="1" height="1" alt="" style="display:none;border:0;"/>`
+  const trackingPixel = `<img src="${appUrl}${trackingPath}" width="1" height="1" alt="" style="display:none;border:0;"/>`
   const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`
 
   return `<!DOCTYPE html>
@@ -45,7 +54,7 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { leadId, to, subject, body, senderName, replyTo, smtpConfig } = req.body;
+  const { leadId, to, subject, body, senderName, replyTo, smtpConfig, campaignId } = req.body;
   const appUrl = process.env.APP_URL;
 
   if (!leadId || !to || !subject || !body || !smtpConfig)
@@ -72,7 +81,7 @@ module.exports = async (req, res) => {
       greetingTimeout:   10000,
     });
 
-    const htmlBody = buildHtmlBody(body, leadId, to, appUrl);
+    const htmlBody = buildHtmlBody(body, leadId, to, appUrl, campaignId || null);
 
     const info = await transporter.sendMail({
       from:    `"${senderName}" <${user}>`,
