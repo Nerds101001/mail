@@ -77,8 +77,14 @@ export default function Leads() {
       const email = cols[ei] || ''
       if (!email || !isValidEmail(email)) continue
       if (newLeads.find(l => l.email.toLowerCase() === email.toLowerCase())) continue
-      const name = ni >= 0 ? (cols[ni] || email.split('@')[0]) : email.split('@')[0]
-      newLeads.push(enrichLead({ id:'lead_'+(Date.now()+i), name, email:email.toLowerCase(), company:'', phone:'', role:'', category:'General', tags:[], status:'VALID', pipelineStage:'COLD', stage:'', opens:0, clicks:0, score:40, lastSent:'', domain:'', priority:'LOW', createdAt:new Date().toISOString() }))
+      const ci = headers.indexOf('company'), phi = headers.indexOf('phone')
+      const cati = headers.indexOf('category'), tagi = headers.indexOf('tags')
+      const name    = ni >= 0  ? (cols[ni]   || email.split('@')[0]) : email.split('@')[0]
+      const company = ci >= 0  ? (cols[ci]   || '') : ''
+      const phone   = phi >= 0 ? (cols[phi]  || '') : ''
+      const category = cati >= 0 ? (cols[cati] || 'General') : 'General'
+      const tags    = tagi >= 0 ? cols[tagi].split(';').map(t=>t.trim()).filter(Boolean) : []
+      newLeads.push(enrichLead({ id:'lead_'+(Date.now()+i), name, email:email.toLowerCase(), company, phone, role:'', category, tags, status:'VALID', pipelineStage:'COLD', stage:'', opens:0, clicks:0, score:40, lastSent:'', domain:'', priority:'LOW', createdAt:new Date().toISOString() }))
       added++
     }
     save(newLeads)
@@ -265,8 +271,25 @@ export default function Leads() {
       {/* Import Modal */}
       <Modal open={importOpen} onClose={() => setImportOpen(false)} title="Import CSV">
         <div className="space-y-4">
-          <p className="text-sm text-slate-500">Columns: <code className="bg-slate-100 px-1.5 py-0.5 rounded text-emerald-700 text-xs">Name, Email</code> required. Optional: Company, Phone, Category</p>
-          <Textarea label="Paste CSV" value={csvText} onChange={e => setCsvText(e.target.value)} placeholder={"Name,Email\nJohn Doe,john@acme.com"} style={{ minHeight: 160 }} />
+          <p className="text-sm text-slate-500">Columns: <code className="bg-slate-100 px-1.5 py-0.5 rounded text-emerald-700 text-xs">Name, Email</code> required. Optional: Company, Phone, Category, Tags</p>
+          <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center hover:border-emerald-300 transition-colors">
+            <Upload size={20} className="mx-auto mb-2 text-slate-400" />
+            <p className="text-sm text-slate-500 mb-2">Upload a CSV file</p>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              className="text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
+              onChange={e => {
+                const file = e.target.files[0]
+                if (!file) return
+                const reader = new FileReader()
+                reader.onload = ev => setCsvText(ev.target.result)
+                reader.readAsText(file)
+              }}
+            />
+          </div>
+          <p className="text-xs text-slate-400 text-center">— or paste CSV below —</p>
+          <Textarea label="" value={csvText} onChange={e => setCsvText(e.target.value)} placeholder={"Name,Email,Company,Phone,Category\nJohn Doe,john@acme.com,Acme Corp,,SaaS"} style={{ minHeight: 120 }} />
           <div className="flex justify-end gap-2">
             <Btn variant="secondary" onClick={() => setImportOpen(false)}>Cancel</Btn>
             <Btn variant="primary" onClick={importCSV}><Upload size={14} /> Import</Btn>

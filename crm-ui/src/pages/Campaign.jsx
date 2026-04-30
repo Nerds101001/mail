@@ -1,8 +1,8 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useCRM } from '../store'
 import { Btn, Card, PageHeader, toast } from '../components/ui'
 import RichEditor, { htmlToPlain } from '../components/RichEditor'
-import { Play, Zap, PenLine, Paperclip, RefreshCw, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react'
+import { Play, Zap, RefreshCw, ChevronLeft, ChevronRight, Plus, X, Calendar } from 'lucide-react'
 
 export default function Campaign() {
   const { leads, setLeads, profiles, settings, logActivity } = useCRM()
@@ -33,12 +33,38 @@ export default function Campaign() {
   const [campaignName, setCampaignName] = useState(`Campaign ${new Date().toLocaleDateString('en-GB')}`)
   const bodyRef = useRef(null)
 
+  // Follow-up mode — detect ?followup=campId in URL
+  const [followupIds, setFollowupIds] = useState(null) // Set of lead IDs to target
+  const [followupInfo, setFollowupInfo] = useState('')
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search)
+    const fid = sp.get('followup')
+    if (fid) {
+      fetch(`/api/campaigns?id=${fid}`)
+        .then(r => r.json())
+        .then(d => {
+          const zeroOpen = d.leads?.filter(l => !l.opens || l.opens === 0).map(l => l.lead_id) || []
+          setFollowupIds(new Set(zeroOpen))
+          setFollowupInfo(`Follow-up mode: ${zeroOpen.length} zero-open leads from "${d.name}"`)
+          toast(`Follow-up: targeting ${zeroOpen.length} non-openers`, 'info')
+        })
+        .catch(() => {})
+    }
+  }, [])
+
+  // Scheduling state
+  const [scheduleTime, setScheduleTime] = useState('')
+  const [scheduled, setScheduled]       = useState(false)
+  const scheduleTimerRef = useRef(null)
+
   const activeProfiles = profiles.filter(p => p.active)
   const [selectedSenders, setSelectedSenders] = useState(new Set(profiles.filter(p=>p.active).map(p=>p.user||p.email||'')))
 
   const currentVariant = variants[variantIdx] || { subject: 'Subject will appear here', body: 'Fill the Campaign Brief and click Generate Variants...' }
 
   function getTargets() {
+    // Follow-up mode overrides the target filter
+    if (followupIds) return leads.filter(l => followupIds.has(l.id))
     const fv = cfg.filterVal.trim().toLowerCase()
     if (cfg.target === 'all')      return leads.slice()
     if (cfg.target === 'valid')    return leads.filter(l => l.status === 'VALID')
@@ -111,8 +137,11 @@ export default function Campaign() {
       if (profile.type === 'smtp') payload.smtpConfig = profile
       if (profile.type === 'gmail') payload.gmailUser = profile.user
       const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
-      return res.ok
-    } catch(e) { return false }
+      const data = await res.json().catch(() => ({}))
+      if (data.bounced) return { ok: false, bounced: true }
+      if (data.skipped) return { ok: false, skipped: true }
+      return { ok: res.ok }
+    } catch(e) { return { ok: false } }
   }
 
   function addLog(msg, type='info') {
@@ -131,26 +160,44 @@ export default function Campaign() {
     const updatedLeads = [...leads]
     const campaignDataLeads = []
 
+    const today = new Date().toISOString().split('T')[0]
     for (let i = 0; i < targets.length; i++) {
       const l = targets[i]
       setStatus(`Processing: ${l.name}`)
       setProgress(Math.round(((i + 1) / targets.length) * 100))
 
-      const profile  = senderProfiles[i % senderProfiles.length]
-      const vPool    = variants.length > 0 ? variants : null
-      const vData    = await getContent(l, vPool, i)
+      const profile    = senderProfiles[i % senderProfiles.length]
+      const vPool      = variants.length > 0 ? variants : null
+      const vData      = await getContent(l, vPool, i)
       const { subject, body } = vData
+      const varIdx     = i % (variants.length || 1)
 
-      const ok = await sendOne(l, subject, body, profile, campaignId)
-      if (ok) {
-        addLog(`✓ Sent to ${l.name} via ${profile.user||profile.name} (variant ${(i % (variants.length||1)) + 1})`, 'success')
+      // Daily send cap check
+      const capKey   = `warmup:${profile.id}:${today}`
+      const sentToday = parseInt(localStorage.getItem(capKey) || '0')
+      const dailyCap  = profile.dailyCap || 50
+      if (sentToday >= dailyCap) {
+        addLog(`⚠ Daily cap (${dailyCap}) hit for ${profile.name} — skipping ${l.name}`, 'warn')
+        campaignDataLeads.push({ id:l.id, name:l.name, email:l.email, company:l.company, status:'SKIPPED', subject:'', body:'', variantIndex:varIdx })
+        continue
+      }
+
+      const result = await sendOne(l, subject, body, profile, campaignId)
+      if (result.ok) {
+        addLog(`✓ Sent to ${l.name} via ${profile.user||profile.name} (variant ${varIdx + 1})`, 'success')
         processed++
+        localStorage.setItem(capKey, String(sentToday + 1))
         const idx = updatedLeads.findIndex(x => x.id === l.id)
         if (idx !== -1) updatedLeads[idx] = { ...updatedLeads[idx], status:'SENT', lastSent:new Date().toISOString() }
-        campaignDataLeads.push({ id:l.id, name:l.name, email:l.email, company:l.company, status:'SENT', subject, body, variantIndex: i % (variants.length || 1) })
+        campaignDataLeads.push({ id:l.id, name:l.name, email:l.email, company:l.company, status:'SENT', subject, body, variantIndex: varIdx })
+      } else if (result.bounced) {
+        addLog(`⚡ BOUNCED: ${l.name} <${l.email}>`, 'warn')
+        const idx = updatedLeads.findIndex(x => x.id === l.id)
+        if (idx !== -1) updatedLeads[idx] = { ...updatedLeads[idx], status:'BOUNCED' }
+        campaignDataLeads.push({ id:l.id, name:l.name, email:l.email, company:l.company, status:'BOUNCED', subject, body, variantIndex: varIdx })
       } else {
         addLog(`✗ Failed for ${l.name}`, 'error')
-        campaignDataLeads.push({ id:l.id, name:l.name, email:l.email, company:l.company, status:'FAILED', subject, body, variantIndex: i % (variants.length || 1) })
+        campaignDataLeads.push({ id:l.id, name:l.name, email:l.email, company:l.company, status:'FAILED', subject, body, variantIndex: varIdx })
       }
 
       if (i < targets.length - 1 && cfg.rate > 0) await new Promise(r => setTimeout(r, cfg.rate * 1000))
@@ -179,15 +226,50 @@ export default function Campaign() {
     toast(`Campaign complete — ${processed}/${targets.length} sent`, 'success')
   }
 
+  function scheduleCampaign() {
+    if (!scheduleTime) { toast('Pick a date and time first', 'error'); return }
+    const ms = new Date(scheduleTime).getTime() - Date.now()
+    if (ms < 0) { toast('Schedule time must be in the future', 'error'); return }
+    scheduleTimerRef.current = setTimeout(() => { runCampaign(); setScheduled(false) }, ms)
+    setScheduled(true)
+    toast(`Scheduled for ${new Date(scheduleTime).toLocaleString()} — keep this tab open`, 'success')
+  }
+
+  function cancelSchedule() {
+    if (scheduleTimerRef.current) clearTimeout(scheduleTimerRef.current)
+    setScheduled(false)
+    toast('Schedule cancelled', 'info')
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader title="AI Campaign" subtitle="Send personalized sales emails at scale">
-        <div className="flex gap-2">
-          <Btn variant="primary" onClick={runCampaign} disabled={running}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <input type="datetime-local" className="input text-xs py-1.5" value={scheduleTime} onChange={e=>setScheduleTime(e.target.value)} disabled={scheduled||running} title="Schedule campaign for later" />
+          {!scheduled
+            ? <Btn variant="secondary" onClick={scheduleCampaign} disabled={running||!scheduleTime}><Calendar size={13}/> Schedule</Btn>
+            : <Btn variant="danger" size="sm" onClick={cancelSchedule}>✕ Cancel Schedule</Btn>
+          }
+          <Btn variant="primary" onClick={runCampaign} disabled={running||scheduled}>
             <Play size={14} /> {running ? 'Running...' : 'Run Campaign'}
           </Btn>
         </div>
       </PageHeader>
+
+      {followupInfo && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-800 flex items-center gap-2">
+          <span>↩</span>
+          <span className="font-medium">{followupInfo}</span>
+          <button className="ml-auto text-blue-400 hover:text-blue-600" onClick={() => { setFollowupIds(null); setFollowupInfo(''); window.history.replaceState({}, '', '/campaign') }}>✕ Clear</button>
+        </div>
+      )}
+
+      {scheduled && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 flex items-center gap-2">
+          <Calendar size={14} />
+          <span>Campaign scheduled for <strong>{new Date(scheduleTime).toLocaleString()}</strong> — keep this browser tab open</span>
+        </div>
+      )}
 
       {(running || progress > 0) && (
         <Card className="p-4 border-emerald-100 bg-emerald-50/30">

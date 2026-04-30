@@ -188,5 +188,19 @@ module.exports = async (req, res) => {
     }
   }
 
+  // ── MARK REPLIED (feedback loop) ─────────────────────────────────────
+  if (type === "mark-replied" && req.method === "POST") {
+    try {
+      const { leadId } = req.body;
+      if (!leadId) return res.status(400).json({ error: "Missing leadId" });
+      const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+      const sql = neon(dbUrl);
+      await sql`UPDATE campaign_leads SET status='replied' WHERE lead_id=${leadId} AND status='sent'`;
+      return res.json({ ok: true });
+    } catch(err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   res.status(400).json({ error: "Invalid type parameter" });
 };

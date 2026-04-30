@@ -7,7 +7,7 @@ export default function Settings() {
   const { settings, setSettings, profiles, setProfiles, leads, clients, deals, pushToRedis, gmailStatus } = useCRM()
   const [apiKey, setApiKey]   = useState(settings.openaiKey || '')
   const [smtpOpen, setSmtpOpen] = useState(false)
-  const [smtp, setSmtp]       = useState({ name:'', host:'', port:'465', user:'', pass:'', secure:true })
+  const [smtp, setSmtp]       = useState({ name:'', host:'', port:'465', user:'', pass:'', secure:true, dailyCap:50 })
   const [testing, setTesting] = useState(false)
 
   function saveKey() {
@@ -18,11 +18,11 @@ export default function Settings() {
 
   function addSmtp() {
     if (!smtp.name || !smtp.host || !smtp.user || !smtp.pass) { toast('All fields required', 'error'); return }
-    const profile = { id:'profile_'+Date.now(), type:'smtp', active:true, ...smtp }
+    const profile = { id:'profile_'+Date.now(), type:'smtp', active:true, ...smtp, dailyCap: parseInt(smtp.dailyCap) || 50 }
     setProfiles([...profiles, profile])
     pushToRedis()
     toast('SMTP profile added', 'success')
-    setSmtp({ name:'', host:'', port:'465', user:'', pass:'', secure:true })
+    setSmtp({ name:'', host:'', port:'465', user:'', pass:'', secure:true, dailyCap:50 })
     setSmtpOpen(false)
   }
 
@@ -112,10 +112,11 @@ export default function Settings() {
                 <Input label="Profile Name" value={smtp.name} onChange={e=>setSmtp({...smtp,name:e.target.value})} placeholder="Work Email" />
                 <Input label="SMTP Host" value={smtp.host} onChange={e=>setSmtp({...smtp,host:e.target.value})} placeholder="smtp.gmail.com" />
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-4 gap-3">
                 <Input label="Port" value={smtp.port} onChange={e=>setSmtp({...smtp,port:e.target.value})} />
                 <Input label="Email / User" type="email" value={smtp.user} onChange={e=>setSmtp({...smtp,user:e.target.value})} placeholder="me@company.com" />
                 <Input label="Password" type="password" value={smtp.pass} onChange={e=>setSmtp({...smtp,pass:e.target.value})} />
+                <Input label="Daily Cap" type="number" value={smtp.dailyCap} onChange={e=>setSmtp({...smtp,dailyCap:e.target.value})} title="Max emails per day from this account (warmup limit)" />
               </div>
               <div className="flex items-center justify-between">
                 <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">

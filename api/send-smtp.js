@@ -99,6 +99,10 @@ module.exports = async (req, res) => {
     res.json({ success: true, messageId: info.messageId });
   } catch (err) {
     console.error("send-smtp error:", err.message);
+    // Detect hard bounces (permanent delivery failures)
+    const isBounce = (err.responseCode >= 550) || err.code === 'EENVELOPE' ||
+                     /does not exist|no such user|user unknown|invalid address/i.test(err.message);
+    if (isBounce) return res.json({ success: false, bounced: true, reason: err.message });
     res.status(500).json({ error: err.message });
   }
 };

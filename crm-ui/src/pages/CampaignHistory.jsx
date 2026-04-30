@@ -77,6 +77,8 @@ export default function CampaignHistory() {
     skipped:     'bg-slate-100 text-slate-500',
     opened:      'bg-emerald-100 text-emerald-700',
     clicked:     'bg-amber-100 text-amber-700',
+    replied:     'bg-purple-100 text-purple-700',
+    bounced:     'bg-red-100 text-red-600',
     unsubscribed:'bg-slate-100 text-slate-400',
   }
 
@@ -85,6 +87,7 @@ export default function CampaignHistory() {
       <PageHeader title="Campaign History" subtitle="All past campaign runs with full stats">
         <Btn variant="secondary" size="sm" onClick={load}>↻ Refresh</Btn>
       </PageHeader>
+
 
       {loading ? (
         <div className="card p-16 text-center text-sm text-slate-400">Loading...</div>
@@ -108,6 +111,8 @@ export default function CampaignHistory() {
                   <p className="text-sm font-bold text-slate-900">{c.name}</p>
                   <p className="text-xs text-slate-400">{fmtDate(new Date(parseInt(c.created_at)).toISOString())} · Target: {c.target} · Sender: {c.sender}</p>
                 </div>
+                <Btn variant="ghost" size="sm" onClick={e => { e.stopPropagation(); window.location.href = `/campaign?followup=${c.id}` }}
+                  title="Re-target leads from this campaign that had zero opens">↩ Follow Up</Btn>
                 <div className="flex items-center gap-4 text-sm">
                   <div className="flex items-center gap-1.5 text-blue-600">
                     <Send size={13} /><span className="font-bold">{c.total_sent}</span><span className="text-slate-400 text-xs">sent</span>
