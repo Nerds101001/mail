@@ -139,131 +139,181 @@ module.exports = async (req, res) => {
     return res.json({ ok: true });
   }
 
-  // ── AI EMAIL GENERATION ──────────────────────────────────────────────
+  // ── AI EMAIL GENERATION (MULTIPLE VARIANTS) ──────────────────────────
   if (type === "generate-ai" && req.method === "POST") {
     try {
-      const { name, company, role, category, apiKey, customPrompt } = req.body;
+      const { name, company, role, category, apiKey, customPrompt, count = 1 } = req.body;
 
       if (!apiKey) {
         return res.status(400).json({ error: 'NVIDIA API key is required' });
       }
 
-      // Construct the AI prompt
-      const systemPrompt = `You are an expert email copywriter specializing in B2B sales emails. Generate a personalized, professional email that:
+      console.log(`🤖 [AI GENERATION] Generating ${count} variants for ${company}`);
+
+      // Generate multiple variants
+      const variants = [];
+      const variantCount = Math.min(Math.max(1, parseInt(count) || 1), 10); // Limit to 1-10 variants
+
+      for (let i = 0; i < variantCount; i++) {
+        // Vary the temperature and approach for each variant
+        const temperature = 0.6 + (i * 0.1); // 0.6, 0.7, 0.8, 0.9, 1.0
+        const approaches = [
+          'Focus on pain points and solutions',
+          'Emphasize ROI and quantifiable benefits',
+          'Use a consultative, question-based approach',
+          'Highlight case studies and social proof',
+          'Lead with industry-specific insights'
+        ];
+        const approach = approaches[i % approaches.length];
+
+        // Construct the AI prompt with variation
+        const systemPrompt = `You are an expert email copywriter specializing in B2B sales emails. Generate a personalized, professional email that:
 1. Is concise and engaging (150-200 words max)
 2. Focuses on value proposition for the recipient
 3. Has a clear call-to-action
 4. Sounds natural and conversational
 5. Avoids being overly salesy
 
+Approach for this variant: ${approach}
+
 Context:
-- Recipient: ${name || 'the recipient'}
-- Company: ${company || 'their company'}
+- Recipient: ${name || '[Name]'}
+- Company: ${company || '[Company]'}
 - Role: ${role || 'decision maker'}
 - Category: ${category || 'business professional'}
 
 ${customPrompt ? `Additional instructions: ${customPrompt}` : ''}
 
-Generate both a subject line and email body. Return as JSON with "subject" and "body" fields.`;
+Generate both a subject line and email body. Return ONLY valid JSON with "subject" and "body" fields, no markdown formatting.`;
 
-      const userPrompt = `Generate a personalized B2B sales email for ${name} at ${company}. Make it professional, valuable, and engaging.`;
+        const userPrompt = `Generate variant ${i + 1} of ${variantCount}: A personalized B2B sales email for ${name || '[Name]'} at ${company || '[Company]'}. Make it professional, valuable, and engaging. Use the ${approach} approach.`;
 
-      // Call NVIDIA NIM API
-      const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'meta/llama-3.1-405b-instruct',
-          messages: [
-            {
-              role: 'system',
-              content: systemPrompt
+        try {
+          // Call NVIDIA NIM API
+          const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json'
             },
-            {
-              role: 'user', 
-              content: userPrompt
-            }
-          ],
-          temperature: 0.7,
-          max_tokens: 500,
-          top_p: 0.9
-        })
-      });
+            body: JSON.stringify({
+              model: 'meta/llama-3.1-405b-instruct',
+              messages: [
+                {
+                  role: 'system',
+                  content: systemPrompt
+                },
+                {
+                  role: 'user', 
+                  content: userPrompt
+                }
+              ],
+              temperature: temperature,
+              max_tokens: 600,
+              top_p: 0.9
+            })
+          });
 
-      if (!response.ok) {
-        const errorData = await response.text();
-        console.error('NVIDIA API Error:', response.status, errorData);
-        
-        // Return fallback email if API fails
-        return res.json({
-          subject: `Quick idea for ${company}`,
-          body: `Hi ${name},\n\nI hope this email finds you well. I wanted to reach out because I believe we could help ${company} streamline operations and drive growth.\n\nWe've helped similar companies in your industry achieve significant improvements in efficiency and ROI. I'd love to share some specific examples that might be relevant to your current challenges.\n\nWould you be open to a brief 15-minute call this week to explore how we might be able to help?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
-          fallback: true
-        });
-      }
-
-      const data = await response.json();
-      
-      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-        throw new Error('Invalid response from NVIDIA API');
-      }
-
-      const aiResponse = data.choices[0].message.content;
-      
-      // Try to parse as JSON first
-      let result;
-      try {
-        result = JSON.parse(aiResponse);
-      } catch (parseError) {
-        // If not JSON, extract subject and body manually
-        const lines = aiResponse.split('\n').filter(line => line.trim());
-        
-        let subject = `Quick idea for ${company}`;
-        let body = aiResponse;
-        
-        // Look for subject line patterns
-        for (const line of lines) {
-          if (line.toLowerCase().includes('subject:') || line.toLowerCase().includes('subject line:')) {
-            subject = line.replace(/subject:?/i, '').trim().replace(/^["']|["']$/g, '');
-            break;
+          if (!response.ok) {
+            const errorData = await response.text();
+            console.error(`❌ NVIDIA API Error for variant ${i + 1}:`, response.status, errorData);
+            throw new Error(`API returned ${response.status}`);
           }
+
+          const data = await response.json();
+          
+          if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+            throw new Error('Invalid response from NVIDIA API');
+          }
+
+          const aiResponse = data.choices[0].message.content;
+          
+          // Try to parse as JSON first
+          let result;
+          try {
+            // Remove markdown code blocks if present
+            const cleanedResponse = aiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+            result = JSON.parse(cleanedResponse);
+          } catch (parseError) {
+            // If not JSON, extract subject and body manually
+            const lines = aiResponse.split('\n').filter(line => line.trim());
+            
+            let subject = `Quick idea for ${company || '[Company]'}`;
+            let body = aiResponse;
+            
+            // Look for subject line patterns
+            for (const line of lines) {
+              if (line.toLowerCase().includes('subject:') || line.toLowerCase().includes('subject line:')) {
+                subject = line.replace(/subject:?/i, '').trim().replace(/^["']|["']$/g, '');
+                break;
+              }
+            }
+            
+            // Remove subject line from body if found
+            body = aiResponse.replace(/subject:?[^\n]*/i, '').trim();
+            
+            result = { subject, body };
+          }
+
+          // Ensure we have both subject and body
+          if (!result.subject) {
+            result.subject = `Quick idea for ${company || '[Company]'}`;
+          }
+          
+          if (!result.body) {
+            result.body = `Hi ${name || '[Name]'},\n\nI hope this email finds you well. I wanted to reach out because I believe we could help ${company || '[Company]'} achieve your business goals.\n\nWould you be open to a brief conversation to explore potential opportunities?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`;
+          }
+
+          // Clean up the content
+          result.subject = result.subject.replace(/^["']|["']$/g, '').trim();
+          result.body = result.body.replace(/^["']|["']$/g, '').trim();
+
+          variants.push(result);
+          console.log(`✅ Variant ${i + 1}/${variantCount} generated:`, result.subject.substring(0, 50) + '...');
+
+        } catch (variantError) {
+          console.error(`❌ Error generating variant ${i + 1}:`, variantError.message);
+          
+          // Add fallback variant
+          variants.push({
+            subject: `${['Quick idea', 'Opportunity', 'Partnership idea', 'Question', 'Collaboration'][i % 5]} for ${company || '[Company]'}`,
+            body: `Hi ${name || '[Name]'},\n\nI hope this email finds you well. I wanted to reach out because I believe we could help ${company || '[Company]'} streamline operations and drive growth.\n\nWe've helped similar companies in your industry achieve significant improvements in efficiency and ROI. I'd love to share some specific examples that might be relevant to your current challenges.\n\nWould you be open to a brief 15-minute call this week to explore how we might be able to help?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
+            fallback: true
+          });
         }
-        
-        // Remove subject line from body if found
-        body = aiResponse.replace(/subject:?[^\n]*/i, '').trim();
-        
-        result = { subject, body };
+
+        // Add small delay between API calls to avoid rate limiting
+        if (i < variantCount - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
       }
 
-      // Ensure we have both subject and body
-      if (!result.subject) {
-        result.subject = `Quick idea for ${company}`;
-      }
-      
-      if (!result.body) {
-        result.body = `Hi ${name},\n\nI hope this email finds you well. I wanted to reach out because I believe we could help ${company} achieve your business goals.\n\nWould you be open to a brief conversation to explore potential opportunities?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`;
-      }
+      console.log(`✅ [AI GENERATION] Generated ${variants.length} variants successfully`);
 
-      // Clean up the content
-      result.subject = result.subject.replace(/^["']|["']$/g, '').trim();
-      result.body = result.body.replace(/^["']|["']$/g, '').trim();
-
-      console.log('✅ AI Email Generated:', { subject: result.subject.substring(0, 50) + '...' });
-
-      return res.json(result);
+      return res.json({ 
+        variants: variants,
+        count: variants.length
+      });
 
     } catch (error) {
       console.error('❌ AI Generation Error:', error);
       
-      // Return fallback email on any error
-      const { name, company } = req.body;
+      // Return fallback variants on any error
+      const { name, company, count = 1 } = req.body;
+      const fallbackVariants = [];
+      const variantCount = Math.min(Math.max(1, parseInt(count) || 1), 10);
+      
+      for (let i = 0; i < variantCount; i++) {
+        fallbackVariants.push({
+          subject: `${['Quick idea', 'Opportunity', 'Partnership idea', 'Question', 'Collaboration'][i % 5]} for ${company || '[Company]'}`,
+          body: `Hi ${name || '[Name]'},\n\nI hope this email finds you well. I wanted to reach out because I believe we could help ${company || '[Company]'} streamline operations and drive growth.\n\nWe've helped similar companies achieve significant improvements in efficiency and ROI. I'd love to share some specific examples that might be relevant to your current challenges.\n\nWould you be open to a brief 15-minute call this week to explore how we might be able to help?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
+          fallback: true
+        });
+      }
+      
       return res.json({
-        subject: `Quick idea for ${company || 'your company'}`,
-        body: `Hi ${name || 'there'},\n\nI hope this email finds you well. I wanted to reach out because I believe we could help ${company || 'your company'} streamline operations and drive growth.\n\nWe've helped similar companies achieve significant improvements in efficiency and ROI. I'd love to share some specific examples that might be relevant to your current challenges.\n\nWould you be open to a brief 15-minute call this week to explore how we might be able to help?\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`,
-        fallback: true,
+        variants: fallbackVariants,
+        count: fallbackVariants.length,
         error: error.message
       });
     }
