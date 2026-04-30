@@ -82,8 +82,23 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl })
     .replace(/\n\s*\n\s*\n/g, '\n\n')
     .trim();
   
-  // Use base64 encoding for HTML to prevent Gmail from applying quoted-printable
-  const htmlBodyBase64 = Buffer.from(htmlBody, 'utf-8').toString('base64');
+  // Use 8bit encoding with proper line wrapping to prevent quoted-printable
+  // Wrap HTML at safe points (after >) to keep lines under 998 chars (RFC 5322 limit)
+  const htmlLines = [];
+  let currentLine = '';
+  
+  for (let i = 0; i < htmlBody.length; i++) {
+    currentLine += htmlBody[i];
+    
+    // Break after > if line is getting long (keep under 900 chars for safety)
+    if (currentLine.length >= 900 && htmlBody[i] === '>') {
+      htmlLines.push(currentLine);
+      currentLine = '';
+    }
+  }
+  if (currentLine) htmlLines.push(currentLine);
+  
+  const wrappedHtml = htmlLines.join('\r\n');
   
   const lines = [
     `From: ${from}`,
@@ -105,9 +120,9 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl })
     ``,
     `--${boundary}`,
     `Content-Type: text/html; charset="UTF-8"`,
-    `Content-Transfer-Encoding: base64`,
+    `Content-Transfer-Encoding: 8bit`,
     ``,
-    htmlBodyBase64,
+    wrappedHtml,
     ``,
     `--${boundary}--`
   ].join("\r\n");
