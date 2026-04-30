@@ -1,7 +1,26 @@
 import { useState, useEffect } from 'react'
 import { PageHeader, Empty, Btn, Card, toast } from '../components/ui'
 import { fmtDate } from '../utils'
-import { History, ChevronDown, ChevronRight, Send, Eye, MousePointer, UserX, AlertCircle } from 'lucide-react'
+import { History, ChevronDown, ChevronRight, Send, Eye, MousePointer, AlertCircle } from 'lucide-react'
+
+function parseBrowser(ua) {
+  if (!ua || ua === '—') return '—'
+  let os = 'Unknown'
+  if (/Windows NT 1[01]/.test(ua))      os = 'Windows 10/11'
+  else if (/Windows NT 6\.[13]/.test(ua)) os = 'Windows 7/8'
+  else if (/Macintosh|Mac OS X/.test(ua)) os = 'macOS'
+  else if (/iPhone/.test(ua))             os = 'iOS'
+  else if (/iPad/.test(ua))               os = 'iPadOS'
+  else if (/Android/.test(ua))            os = 'Android'
+  else if (/Linux/.test(ua))              os = 'Linux'
+  let br = 'Browser'
+  if (/Edg\//.test(ua))              br = 'Edge'
+  else if (/OPR\/|Opera/.test(ua))   br = 'Opera'
+  else if (/Firefox\//.test(ua))     br = 'Firefox'
+  else if (/Chrome\//.test(ua))      br = 'Chrome'
+  else if (/Safari\//.test(ua))      br = 'Safari'
+  return `${br} / ${os}`
+}
 
 export default function CampaignHistory() {
   const [campaigns, setCampaigns] = useState([])
@@ -9,7 +28,10 @@ export default function CampaignHistory() {
   const [expanded, setExpanded]   = useState(null)
   const [detail, setDetail]       = useState(null)
   const [trackingData, setTrackingData] = useState({})
-  const [viewingEmail, setViewingEmail] = useState(null) // For email body modal
+  const [viewingEmail, setViewingEmail]   = useState(null)
+  const [modalEvents, setModalEvents]     = useState([])
+  const [modalEventsLoading, setModalEventsLoading] = useState(false)
+  const [modalTab, setModalTab]           = useState('body') // 'body' | 'events'
 
   useEffect(() => { load() }, [])
 
@@ -69,6 +91,18 @@ export default function CampaignHistory() {
       }
     }
     return { status: lead.status, display: lead.status }
+  }
+
+  async function openEmailModal(l) {
+    setViewingEmail(l)
+    setModalEvents([])
+    setModalTab('body')
+    setModalEventsLoading(true)
+    try {
+      const res = await fetch(`/api/ops?type=events&leadId=${l.lead_id}`)
+      if (res.ok) { const d = await res.json(); setModalEvents(d.events || []) }
+    } catch(e) {}
+    setModalEventsLoading(false)
   }
 
   const statusColor = {
@@ -244,11 +278,9 @@ export default function CampaignHistory() {
                             <td className="px-4 py-2 text-slate-500 max-w-[180px] truncate">{l.subject || '—'}</td>
                             <td className="px-4 py-2 text-slate-400">{l.sent_at ? new Date(parseInt(l.sent_at)).toLocaleTimeString('en-IN') : '—'}</td>
                             <td className="px-4 py-2">
-                              {l.subject && (
-                                <button onClick={() => setViewingEmail(l)} className="text-blue-600 hover:text-blue-700 text-xs font-medium flex items-center gap-1">
-                                  <Eye size={12}/> View
-                                </button>
-                              )}
+                              <button onClick={() => openEmailModal(l)} className="text-blue-600 hover:text-blue-700 text-xs font-medium flex items-center gap-1">
+                                <Eye size={12}/> View
+                              </button>
                             </td>
                           </tr>
                         )
@@ -262,60 +294,100 @@ export default function CampaignHistory() {
         </div>
       )}
 
-      {/* Email Body Modal */}
+      {/* Email Detail Modal — Body + Events tabs */}
       {viewingEmail && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setViewingEmail(null)}>
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b border-slate-200">
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">Email Sent to {viewingEmail.lead_name}</h3>
-                <p className="text-xs text-slate-500">{viewingEmail.lead_email}</p>
+                <h3 className="text-sm font-bold text-slate-900">{viewingEmail.lead_name}</h3>
+                <p className="text-xs text-slate-500 font-mono">{viewingEmail.lead_email}</p>
               </div>
-              <button onClick={() => setViewingEmail(null)} className="text-slate-400 hover:text-slate-600">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M18 6L6 18M6 6l12 12"/>
-                </svg>
-              </button>
+              <div className="flex items-center gap-4">
+                {/* Engagement badges */}
+                {(trackingData[viewingEmail.lead_id]?.opens > 0 || trackingData[viewingEmail.lead_id]?.clicks > 0) && (
+                  <div className="flex gap-2 text-xs">
+                    <span className="flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-1 rounded-lg">
+                      <Eye size={11}/>{trackingData[viewingEmail.lead_id]?.opens||0} opens
+                    </span>
+                    <span className="flex items-center gap-1 bg-amber-50 text-amber-700 px-2 py-1 rounded-lg">
+                      <MousePointer size={11}/>{trackingData[viewingEmail.lead_id]?.clicks||0} clicks
+                    </span>
+                  </div>
+                )}
+                <button onClick={() => setViewingEmail(null)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
+              </div>
             </div>
-            <div className="p-6 overflow-y-auto max-h-[calc(80vh-80px)]">
-              <div className="mb-4">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Subject</label>
-                <p className="text-sm font-semibold text-slate-900 mt-1">{viewingEmail.subject || 'No subject'}</p>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Email Body</label>
-                <div className="mt-2 bg-slate-50 rounded-lg p-4 border border-slate-200">
-                  {viewingEmail.body ? (
-                    <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                      {viewingEmail.body}
-                    </p>
-                  ) : (
-                    <div className="text-center py-8">
-                      <p className="text-sm text-slate-500 mb-2">Email body not available</p>
-                      <p className="text-xs text-slate-400">
-                        This campaign was sent before the body tracking feature was added.
-                        <br />
-                        New campaigns will have full email body saved.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {trackingData[viewingEmail.lead_id] && (
-                <div className="mt-4 pt-4 border-t border-slate-200">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Engagement Stats</label>
-                  <div className="flex gap-4 mt-2">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Eye size={14} className="text-emerald-600" />
-                      <span className="font-semibold">{trackingData[viewingEmail.lead_id].opens || 0}</span>
-                      <span className="text-slate-500">opens</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <MousePointer size={14} className="text-amber-600" />
-                      <span className="font-semibold">{trackingData[viewingEmail.lead_id].clicks || 0}</span>
-                      <span className="text-slate-500">clicks</span>
+            {/* Tabs */}
+            <div className="flex border-b border-slate-200 px-5">
+              {['body','events'].map(t => (
+                <button key={t} onClick={() => setModalTab(t)}
+                  className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors capitalize ${modalTab===t ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+                  {t === 'body' ? '📧 Email Body' : `📋 Events${modalEvents.length > 0 ? ` (${modalEvents.length})` : ''}`}
+                </button>
+              ))}
+            </div>
+            {/* Content */}
+            <div className="overflow-y-auto flex-1 p-5">
+              {modalTab === 'body' ? (
+                <div>
+                  <div className="mb-4">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Subject</p>
+                    <p className="text-sm font-semibold text-slate-900">{viewingEmail.subject || '— no subject recorded —'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Email Body</p>
+                    <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                      {viewingEmail.body
+                        ? <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{viewingEmail.body}</p>
+                        : <p className="text-sm text-slate-400 text-center py-6">Body not recorded for this send.<br/><span className="text-xs">New campaigns save full body content.</span></p>
+                      }
                     </div>
                   </div>
+                </div>
+              ) : (
+                <div>
+                  {modalEventsLoading ? (
+                    <p className="text-sm text-slate-400 text-center py-8">Loading events...</p>
+                  ) : modalEvents.length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-sm text-slate-500 font-medium">No tracking events yet</p>
+                      <p className="text-xs text-slate-400 mt-1">Opens and clicks appear here when the recipient interacts with the email.</p>
+                    </div>
+                  ) : (
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          {['Event','Time','IP Address','Device / Browser','URL'].map(h => (
+                            <th key={h} className="px-3 py-2 text-left font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {modalEvents.map((e, i) => {
+                          const clickUrl = e.event_type === 'click' && e.target_url && !e.target_url.startsWith('campaign:') ? e.target_url : null
+                          return (
+                            <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                              <td className="px-3 py-2">
+                                <span className={`badge text-[10px] ${e.event_type==='open' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                                  {e.event_type==='open' ? '👁 Opened' : '🖱 Clicked'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-slate-600 font-mono whitespace-nowrap">{new Date(parseInt(e.created_at)).toLocaleString('en-IN')}</td>
+                              <td className="px-3 py-2 text-slate-500 font-mono">{e.ip || '—'}</td>
+                              <td className="px-3 py-2 text-slate-600">{parseBrowser(e.user_agent)}</td>
+                              <td className="px-3 py-2 text-slate-500 max-w-[160px]">
+                                {clickUrl
+                                  ? <a href={clickUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate block" title={clickUrl}>{clickUrl.replace(/^https?:\/\//,'').substring(0,40)}…</a>
+                                  : '—'}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               )}
             </div>

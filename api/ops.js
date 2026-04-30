@@ -1,11 +1,13 @@
 // api/ops.js — Unified ops endpoint with improved tracking
-// GET /api/ops?type=tasks          → daily task list
-// GET /api/ops?type=reminder       → send morning digest email
-// GET /api/ops?type=tracking&ids=  → open/click stats (optimized)
-// GET /api/ops?type=events&leadId= → detailed tracking events
-// GET /api/ops?type=gmail-status   → Gmail connection status
+// GET /api/ops?type=tasks             → daily task list
+// GET /api/ops?type=reminder          → send morning digest email
+// GET /api/ops?type=tracking&ids=     → open/click stats (optimized)
+// GET /api/ops?type=events&leadId=    → detailed tracking events for one lead
+// GET /api/ops?type=all-sends         → all campaign_leads rows with campaign names + tracking stats
+// GET /api/ops?type=gmail-status      → Gmail connection status
 
 const { get, set, getTrackingStats, getTrackingEvents } = require("./_redis");
+const { neon } = require("@neondatabase/serverless");
 const nodemailer = require("nodemailer");
 
 async function safeGet(key, fallback) {
@@ -57,6 +59,46 @@ module.exports = async (req, res) => {
     } catch(e) {
       console.error(`❌ [TRACKING EVENTS ERROR] Lead ${leadId}:`, e.message);
       return res.json({ events: [], error: e.message });
+    }
+  }
+
+  // ── ALL SENDS (full campaign_leads view for Tracking page) ───────────
+  if (type === "all-sends") {
+    try {
+      const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+      const campFilter = req.query.campaign || null;
+      const rowLimit   = Math.min(parseInt(req.query.limit) || 1000, 2000);
+
+      // Ensure tables exist (safe no-ops if already created)
+      await sql`CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, created_at BIGINT, target TEXT, sender TEXT, total_sent INT DEFAULT 0, total_failed INT DEFAULT 0, total_skipped INT DEFAULT 0, stats JSONB DEFAULT '{}', brief JSONB DEFAULT '{}', variants JSONB DEFAULT '[]')`.catch(()=>{});
+      await sql`CREATE TABLE IF NOT EXISTS campaign_leads (id SERIAL PRIMARY KEY, campaign_id TEXT, user_id TEXT, lead_id TEXT, lead_name TEXT, lead_email TEXT, lead_company TEXT, status TEXT DEFAULT 'sent', subject TEXT, body TEXT, sent_at BIGINT, variant_index INT DEFAULT 0)`.catch(()=>{});
+
+      const [sends, campaigns] = await Promise.all([
+        campFilter
+          ? sql`SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email, cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index, COALESCE(c.name,'Unknown Campaign') as campaign_name FROM campaign_leads cl LEFT JOIN campaigns c ON cl.campaign_id=c.id WHERE cl.campaign_id=${campFilter} ORDER BY cl.sent_at DESC LIMIT ${rowLimit}`
+          : sql`SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email, cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index, COALESCE(c.name,'Unknown Campaign') as campaign_name FROM campaign_leads cl LEFT JOIN campaigns c ON cl.campaign_id=c.id ORDER BY cl.sent_at DESC LIMIT ${rowLimit}`,
+        sql`SELECT id, name, created_at FROM campaigns ORDER BY created_at DESC LIMIT 200`,
+      ]);
+
+      // Batch-fetch tracking stats (opens/clicks) for all unique lead IDs
+      const leadIds = [...new Set(sends.map(s => s.lead_id).filter(Boolean))];
+      const trackMap = {};
+      if (leadIds.length > 0) {
+        const tRows = await sql`SELECT lead_id, opens, clicks FROM simple_tracking WHERE lead_id = ANY(${leadIds})`.catch(()=>[]);
+        tRows.forEach(r => { trackMap[r.lead_id] = { opens: parseInt(r.opens)||0, clicks: parseInt(r.clicks)||0 }; });
+      }
+
+      return res.json({
+        sends: sends.map(s => ({
+          ...s,
+          opens:  trackMap[s.lead_id]?.opens  || 0,
+          clicks: trackMap[s.lead_id]?.clicks || 0,
+        })),
+        campaigns,
+      });
+    } catch(e) {
+      console.error("[ALL-SENDS]", e.message);
+      return res.status(500).json({ error: e.message });
     }
   }
 
