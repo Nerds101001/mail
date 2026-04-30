@@ -45,7 +45,17 @@ module.exports = async (req, res) => {
     res.setHeader("Expires", "0");
     res.setHeader("Access-Control-Allow-Origin", "*");
 
-    const { id, cid } = req.query;
+    // Support both query params (?id=X&cid=Y) and path params (/api/track/open/leadId/campaignId)
+    let { id, cid } = req.query;
+    
+    // If no query params, try to parse from path
+    if (!id && req.url) {
+      const pathMatch = req.url.match(/\/api\/track\/open\/([^\/\?]+)(?:\/([^\/\?]+))?/);
+      if (pathMatch) {
+        id = pathMatch[1];
+        cid = pathMatch[2];
+      }
+    }
 
     // Return pixel immediately
     res.send(PIXEL);
@@ -64,7 +74,7 @@ module.exports = async (req, res) => {
           console.log(`🔍 [TRACK OPEN] IP: ${ip}`);
           console.log(`🔍 [TRACK OPEN] User Agent: ${ua}`);
           console.log(`🔍 [TRACK OPEN] Campaign ID: ${cid || 'none'}`);
-          console.log(`🔍 [TRACK OPEN] All Headers:`, JSON.stringify(req.headers, null, 2));
+          console.log(`🔍 [TRACK OPEN] URL: ${req.url}`);
           console.log(`🔍 [TRACK OPEN] ========================================`);
 
           // Filter out bots and prefetchers

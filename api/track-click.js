@@ -42,7 +42,31 @@ function isSafeUrl(urlString) {
 }
 
 module.exports = async (req, res) => {
-  const { id, url, cid } = req.query;
+  // Support both query params (?id=X&url=Y&cid=Z) and path params (/api/track/click/leadId/campaignId/url)
+  let { id, url, cid } = req.query;
+  
+  // If no query params, try to parse from path
+  if (!id && req.url) {
+    const pathMatch = req.url.match(/\/api\/track\/click\/([^\/]+)\/([^\/]+)\/(.+)/);
+    if (pathMatch) {
+      id = pathMatch[1];
+      // Check if second param is a campaign ID or URL
+      if (pathMatch[2].startsWith('camp_')) {
+        cid = pathMatch[2];
+        url = pathMatch[3];
+      } else {
+        url = pathMatch[2] + '/' + pathMatch[3];
+      }
+    } else {
+      // Try simpler format without campaign ID
+      const simpleMatch = req.url.match(/\/api\/track\/click\/([^\/]+)\/(.+)/);
+      if (simpleMatch) {
+        id = simpleMatch[1];
+        url = simpleMatch[2];
+      }
+    }
+  }
+  
   const decoded = decodeURIComponent(url || "");
 
   // Set CORS headers
@@ -70,6 +94,7 @@ module.exports = async (req, res) => {
         console.log(`🔗 [TRACK CLICK] IP: ${ip}`);
         console.log(`🔗 [TRACK CLICK] User Agent: ${ua}`);
         console.log(`🔗 [TRACK CLICK] Campaign ID: ${cid || 'none'}`);
+        console.log(`🔗 [TRACK CLICK] URL: ${req.url}`);
         console.log(`🔗 [TRACK CLICK] ========================================`);
 
         // Filter out bots

@@ -119,27 +119,32 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl })
 
 // ─── HTML body builder (improved deliverability) ─────────────────────────────────
 function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
-  const cidParam = campaignId ? `&cid=${campaignId}` : '';
+  // Build simpler tracking URL - use path-based routing instead of query params
+  // This avoids quoted-printable encoding issues with = and & characters
+  const trackingPath = campaignId 
+    ? `/api/track/open/${leadId}/${campaignId}`
+    : `/api/track/open/${leadId}`;
+  const trackingPixelUrl = `${appUrl}${trackingPath}`;
   
   // Split into paragraphs on double newlines, single newlines become <br>
   const paragraphs = plainText
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .split(/\n{2,}/)
     .map(para => {
-      // Track URLs within each paragraph
+      // Track URLs within each paragraph - use simpler format
       const tracked = para.replace(/\n/g, "<br>").replace(
         /https?:\/\/[^\s<"&]+/g,
-        (url) => `<a href="${appUrl}/api/track/click?id=${leadId}&url=${encodeURIComponent(url)}${cidParam}" style="color:#1a73e8;text-decoration:none;">${url}</a>`
+        (url) => {
+          const clickPath = campaignId
+            ? `/api/track/click/${leadId}/${campaignId}/${encodeURIComponent(url)}`
+            : `/api/track/click/${leadId}/${encodeURIComponent(url)}`;
+          return `<a href="${appUrl}${clickPath}" style="color:#1a73e8;text-decoration:none;">${url}</a>`;
+        }
       )
       return `<p style="margin:0 0 16px 0;line-height:1.6;color:#1a1a1a;">${tracked}</p>`
     })
     .join('')
 
-  // Build tracking pixel URL - use URL encoding to avoid quoted-printable issues
-  // Encode the entire query string to avoid & and = characters being mangled
-  const trackingParams = new URLSearchParams({ id: leadId });
-  if (campaignId) trackingParams.append('cid', campaignId);
-  const trackingPixelUrl = `${appUrl}/api/track/open?${trackingParams.toString()}`;
   const trackingPixel = `<img src="${trackingPixelUrl}" width="1" height="1" alt="" style="display:none;border:0;">`;
   const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`;
 
