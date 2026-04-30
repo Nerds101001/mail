@@ -35,9 +35,24 @@ export function CRMProvider({ children }) {
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
           body: JSON.stringify({ leads, clients, deals, profiles, settings, activity: activity.slice(-200) })
         })
-      } catch(e) { console.warn('Redis sync failed') }
-    }, 3000)
+        console.log('✅ Data saved to database')
+      } catch(e) { console.warn('❌ Database sync failed:', e) }
+    }, 500) // Reduced from 3000ms to 500ms for faster saves
     setSaveTimer(t)
+  }, [leads, clients, deals, profiles, settings, activity])
+
+  // Immediate save without debounce - for critical operations
+  const saveNow = useCallback(async () => {
+    if (saveTimer) clearTimeout(saveTimer)
+    try {
+      const token = localStorage.getItem('crm_token') || ''
+      await fetch('/api/crm?type=save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ leads, clients, deals, profiles, settings, activity: activity.slice(-200) })
+      })
+      console.log('✅ Data saved immediately to database')
+    } catch(e) { console.warn('❌ Database sync failed:', e) }
   }, [leads, clients, deals, profiles, settings, activity])
 
   const logActivity = useCallback((msg) => {
@@ -52,7 +67,12 @@ export function CRMProvider({ children }) {
       })
       if (!res.ok) return
       const data = await res.json()
-      if (data.leads?.length)    setLeads(data.leads)
+      
+      // Merge with localStorage - keep newer data
+      const localLeads = load('crm_leads', [])
+      const mergedLeads = data.leads?.length ? data.leads : localLeads
+      
+      if (mergedLeads.length) setLeads(mergedLeads)
       if (data.clients?.length)  setClients(data.clients)
       if (data.deals?.length)    setDeals(data.deals)
       if (data.profiles?.length) setProfiles(data.profiles)
@@ -62,7 +82,9 @@ export function CRMProvider({ children }) {
         setSettings({ ...data.settings, ...(localKey ? { openaiKey: localKey } : {}) })
       }
       if (data.activity?.length) setActivity(data.activity)
-    } catch(e) { console.warn('Redis load failed') }
+      
+      console.log('✅ Data loaded from database:', { leads: mergedLeads.length, clients: data.clients?.length || 0, deals: data.deals?.length || 0 })
+    } catch(e) { console.warn('❌ Database load failed:', e) }
   }, [])
 
   const checkGmailStatus = useCallback(async () => {
@@ -76,7 +98,7 @@ export function CRMProvider({ children }) {
     <CRMContext.Provider value={{
       leads, setLeads, clients, setClients, deals, setDeals,
       profiles, setProfiles, settings, setSettings, activity, setActivity,
-      gmailStatus, setGmailStatus, logActivity, pushToRedis, loadFromRedis, checkGmailStatus
+      gmailStatus, setGmailStatus, logActivity, pushToRedis, saveNow, loadFromRedis, checkGmailStatus
     }}>
       {children}
     </CRMContext.Provider>

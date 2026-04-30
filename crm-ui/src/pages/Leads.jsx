@@ -5,7 +5,7 @@ import { Modal, Btn, Input, Select, Textarea, Badge, Empty, PageHeader, toast } 
 import { Plus, Upload, CheckCircle, Zap, Trash2, UserCheck, Search, Filter, Flame, Users } from 'lucide-react'
 
 export default function Leads() {
-  const { leads, setLeads, profiles, settings, logActivity, pushToRedis } = useCRM()
+  const { leads, setLeads, profiles, settings, logActivity, pushToRedis, saveNow } = useCRM()
   const [search, setSearch]   = useState('')
   const [stageF, setStageF]   = useState('')
   const [statusF, setStatusF] = useState('')
@@ -30,7 +30,7 @@ export default function Leads() {
       && (!priF    || l.priority === priF)
   })
 
-  function save(newLeads) { setLeads(newLeads); pushToRedis() }
+  function save(newLeads) { setLeads(newLeads); saveNow() } // Use immediate save instead of debounced
 
   function addLead() {
     if (!form.name || !form.email) { toast('Name and email required', 'error'); return }
