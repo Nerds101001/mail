@@ -4,7 +4,10 @@ const PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBR
 
 const BOT_PATTERNS = [
   /bot\b/i, /crawler/i, /spider/i, /scraper/i,
-  /googleimageproxy/i, /outlooksafelinks/i, /safelinks\.protection/i,
+  // NOTE: googleimageproxy intentionally excluded — Gmail always fetches tracking
+  // pixels through its proxy (both pre-fetch AND real user opens). Blocking it
+  // by UA would block all Gmail opens. We rely on the 15s timing guard instead.
+  /outlooksafelinks/i, /safelinks\.protection/i,
   /barracuda/i, /mimecast/i, /proofpoint/i, /ironport/i,
   /mailscanner/i, /spamassassin/i,
   /headlesschrome/i, /phantomjs/i, /selenium/i, /puppeteer/i, /playwright/i,

@@ -323,26 +323,24 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
     const now = Date.now();
     const oneHourAgo = now - (60 * 60 * 1000);
 
-    // ── Tier 1: Known scanner IP — block unconditionally ──────────────────────
-    // Google Image Proxy, Apple MPP, Microsoft SafeLinks always come from
-    // their own datacenter IPs. Block these regardless of timing.
-    if (isScannerIp(ip)) {
-      console.log(`🛡️ [GUARD] Known scanner IP blocked for lead ${leadId}: ${ip}`);
-      return { counted: false, reason: 'scanner IP', count: 0 };
-    }
-
-    // ── Tier 2: Unknown IP — short 15s timing guard ────────────────────────────
-    // Catches other scanner proxies that don't advertise their IP. Scanners fire
-    // within 0–10s of delivery. A real human opening within 15s is theoretically
-    // possible but extremely rare in B2B — and after 15s they are always counted.
+    // ── Unified timing guard (applies to ALL IPs including scanner IPs) ──────────
+    // Gmail always fetches the tracking pixel through Google Image Proxy IPs
+    // (66.249.x.x etc.) — both the pre-fetch at delivery AND when the user
+    // actually opens the email. Blocking all scanner IPs unconditionally would
+    // block all Gmail opens. Instead we rely solely on timing:
+    //   - Pre-fetch fires 0–5s after delivery → blocked by 15s window
+    //   - Real user opens email → Google re-fetches → 15s+ after send → counted
+    // Apple MPP also fires via 17.x.x.x, within seconds → blocked.
+    // Microsoft SafeLinks scans links (clicks), not images → not relevant here.
     const guardRaw = await sql`
       SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
         AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
     `.catch(() => []);
     if (guardRaw.length > 0) {
       const sentAt = parseInt(guardRaw[0].value) || 0;
-      if (now - sentAt < 15000) { // 15 second window for unknown IPs
-        console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} (${Math.round((now-sentAt)/1000)}s after send)`);
+      if (now - sentAt < 15000) {
+        const scanner = isScannerIp(ip);
+        console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} (${Math.round((now-sentAt)/1000)}s after send, scanner:${scanner})`);
         return { counted: false, reason: 'scanner guard (15s)', count: 0 };
       }
     }
