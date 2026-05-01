@@ -204,13 +204,37 @@ async function logEvent({ lead_id, event_type, ip, user_agent, target_url = null
   try {
     await ensureTable();
     const sql = getDb();
-    await sql`
-      INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, created_at)
-      VALUES (${lead_id}, ${event_type}, ${ip}, ${user_agent}, ${target_url}, ${campaign_id}, ${Date.now()})
-    `;
-    console.log(`✅ [EVENT LOGGED] ${event_type.toUpperCase()} for lead ${lead_id} campaign ${campaign_id||'—'}`);
+
+    // Try full insert with campaign_id first.
+    // If it fails (column missing on existing table from before the migration),
+    // add the column inline and retry — never silently drop the event.
+    try {
+      await sql`
+        INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, created_at)
+        VALUES (${lead_id}, ${event_type}, ${ip}, ${user_agent}, ${target_url}, ${campaign_id}, ${Date.now()})
+      `;
+    } catch (insertErr) {
+      const isMissingCol = insertErr.message && (
+        insertErr.message.includes('campaign_id') ||
+        insertErr.message.includes('column') ||
+        insertErr.message.includes('does not exist')
+      );
+      if (isMissingCol) {
+        console.warn(`[EVENT LOG] Adding campaign_id column inline and retrying`);
+        await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS campaign_id TEXT`.catch(() => {});
+        // Retry the full insert — column now exists
+        await sql`
+          INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, created_at)
+          VALUES (${lead_id}, ${event_type}, ${ip}, ${user_agent}, ${target_url}, ${campaign_id}, ${Date.now()})
+        `;
+      } else {
+        throw insertErr;
+      }
+    }
+
+    console.log(`✅ [EVENT LOGGED] ${event_type.toUpperCase()} lead:${lead_id} camp:${campaign_id||'—'}`);
   } catch (e) {
-    console.error(`❌ [EVENT LOG FAILED] ${event_type} for lead ${lead_id}:`, e.message);
+    console.error(`❌ [EVENT LOG FAILED] ${event_type} lead:${lead_id}:`, e.message);
   }
 }
 

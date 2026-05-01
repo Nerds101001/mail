@@ -76,21 +76,19 @@ module.exports = async (req, res) => {
       await sql`CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, created_at BIGINT, target TEXT, sender TEXT, total_sent INT DEFAULT 0, total_failed INT DEFAULT 0, total_skipped INT DEFAULT 0, stats JSONB DEFAULT '{}', brief JSONB DEFAULT '{}', variants JSONB DEFAULT '[]')`.catch(()=>{});
       await sql`CREATE TABLE IF NOT EXISTS campaign_leads (id SERIAL PRIMARY KEY, campaign_id TEXT, user_id TEXT, lead_id TEXT, lead_name TEXT, lead_email TEXT, lead_company TEXT, status TEXT DEFAULT 'sent', subject TEXT, body TEXT, sent_at BIGINT, variant_index INT DEFAULT 0)`.catch(()=>{});
 
-      // Per-campaign opens/clicks via subquery on tracking_events (accurate per send,
-      // not cumulative across all campaigns like simple_tracking would give)
+      // Opens/clicks from simple_tracking (reliable — always populated when pixel fires).
+      // tracking_events stores the raw event log used by the Events accordion detail view.
       const [sends, campaigns] = await Promise.all([
         campFilter
           ? sql`
               SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
                      cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
                      COALESCE(c.name,'Unknown Campaign') as campaign_name,
-                     (SELECT COUNT(*) FROM tracking_events te
-                      WHERE te.lead_id=cl.lead_id AND te.campaign_id=cl.campaign_id
-                        AND te.event_type='open') as opens,
-                     (SELECT COUNT(*) FROM tracking_events te
-                      WHERE te.lead_id=cl.lead_id AND te.campaign_id=cl.campaign_id
-                        AND te.event_type='click') as clicks
-              FROM campaign_leads cl LEFT JOIN campaigns c ON cl.campaign_id=c.id
+                     COALESCE(st.opens,  0) as opens,
+                     COALESCE(st.clicks, 0) as clicks
+              FROM campaign_leads cl
+              LEFT JOIN campaigns c       ON c.id      = cl.campaign_id
+              LEFT JOIN simple_tracking st ON st.lead_id = cl.lead_id
               WHERE cl.campaign_id=${campFilter}
               ORDER BY cl.sent_at DESC LIMIT ${rowLimit}
             `
@@ -98,19 +96,16 @@ module.exports = async (req, res) => {
               SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
                      cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
                      COALESCE(c.name,'Unknown Campaign') as campaign_name,
-                     (SELECT COUNT(*) FROM tracking_events te
-                      WHERE te.lead_id=cl.lead_id AND te.campaign_id=cl.campaign_id
-                        AND te.event_type='open') as opens,
-                     (SELECT COUNT(*) FROM tracking_events te
-                      WHERE te.lead_id=cl.lead_id AND te.campaign_id=cl.campaign_id
-                        AND te.event_type='click') as clicks
-              FROM campaign_leads cl LEFT JOIN campaigns c ON cl.campaign_id=c.id
+                     COALESCE(st.opens,  0) as opens,
+                     COALESCE(st.clicks, 0) as clicks
+              FROM campaign_leads cl
+              LEFT JOIN campaigns c       ON c.id      = cl.campaign_id
+              LEFT JOIN simple_tracking st ON st.lead_id = cl.lead_id
               ORDER BY cl.sent_at DESC LIMIT ${rowLimit}
             `,
         sql`SELECT id, name, created_at FROM campaigns ORDER BY created_at DESC LIMIT 200`,
       ]);
 
-      // COUNT(*) from Postgres arrives as string via neon driver — parse to int
       return res.json({
         sends: sends.map(s => ({ ...s, opens: parseInt(s.opens)||0, clicks: parseInt(s.clicks)||0 })),
         campaigns,

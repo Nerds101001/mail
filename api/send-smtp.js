@@ -88,6 +88,10 @@ module.exports = async (req, res) => {
       to,
       subject,
       replyTo: replyTo || user,
+      // Force 8bit encoding so nodemailer doesn't apply quoted-printable.
+      // Quoted-printable encodes = as =3D and line-wraps URLs at 76 chars,
+      // which corrupts tracking pixel and click URLs in the email source.
+      encoding: '8bit',
       html:    htmlBody,
       headers: {
         "Message-ID":              msgId,
