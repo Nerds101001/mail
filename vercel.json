@@ -1,7 +1,5 @@
 {
   "rewrites": [
-    { "source": "/api/track/open/:path*",      "destination": "/api/track-open" },
-    { "source": "/api/track/click/:path*",     "destination": "/api/track-click" },
     { "source": "/api/gmail-auth",             "destination": "/api/gmail?type=auth" },
     { "source": "/api/gmail-callback",         "destination": "/api/gmail?type=callback" },
     { "source": "/api/gmail-status",           "destination": "/api/gmail?type=status" },
