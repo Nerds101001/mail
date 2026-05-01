@@ -228,8 +228,10 @@ module.exports = async (req, res) => {
     const result = await sendRes.json();
     if (result.error) throw new Error(result.error.message || "Gmail send failed");
 
-    // Set scanner-guard: blocks pixel hits within 120s of send (email security proxies)
-    set(`email:guard:${leadId}`, String(Date.now()), 120).catch(() => {});
+    // Write scanner-guard BEFORE responding — must be awaited or Vercel freezes
+    // the process when res.json() returns, dropping the fire-and-forget write.
+    // TTL=30s: check window is 15s, 30s gives headroom without clutter.
+    await set(`email:guard:${leadId}`, String(Date.now()), 30).catch(() => {});
 
     res.json({ success: true, messageId: result.id });
   } catch (err) {

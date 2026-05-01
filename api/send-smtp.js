@@ -96,8 +96,10 @@ module.exports = async (req, res) => {
       },
     });
 
-    // Set scanner-guard: blocks any open pixel hit within 120s of send (catches email security proxies)
-    set(`email:guard:${leadId}`, String(Date.now()), 120).catch(() => {});
+    // Write scanner-guard BEFORE responding — must be awaited or Vercel freezes
+    // the process when res.json() returns, dropping the fire-and-forget write.
+    // TTL=30s: check window is 15s, 30s gives headroom without clutter.
+    await set(`email:guard:${leadId}`, String(Date.now()), 30).catch(() => {});
 
     res.json({ success: true, messageId: info.messageId });
   } catch (err) {
