@@ -285,10 +285,10 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
             method: 'POST',
             headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              model: 'meta/llama-3.1-405b-instruct',
+              model: 'meta/llama-3.3-70b-instruct',
               messages: [{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }],
               temperature,
-              max_tokens: 600,
+              max_tokens: 400,
               top_p: 0.95,
             })
           });

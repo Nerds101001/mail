@@ -156,7 +156,7 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
           return `<a href="${appUrl}${clickPath}" style="color:#1a73e8;text-decoration:none;">${url}</a>`;
         }
       )
-      return `<p style="margin:0 0 16px 0;line-height:1.6;color:#1a1a1a;">${tracked}</p>`
+      return `<p style="margin:0 0 14px 0;">${tracked}</p>`
     })
     .join('')
 
@@ -172,22 +172,13 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="x-apple-disable-message-reformatting">
-<meta name="format-detection" content="telephone=no,date=no,address=no,email=no,url=no">
-<title>Email from Enginerds</title>
 </head>
-<body style="margin:0;padding:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.5;color:#000000;">
-  <div style="max-width:600px;margin:0 auto;padding:20px;">
-    <div style="background:#ffffff;border-radius:8px;padding:32px 24px;">
-      ${paragraphs}
-    </div>
-    
-    <!-- Footer with unsubscribe -->
-    <div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;text-align:center;">
-      <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.4;">
-        This email was sent by Enginerds Tech Solution<br>
-        <a href="${unsubUrl}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a>
-      </p>
-    </div>
+<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#000000;background:#ffffff;">
+  <div style="padding:12px 16px;">
+    ${paragraphs}
+    <p style="margin:24px 0 0 0;font-size:11px;color:#aaaaaa;">
+      <a href="${unsubUrl}" style="color:#aaaaaa;text-decoration:underline;">Unsubscribe</a>
+    </p>
   </div>
   ${trackingPixel}
 </body>
