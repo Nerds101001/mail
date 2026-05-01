@@ -1,18 +1,35 @@
-const { trackOpen } = require("./_redis");
+// api/track-open.js
+// Gmail caching reality (from Litmus, Prospeo, gblock research 2024-2026):
+//   - Gmail Image Proxy pre-fetches all images at delivery from 66.249.x.x IPs
+//   - Subsequent opens of the same email on GMAIL WEB DESKTOP serve from Google's
+//     cache — our server never sees a second request. This is Gmail's design and
+//     cannot be bypassed by any server-side technique (headers, 302, etc.).
+//   - Gmail MOBILE, Outlook, Apple Mail (no MPP), and other clients DO re-fetch
+//     on each open — multiple opens track correctly for those clients.
+//
+// Strategy:
+//   1. Return 302 → unique pixel URL (best attempt at preventing cache reuse)
+//   2. Known email proxy IPs (Google/Apple) bypass the 15s timing guard —
+//      their pre-fetch is the only open signal we'll ever get from Gmail desktop
+//   3. 2-minute IP+campaign dedup prevents counting one load twice
 
+const { trackOpen } = require("./_redis");
 const APP_URL = process.env.APP_URL || "https://enginerdsmail.vercel.app";
 
 module.exports = async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+
   const { id, cid } = req.query;
 
-  // 302 redirect to the actual pixel — this is the key to multiple-open tracking.
-  // Gmail caches only the redirect TARGET (the static GIF), not the 302 itself.
-  // HTTP spec says 302 is not cacheable, so Gmail must re-request this URL on
-  // every open. Each request hits our server and we record a new open event.
-  // Serving a 200 directly causes Gmail to cache the response and never re-fetch.
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.redirect(302, `${APP_URL}/api/track-pixel`);
+  // Redirect to a unique pixel URL on every request.
+  // Unique token = Gmail cannot reuse a cached response from a previous open
+  // because the redirect target URL changes each time.
+  // 302 (not 301/200) = by HTTP spec, not permanently cacheable.
+  const token = Date.now().toString(36) + Math.random().toString(36).slice(2);
+  res.redirect(302, `${APP_URL}/api/track-pixel?t=${token}`);
 
+  // Tracking runs after redirect is sent — Vercel keeps function alive until
+  // this async function resolves (we must await, not fire-and-forget).
   if (!id) return;
 
   try {
@@ -21,16 +38,12 @@ module.exports = async (req, res) => {
                || "unknown";
     const ua = req.headers["user-agent"] || "unknown";
 
-    console.log(`🔍 [OPEN] Lead:${id} Campaign:${cid||'—'} IP:${ip} UA:${ua.slice(0,80)}`);
+    console.log(`🔍 [OPEN] Lead:${id} Camp:${cid||'—'} IP:${ip} UA:${ua.slice(0, 80)}`);
 
-    // No UA bot-filter here — Gmail always sends the pixel through Google Image
-    // Proxy (UA contains "Googlebot"), so a UA check would block all Gmail opens.
-    // The timing guard in trackOpen (15s window after send) is the sole defense
-    // against pre-fetch bots. After 15s any request is counted as a real open.
     const result = await trackOpen(id, ip, ua, cid || null);
     console.log(result.counted
       ? `✅ [OPEN] Counted lead ${id}, total: ${result.count}`
-      : `⏭️  [OPEN] Skipped lead ${id} (${result.reason})`);
+      : `⏭️  [OPEN] Skipped (${result.reason})`);
   } catch (e) {
     console.error(`❌ [OPEN] Lead ${id}:`, e.message);
   }
