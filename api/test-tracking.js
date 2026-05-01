@@ -47,7 +47,7 @@ module.exports = async (req, res) => {
     return send(res, steps, startMs);
   }
 
-  // ── 3. Dedup: same IP within 1 hour — should be skipped ──────────────────
+  // ── 3. Dedup: same IP+campaign within 2 minutes — should be skipped ─────
   try {
     const dup = await trackOpen(testId, fakeIp, fakeUa, campId);
     if (!dup.counted) pass("Dedup open — correctly skipped", `reason=${dup.reason}`);

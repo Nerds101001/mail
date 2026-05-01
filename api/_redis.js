@@ -347,21 +347,25 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       }
     }
 
-    // Check if this exact open was already tracked recently (dedup within 1 hour)
+    // Dedup: only block if same IP opened within the last 2 minutes
+    // (prevents double-counting a single load that triggers multiple requests,
+    // but allows the same person opening again later to count).
+    const twoMinutesAgo = now - (2 * 60 * 1000);
     const existing = await sql`
       SELECT created_at FROM tracking_events
       WHERE lead_id = ${leadId}
         AND event_type = 'open'
         AND ip = ${ip}
-        AND created_at > ${oneHourAgo}
+        AND campaign_id = ${campaignId || null}
+        AND created_at > ${twoMinutesAgo}
       LIMIT 1
     `;
 
     if (existing.length > 0) {
-      return { counted: false, reason: '1 hour window', count: 0 };
+      return { counted: false, reason: '2 min dedup', count: 0 };
     }
-    
-    // This is a unique open - count it
+
+    // Count this open
     const rows = await sql`
       INSERT INTO simple_tracking (lead_id, opens, last_open)
       VALUES (${leadId}, 1, ${now})
