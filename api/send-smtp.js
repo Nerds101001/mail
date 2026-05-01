@@ -1,6 +1,6 @@
 // api/send-smtp.js — SMTP sender (MNC-grade, nodemailer)
 const nodemailer = require("nodemailer");
-const { get }    = require("./_redis");
+const { get, set } = require("./_redis");
 
 // ─── HTML body builder ────────────────────────────────────────────────────────
 function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
@@ -95,6 +95,9 @@ module.exports = async (req, res) => {
         "List-Unsubscribe-Post":   "List-Unsubscribe=One-Click",
       },
     });
+
+    // Set scanner-guard: blocks any open pixel hit within 120s of send (catches email security proxies)
+    set(`email:guard:${leadId}`, String(Date.now()), 120).catch(() => {});
 
     res.json({ success: true, messageId: info.messageId });
   } catch (err) {

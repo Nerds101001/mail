@@ -24,11 +24,10 @@ async function withRetry(operation, maxRetries = 2) {
 let tablesInitialized = false;
 async function ensureTable() {
   if (tablesInitialized) return;
-  
+
   try {
     const sql = getDb();
-    
-    // Create simple tracking table
+
     await sql`
       CREATE TABLE IF NOT EXISTS simple_tracking (
         lead_id TEXT PRIMARY KEY,
@@ -38,8 +37,7 @@ async function ensureTable() {
         last_click BIGINT
       )
     `;
-    
-    // Create basic kv store
+
     await sql`
       CREATE TABLE IF NOT EXISTS kv_store (
         key TEXT PRIMARY KEY,
@@ -47,7 +45,21 @@ async function ensureTable() {
         expires_at BIGINT DEFAULT NULL
       )
     `;
-    
+
+    // tracking_events must exist BEFORE trackOpen queries it to check duplicates
+    await sql`
+      CREATE TABLE IF NOT EXISTS tracking_events (
+        id SERIAL PRIMARY KEY,
+        lead_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        ip TEXT,
+        user_agent TEXT,
+        target_url TEXT,
+        created_at BIGINT NOT NULL
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_lead ON tracking_events(lead_id, event_type, created_at)`;
+
     tablesInitialized = true;
     console.log("✅ Database tables initialized successfully");
   } catch (e) {
@@ -272,14 +284,28 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
   try {
     await ensureTable();
     const sql = getDb();
-    
-    // Create deduplication key based on lead + IP + UA
-    const dedupeKey = `${leadId}:${ip}:${userAgent.substring(0, 50)}`;
-    const dedupeHash = require('crypto').createHash('md5').update(dedupeKey).digest('hex');
+
     const now = Date.now();
-    const oneHourAgo = now - (60 * 60 * 1000); // 1 hour window
-    
-    // Check if this exact open was already tracked recently
+    const oneHourAgo = now - (60 * 60 * 1000);
+
+    // ── Send-guard: skip opens that arrive within 120s of the email being sent ──
+    // Email security scanners (Google Image Proxy, Apple MPP, Microsoft SafeLinks)
+    // load tracking pixels within 0–30 seconds of delivery, before any human reads.
+    // We store a temporary guard key in kv_store when the email is dispatched.
+    // Any open arriving while the guard is active is a scanner, not a real reader.
+    const guardRaw = await sql`
+      SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
+        AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
+    `.catch(() => []);
+    if (guardRaw.length > 0) {
+      const sentAt = parseInt(guardRaw[0].value) || 0;
+      if (now - sentAt < 120000) { // 2-minute window
+        console.log(`🛡️ [GUARD] Scanner blocked for lead ${leadId} (${Math.round((now-sentAt)/1000)}s after send)`);
+        return { counted: false, reason: 'scanner guard', count: 0 };
+      }
+    }
+
+    // Check if this exact open was already tracked recently (dedup within 1 hour)
     const existing = await sql`
       SELECT created_at FROM tracking_events
       WHERE lead_id = ${leadId}
@@ -288,9 +314,8 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
         AND created_at > ${oneHourAgo}
       LIMIT 1
     `;
-    
+
     if (existing.length > 0) {
-      // Duplicate within 1 hour window - don't count
       return { counted: false, reason: '1 hour window', count: 0 };
     }
     

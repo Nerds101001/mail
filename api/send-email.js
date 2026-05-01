@@ -228,6 +228,9 @@ module.exports = async (req, res) => {
     const result = await sendRes.json();
     if (result.error) throw new Error(result.error.message || "Gmail send failed");
 
+    // Set scanner-guard: blocks pixel hits within 120s of send (email security proxies)
+    set(`email:guard:${leadId}`, String(Date.now()), 120).catch(() => {});
+
     res.json({ success: true, messageId: result.id });
   } catch (err) {
     console.error("send-email error:", err.message);

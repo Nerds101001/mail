@@ -247,9 +247,16 @@ RULES:
 4. Body: make the problem/solution SPECIFIC — use details from the seller context above
 5. Tone: confident but not arrogant, human not corporate
 6. CTA: one single clear ask — make it easy to say yes
-7. Signature: end with "Best,\nPawan Kumar\nEnginerds Tech Solution"
+7. Signature: always end with "Best,\nPawan Kumar\nEnginerds Tech Solution"
 
-CRITICAL: Return ONLY valid JSON. No markdown. No code fences. Exactly:
+CRITICAL FORMATTING RULE — this is the most important rule:
+The "body" field MUST use this EXACT structure with BLANK LINES (\\n\\n) between every section:
+
+"Hi [Name],\\n\\n[Opening hook sentence.]\\n\\n[2-3 sentence body with problem and solution.]\\n\\n[One CTA sentence.]\\n\\nBest,\\nPawan Kumar\\nEnginerds Tech Solution"
+
+NEVER write the whole email as one paragraph. ALWAYS put \\n\\n between the greeting, body paragraphs, CTA, and signature. The greeting "Hi [Name]," must be on its own line, the signature must be on its own lines.
+
+Return ONLY valid JSON. No markdown. No code fences. Exactly:
 {"subject":"...","body":"..."}`;
 
         const userPrompt = `Write variant ${i + 1} using the "${approach.name}" approach. Subject and opening must differ from all other variants.`;
