@@ -59,8 +59,9 @@ async function ensureTable() {
         created_at BIGINT NOT NULL
       )
     `;
-    // Add campaign_id to existing tables that were created before this column existed
+    // Migrate columns that didn't exist when the table was first created
     await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS campaign_id TEXT`.catch(() => {});
+    await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS target_url TEXT`.catch(() => {});
     await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_lead ON tracking_events(lead_id, event_type, created_at)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_campaign ON tracking_events(campaign_id)`.catch(() => {});
     // Composite index powers the per-campaign COUNT(*) subqueries in all-sends
@@ -205,9 +206,8 @@ async function logEvent({ lead_id, event_type, ip, user_agent, target_url = null
     await ensureTable();
     const sql = getDb();
 
-    // Try full insert with campaign_id first.
-    // If it fails (column missing on existing table from before the migration),
-    // add the column inline and retry — never silently drop the event.
+    // If INSERT fails due to a missing column, add all known optional columns
+    // and retry. Handles tables created before target_url or campaign_id were added.
     try {
       await sql`
         INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, created_at)
@@ -215,14 +215,12 @@ async function logEvent({ lead_id, event_type, ip, user_agent, target_url = null
       `;
     } catch (insertErr) {
       const isMissingCol = insertErr.message && (
-        insertErr.message.includes('campaign_id') ||
-        insertErr.message.includes('column') ||
-        insertErr.message.includes('does not exist')
+        insertErr.message.includes('column') || insertErr.message.includes('does not exist')
       );
       if (isMissingCol) {
-        console.warn(`[EVENT LOG] Adding campaign_id column inline and retrying`);
+        console.warn(`[EVENT LOG] Missing column detected, running migrations inline: ${insertErr.message}`);
         await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS campaign_id TEXT`.catch(() => {});
-        // Retry the full insert — column now exists
+        await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS target_url TEXT`.catch(() => {});
         await sql`
           INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, created_at)
           VALUES (${lead_id}, ${event_type}, ${ip}, ${user_agent}, ${target_url}, ${campaign_id}, ${Date.now()})
