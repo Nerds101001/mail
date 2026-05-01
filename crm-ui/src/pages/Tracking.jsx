@@ -101,7 +101,7 @@ export default function Tracking() {
     }
     setExpandedRows(prev => ({ ...prev, [key]: { loading: true, events: [] } }))
     try {
-      const res = await fetch(`/api/ops?type=events&leadId=${s.lead_id}`)
+      const res = await fetch(`/api/ops?type=events&leadId=${s.lead_id}&campaignId=${s.campaign_id}`)
       const data = await res.json()
       setExpandedRows(prev => ({ ...prev, [key]: { loading: false, events: data.events || [] } }))
     } catch(e) {

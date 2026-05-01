@@ -55,10 +55,14 @@ async function ensureTable() {
         ip TEXT,
         user_agent TEXT,
         target_url TEXT,
+        campaign_id TEXT,
         created_at BIGINT NOT NULL
       )
     `;
+    // Add campaign_id to existing tables that were created before this column existed
+    await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS campaign_id TEXT`.catch(() => {});
     await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_lead ON tracking_events(lead_id, event_type, created_at)`;
+    await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_campaign ON tracking_events(campaign_id)`.catch(() => {});
 
     tablesInitialized = true;
     console.log("✅ Database tables initialized successfully");
@@ -194,29 +198,15 @@ async function hgetall(hash) {
 }
 
 // Simplified event logging
-async function logEvent({ lead_id, event_type, ip, user_agent, target_url = null }) {
+async function logEvent({ lead_id, event_type, ip, user_agent, target_url = null, campaign_id = null }) {
   try {
     await ensureTable();
     const sql = getDb();
-    
-    // Create events table if it doesn't exist
     await sql`
-      CREATE TABLE IF NOT EXISTS tracking_events (
-        id SERIAL PRIMARY KEY,
-        lead_id TEXT NOT NULL,
-        event_type TEXT NOT NULL,
-        ip TEXT,
-        user_agent TEXT,
-        target_url TEXT,
-        created_at BIGINT NOT NULL
-      )
+      INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, created_at)
+      VALUES (${lead_id}, ${event_type}, ${ip}, ${user_agent}, ${target_url}, ${campaign_id}, ${Date.now()})
     `;
-    
-    await sql`
-      INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, created_at)
-      VALUES (${lead_id}, ${event_type}, ${ip}, ${user_agent}, ${target_url}, ${Date.now()})
-    `;
-    console.log(`✅ [EVENT LOGGED] ${event_type.toUpperCase()} for lead ${lead_id}`);
+    console.log(`✅ [EVENT LOGGED] ${event_type.toUpperCase()} for lead ${lead_id} campaign ${campaign_id||'—'}`);
   } catch (e) {
     console.error(`❌ [EVENT LOG FAILED] ${event_type} for lead ${lead_id}:`, e.message);
   }
@@ -258,20 +248,24 @@ async function getTrackingStats(leadIds) {
   }
 }
 
-// Get tracking events
-async function getTrackingEvents(leadId, limit = 100) {
+// Get tracking events — optional campaignId narrows to that campaign only
+async function getTrackingEvents(leadId, campaignId = null, limit = 100) {
   try {
     await ensureTable();
     const sql = getDb();
-    
-    const rows = await sql`
-      SELECT event_type, ip, user_agent, target_url, created_at
-      FROM tracking_events 
-      WHERE lead_id = ${leadId}
-      ORDER BY created_at DESC
-      LIMIT ${limit}
-    `;
-    
+    const rows = campaignId
+      ? await sql`
+          SELECT event_type, ip, user_agent, target_url, campaign_id, created_at
+          FROM tracking_events
+          WHERE lead_id = ${leadId} AND campaign_id = ${campaignId}
+          ORDER BY created_at DESC LIMIT ${limit}
+        `
+      : await sql`
+          SELECT event_type, ip, user_agent, target_url, campaign_id, created_at
+          FROM tracking_events
+          WHERE lead_id = ${leadId}
+          ORDER BY created_at DESC LIMIT ${limit}
+        `;
     return rows;
   } catch (e) {
     console.error(`Get tracking events failed for lead ${leadId}:`, e.message);
@@ -357,6 +351,7 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       event_type: 'open',
       ip,
       user_agent: userAgent,
+      campaign_id: campaignId || null,
       target_url: campaignId ? `campaign:${campaignId}` : null
     });
     
@@ -375,10 +370,16 @@ async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
   try {
     await ensureTable();
     const sql = getDb();
-    
+
+    // Block known scanner IPs (same as trackOpen)
+    if (isScannerIp(ip)) {
+      console.log(`🛡️ [GUARD] Known scanner IP blocked click for lead ${leadId}: ${ip}`);
+      return { counted: false, reason: 'scanner IP', count: 0 };
+    }
+
     const now = Date.now();
     const fiveMinutesAgo = now - (5 * 60 * 1000); // 5 minute window
-    
+
     // Check if this exact click was already tracked recently
     const existing = await sql`
       SELECT created_at FROM tracking_events
@@ -411,6 +412,7 @@ async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
       event_type: 'click',
       ip,
       user_agent: userAgent,
+      campaign_id: campaignId || null,
       target_url: targetUrl
     });
     

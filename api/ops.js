@@ -50,11 +50,10 @@ module.exports = async (req, res) => {
   if (type === "events") {
     try {
       if (!leadId) return res.json({ events: [], error: "Missing leadId parameter" });
-      
-      console.log(`📋 [TRACKING EVENTS] Fetching events for lead ${leadId}`);
-      const events = await getTrackingEvents(leadId, 100);
-      
-      console.log(`✅ [TRACKING EVENTS] Found ${events.length} events for lead ${leadId}`);
+      const campaignId = req.query.campaignId || null;
+      console.log(`📋 [TRACKING EVENTS] Fetching events for lead ${leadId} campaign ${campaignId||'all'}`);
+      const events = await getTrackingEvents(leadId, campaignId, 100);
+      console.log(`✅ [TRACKING EVENTS] Found ${events.length} events`);
       return res.json({ events });
     } catch(e) {
       console.error(`❌ [TRACKING EVENTS ERROR] Lead ${leadId}:`, e.message);
@@ -73,29 +72,41 @@ module.exports = async (req, res) => {
       await sql`CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, created_at BIGINT, target TEXT, sender TEXT, total_sent INT DEFAULT 0, total_failed INT DEFAULT 0, total_skipped INT DEFAULT 0, stats JSONB DEFAULT '{}', brief JSONB DEFAULT '{}', variants JSONB DEFAULT '[]')`.catch(()=>{});
       await sql`CREATE TABLE IF NOT EXISTS campaign_leads (id SERIAL PRIMARY KEY, campaign_id TEXT, user_id TEXT, lead_id TEXT, lead_name TEXT, lead_email TEXT, lead_company TEXT, status TEXT DEFAULT 'sent', subject TEXT, body TEXT, sent_at BIGINT, variant_index INT DEFAULT 0)`.catch(()=>{});
 
+      // Per-campaign opens/clicks via subquery on tracking_events (accurate per send,
+      // not cumulative across all campaigns like simple_tracking would give)
       const [sends, campaigns] = await Promise.all([
         campFilter
-          ? sql`SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email, cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index, COALESCE(c.name,'Unknown Campaign') as campaign_name FROM campaign_leads cl LEFT JOIN campaigns c ON cl.campaign_id=c.id WHERE cl.campaign_id=${campFilter} ORDER BY cl.sent_at DESC LIMIT ${rowLimit}`
-          : sql`SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email, cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index, COALESCE(c.name,'Unknown Campaign') as campaign_name FROM campaign_leads cl LEFT JOIN campaigns c ON cl.campaign_id=c.id ORDER BY cl.sent_at DESC LIMIT ${rowLimit}`,
+          ? sql`
+              SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
+                     cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
+                     COALESCE(c.name,'Unknown Campaign') as campaign_name,
+                     (SELECT COUNT(*) FROM tracking_events te
+                      WHERE te.lead_id=cl.lead_id AND te.campaign_id=cl.campaign_id
+                        AND te.event_type='open') as opens,
+                     (SELECT COUNT(*) FROM tracking_events te
+                      WHERE te.lead_id=cl.lead_id AND te.campaign_id=cl.campaign_id
+                        AND te.event_type='click') as clicks
+              FROM campaign_leads cl LEFT JOIN campaigns c ON cl.campaign_id=c.id
+              WHERE cl.campaign_id=${campFilter}
+              ORDER BY cl.sent_at DESC LIMIT ${rowLimit}
+            `
+          : sql`
+              SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
+                     cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
+                     COALESCE(c.name,'Unknown Campaign') as campaign_name,
+                     (SELECT COUNT(*) FROM tracking_events te
+                      WHERE te.lead_id=cl.lead_id AND te.campaign_id=cl.campaign_id
+                        AND te.event_type='open') as opens,
+                     (SELECT COUNT(*) FROM tracking_events te
+                      WHERE te.lead_id=cl.lead_id AND te.campaign_id=cl.campaign_id
+                        AND te.event_type='click') as clicks
+              FROM campaign_leads cl LEFT JOIN campaigns c ON cl.campaign_id=c.id
+              ORDER BY cl.sent_at DESC LIMIT ${rowLimit}
+            `,
         sql`SELECT id, name, created_at FROM campaigns ORDER BY created_at DESC LIMIT 200`,
       ]);
 
-      // Batch-fetch tracking stats (opens/clicks) for all unique lead IDs
-      const leadIds = [...new Set(sends.map(s => s.lead_id).filter(Boolean))];
-      const trackMap = {};
-      if (leadIds.length > 0) {
-        const tRows = await sql`SELECT lead_id, opens, clicks FROM simple_tracking WHERE lead_id = ANY(${leadIds})`.catch(()=>[]);
-        tRows.forEach(r => { trackMap[r.lead_id] = { opens: parseInt(r.opens)||0, clicks: parseInt(r.clicks)||0 }; });
-      }
-
-      return res.json({
-        sends: sends.map(s => ({
-          ...s,
-          opens:  trackMap[s.lead_id]?.opens  || 0,
-          clicks: trackMap[s.lead_id]?.clicks || 0,
-        })),
-        campaigns,
-      });
+      return res.json({ sends, campaigns });
     } catch(e) {
       console.error("[ALL-SENDS]", e.message);
       return res.status(500).json({ error: e.message });
