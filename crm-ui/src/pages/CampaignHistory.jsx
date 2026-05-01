@@ -58,7 +58,7 @@ export default function CampaignHistory() {
           const leadIds = campaignDetail.leads.map(l => l.lead_id).filter(Boolean).join(',')
           if (leadIds) {
             try {
-              const trackingRes = await fetch(`/api/ops?type=tracking&ids=${leadIds}`)
+              const trackingRes = await fetch(`/api/ops?type=tracking&ids=${leadIds}&campaignId=${id}`)
               if (trackingRes.ok) {
                 const tracking = await trackingRes.json()
                 setTrackingData(tracking)

@@ -21,27 +21,36 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   const { type, ids, leadId } = req.query;
 
-  // ── TRACKING STATS (using simplified tracking system) ──────────────────
+  // ── TRACKING STATS ─────────────────────────────────────────────────────
+  // With campaignId: per-campaign counts from tracking_events (accurate)
+  // Without campaignId: cumulative from simple_tracking (fallback/dashboard use)
   if (type === "tracking") {
     try {
-      console.log(`📊 [OPS TRACKING] Request received:`, { type, ids, leadId, query: req.query });
-      
-      if (!ids) {
-        console.log(`📊 [OPS TRACKING] No IDs provided, returning empty object`);
-        return res.json({});
+      if (!ids) return res.json({});
+      const leadIds    = ids.split(",").filter(Boolean);
+      const campaignId = req.query.campaignId || null;
+
+      if (campaignId) {
+        await ensureTable();
+        const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+        const rows = await sql`
+          SELECT lead_id,
+            COUNT(*) FILTER (WHERE event_type = 'open')  AS opens,
+            COUNT(*) FILTER (WHERE event_type = 'click') AS clicks
+          FROM tracking_events
+          WHERE lead_id = ANY(${leadIds}) AND campaign_id = ${campaignId}
+          GROUP BY lead_id
+        `;
+        const stats = {};
+        rows.forEach(r => { stats[r.lead_id] = { opens: parseInt(r.opens)||0, clicks: parseInt(r.clicks)||0 }; });
+        leadIds.forEach(id => { if (!stats[id]) stats[id] = { opens: 0, clicks: 0 }; });
+        return res.json(stats);
       }
-      
-      const leadIds = ids.split(",").filter(Boolean);
-      console.log(`📊 [OPS TRACKING] Processing ${leadIds.length} lead IDs:`, leadIds);
-      
+
       const stats = await getTrackingStats(leadIds);
-      console.log(`📊 [OPS TRACKING] Retrieved stats:`, stats);
-      
-      console.log(`✅ [OPS TRACKING] Returning stats for ${Object.keys(stats).length} leads`);
       return res.json(stats);
-      
     } catch(e) {
-      console.error(`❌ [OPS TRACKING ERROR]:`, e.message, e.stack);
+      console.error(`❌ [OPS TRACKING ERROR]:`, e.message);
       return res.status(500).json({ error: "Failed to fetch tracking stats", details: e.message });
     }
   }
@@ -76,31 +85,36 @@ module.exports = async (req, res) => {
       await sql`CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, created_at BIGINT, target TEXT, sender TEXT, total_sent INT DEFAULT 0, total_failed INT DEFAULT 0, total_skipped INT DEFAULT 0, stats JSONB DEFAULT '{}', brief JSONB DEFAULT '{}', variants JSONB DEFAULT '[]')`.catch(()=>{});
       await sql`CREATE TABLE IF NOT EXISTS campaign_leads (id SERIAL PRIMARY KEY, campaign_id TEXT, user_id TEXT, lead_id TEXT, lead_name TEXT, lead_email TEXT, lead_company TEXT, status TEXT DEFAULT 'sent', subject TEXT, body TEXT, sent_at BIGINT, variant_index INT DEFAULT 0)`.catch(()=>{});
 
-      // Opens/clicks from simple_tracking (reliable — always populated when pixel fires).
-      // tracking_events stores the raw event log used by the Events accordion detail view.
+      // Opens/clicks from tracking_events joined on BOTH lead_id AND campaign_id.
+      // simple_tracking was cumulative per lead — it bled old opens into every new
+      // send row. tracking_events is scoped per-send so counts are accurate.
       const [sends, campaigns] = await Promise.all([
         campFilter
           ? sql`
               SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
                      cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
                      COALESCE(c.name,'Unknown Campaign') as campaign_name,
-                     COALESCE(st.opens,  0) as opens,
-                     COALESCE(st.clicks, 0) as clicks
+                     COUNT(te.id) FILTER (WHERE te.event_type = 'open')  AS opens,
+                     COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks
               FROM campaign_leads cl
-              LEFT JOIN campaigns c       ON c.id      = cl.campaign_id
-              LEFT JOIN simple_tracking st ON st.lead_id = cl.lead_id
+              LEFT JOIN campaigns c ON c.id = cl.campaign_id
+              LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
               WHERE cl.campaign_id=${campFilter}
+              GROUP BY cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
+                       cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index, c.name
               ORDER BY cl.sent_at DESC LIMIT ${rowLimit}
             `
           : sql`
               SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
                      cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
                      COALESCE(c.name,'Unknown Campaign') as campaign_name,
-                     COALESCE(st.opens,  0) as opens,
-                     COALESCE(st.clicks, 0) as clicks
+                     COUNT(te.id) FILTER (WHERE te.event_type = 'open')  AS opens,
+                     COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks
               FROM campaign_leads cl
-              LEFT JOIN campaigns c       ON c.id      = cl.campaign_id
-              LEFT JOIN simple_tracking st ON st.lead_id = cl.lead_id
+              LEFT JOIN campaigns c ON c.id = cl.campaign_id
+              LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
+              GROUP BY cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
+                       cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index, c.name
               ORDER BY cl.sent_at DESC LIMIT ${rowLimit}
             `,
         sql`SELECT id, name, created_at FROM campaigns ORDER BY created_at DESC LIMIT 200`,
