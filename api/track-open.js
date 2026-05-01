@@ -1,18 +1,17 @@
 const { trackOpen } = require("./_redis");
 
-const PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
+const APP_URL = process.env.APP_URL || "https://enginerdsmail.vercel.app";
 
 module.exports = async (req, res) => {
-  res.setHeader("Content-Type", "image/gif");
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-  res.setHeader("Access-Control-Allow-Origin", "*");
-
   const { id, cid } = req.query;
 
-  // Send pixel immediately
-  res.send(PIXEL);
+  // 302 redirect to the actual pixel — this is the key to multiple-open tracking.
+  // Gmail caches only the redirect TARGET (the static GIF), not the 302 itself.
+  // HTTP spec says 302 is not cacheable, so Gmail must re-request this URL on
+  // every open. Each request hits our server and we record a new open event.
+  // Serving a 200 directly causes Gmail to cache the response and never re-fetch.
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.redirect(302, `${APP_URL}/api/track-pixel`);
 
   if (!id) return;
 
