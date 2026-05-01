@@ -219,6 +219,12 @@ module.exports = async (req, res) => {
     const htmlBody   = buildHtmlBody(body, leadId, to, appUrl, campaignId);
     const raw        = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, unsubscribeUrl: unsubUrl });
 
+    // Write scanner-guard BEFORE sending — Gmail delivers nearly instantly after
+    // the API call returns, and the Image Proxy fires within milliseconds of
+    // delivery. Writing AFTER send creates a race where the proxy hits the pixel
+    // before the guard key exists in DB, causing every send to show 1 false open.
+    await set(`email:guard:${leadId}`, String(Date.now()), 30).catch(() => {});
+
     const sendRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -227,11 +233,6 @@ module.exports = async (req, res) => {
 
     const result = await sendRes.json();
     if (result.error) throw new Error(result.error.message || "Gmail send failed");
-
-    // Write scanner-guard BEFORE responding — must be awaited or Vercel freezes
-    // the process when res.json() returns, dropping the fire-and-forget write.
-    // TTL=30s: check window is 15s, 30s gives headroom without clutter.
-    await set(`email:guard:${leadId}`, String(Date.now()), 30).catch(() => {});
 
     res.json({ success: true, messageId: result.id });
   } catch (err) {

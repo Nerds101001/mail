@@ -83,6 +83,12 @@ module.exports = async (req, res) => {
 
     const htmlBody = buildHtmlBody(body, leadId, to, appUrl, campaignId || null);
 
+    // Write scanner-guard BEFORE sending — SMTP delivers immediately after
+    // sendMail resolves, and scanner proxies fire within milliseconds.
+    // Writing AFTER send races against the proxy hitting the pixel before
+    // the guard key is persisted, causing every send to show 1 false open.
+    await set(`email:guard:${leadId}`, String(Date.now()), 30).catch(() => {});
+
     const info = await transporter.sendMail({
       from:    `"${senderName}" <${user}>`,
       to,
@@ -99,11 +105,6 @@ module.exports = async (req, res) => {
         "List-Unsubscribe-Post":   "List-Unsubscribe=One-Click",
       },
     });
-
-    // Write scanner-guard BEFORE responding — must be awaited or Vercel freezes
-    // the process when res.json() returns, dropping the fire-and-forget write.
-    // TTL=30s: check window is 15s, 30s gives headroom without clutter.
-    await set(`email:guard:${leadId}`, String(Date.now()), 30).catch(() => {});
 
     res.json({ success: true, messageId: info.messageId });
   } catch (err) {
