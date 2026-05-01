@@ -63,6 +63,8 @@ async function ensureTable() {
     await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS campaign_id TEXT`.catch(() => {});
     await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_lead ON tracking_events(lead_id, event_type, created_at)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_campaign ON tracking_events(campaign_id)`.catch(() => {});
+    // Composite index powers the per-campaign COUNT(*) subqueries in all-sends
+    await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_lead_camp_type ON tracking_events(lead_id, campaign_id, event_type)`.catch(() => {});
 
     tablesInitialized = true;
     console.log("✅ Database tables initialized successfully");

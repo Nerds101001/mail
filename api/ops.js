@@ -6,7 +6,7 @@
 // GET /api/ops?type=all-sends         → all campaign_leads rows with campaign names + tracking stats
 // GET /api/ops?type=gmail-status      → Gmail connection status
 
-const { get, set, getTrackingStats, getTrackingEvents } = require("./_redis");
+const { get, set, getTrackingStats, getTrackingEvents, ensureTable } = require("./_redis");
 const { neon } = require("@neondatabase/serverless");
 const nodemailer = require("nodemailer");
 
@@ -64,11 +64,15 @@ module.exports = async (req, res) => {
   // ── ALL SENDS (full campaign_leads view for Tracking page) ───────────
   if (type === "all-sends") {
     try {
+      // ensureTable creates tracking_events (with campaign_id column) + all indexes.
+      // Must run BEFORE the subqueries below reference tracking_events.
+      await ensureTable();
+
       const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
       const campFilter = req.query.campaign || null;
       const rowLimit   = Math.min(parseInt(req.query.limit) || 1000, 2000);
 
-      // Ensure tables exist (safe no-ops if already created)
+      // Ensure app tables exist (safe no-ops if already created)
       await sql`CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, created_at BIGINT, target TEXT, sender TEXT, total_sent INT DEFAULT 0, total_failed INT DEFAULT 0, total_skipped INT DEFAULT 0, stats JSONB DEFAULT '{}', brief JSONB DEFAULT '{}', variants JSONB DEFAULT '[]')`.catch(()=>{});
       await sql`CREATE TABLE IF NOT EXISTS campaign_leads (id SERIAL PRIMARY KEY, campaign_id TEXT, user_id TEXT, lead_id TEXT, lead_name TEXT, lead_email TEXT, lead_company TEXT, status TEXT DEFAULT 'sent', subject TEXT, body TEXT, sent_at BIGINT, variant_index INT DEFAULT 0)`.catch(()=>{});
 
@@ -106,7 +110,11 @@ module.exports = async (req, res) => {
         sql`SELECT id, name, created_at FROM campaigns ORDER BY created_at DESC LIMIT 200`,
       ]);
 
-      return res.json({ sends, campaigns });
+      // COUNT(*) from Postgres arrives as string via neon driver — parse to int
+      return res.json({
+        sends: sends.map(s => ({ ...s, opens: parseInt(s.opens)||0, clicks: parseInt(s.clicks)||0 })),
+        campaigns,
+      });
     } catch(e) {
       console.error("[ALL-SENDS]", e.message);
       return res.status(500).json({ error: e.message });
