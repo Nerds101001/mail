@@ -279,6 +279,21 @@ async function getTrackingEvents(leadId, limit = 100) {
   }
 }
 
+// Known email security scanner IP ranges — always block regardless of timing
+// Google Image Proxy: 66.249.x.x, 74.125.x.x, 64.233.x.x, 209.85.x.x, 216.58.x.x, 142.250.x.x
+// Apple MPP: entire 17.0.0.0/8 block
+// Microsoft SafeLinks (Azure): 40.94.x.x, 40.107.x.x, 52.100.x.x
+function isScannerIp(ip) {
+  if (!ip || ip === 'unknown') return false;
+  return /^66\.249\./.test(ip)  || /^74\.125\./.test(ip)  ||
+         /^64\.233\./.test(ip)  || /^209\.85\./.test(ip)  ||
+         /^216\.58\./.test(ip)  || /^216\.239\./.test(ip) ||
+         /^142\.250\./.test(ip) || /^108\.177\./.test(ip) ||
+         /^17\./.test(ip)       ||                          // Apple
+         /^40\.94\./.test(ip)   || /^40\.107\./.test(ip)  ||
+         /^52\.100\./.test(ip);                             // Microsoft
+}
+
 // Deduplicated tracking for opens (only count unique opens within 1 hour window)
 async function trackOpen(leadId, ip, userAgent, campaignId = null) {
   try {
@@ -288,20 +303,27 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
     const now = Date.now();
     const oneHourAgo = now - (60 * 60 * 1000);
 
-    // ── Send-guard: skip opens that arrive within 120s of the email being sent ──
-    // Email security scanners (Google Image Proxy, Apple MPP, Microsoft SafeLinks)
-    // load tracking pixels within 0–30 seconds of delivery, before any human reads.
-    // We store a temporary guard key in kv_store when the email is dispatched.
-    // Any open arriving while the guard is active is a scanner, not a real reader.
+    // ── Tier 1: Known scanner IP — block unconditionally ──────────────────────
+    // Google Image Proxy, Apple MPP, Microsoft SafeLinks always come from
+    // their own datacenter IPs. Block these regardless of timing.
+    if (isScannerIp(ip)) {
+      console.log(`🛡️ [GUARD] Known scanner IP blocked for lead ${leadId}: ${ip}`);
+      return { counted: false, reason: 'scanner IP', count: 0 };
+    }
+
+    // ── Tier 2: Unknown IP — short 15s timing guard ────────────────────────────
+    // Catches other scanner proxies that don't advertise their IP. Scanners fire
+    // within 0–10s of delivery. A real human opening within 15s is theoretically
+    // possible but extremely rare in B2B — and after 15s they are always counted.
     const guardRaw = await sql`
       SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
         AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
     `.catch(() => []);
     if (guardRaw.length > 0) {
       const sentAt = parseInt(guardRaw[0].value) || 0;
-      if (now - sentAt < 120000) { // 2-minute window
-        console.log(`🛡️ [GUARD] Scanner blocked for lead ${leadId} (${Math.round((now-sentAt)/1000)}s after send)`);
-        return { counted: false, reason: 'scanner guard', count: 0 };
+      if (now - sentAt < 15000) { // 15 second window for unknown IPs
+        console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} (${Math.round((now-sentAt)/1000)}s after send)`);
+        return { counted: false, reason: 'scanner guard (15s)', count: 0 };
       }
     }
 
