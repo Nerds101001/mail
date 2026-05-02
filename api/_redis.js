@@ -349,9 +349,9 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       `.catch(() => []);
       if (guardRaw.length > 0) {
         const sentAt = parseInt(guardRaw[0].value) || 0;
-        if (now - sentAt < 50000) {
+        if (now - sentAt < 5000) {
           console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} (${Math.round((now-sentAt)/1000)}s after send)`);
-          return { counted: false, reason: 'scanner guard (50s)', count: 0 };
+          return { counted: false, reason: 'scanner guard (5s)', count: 0 };
         }
       }
     }
