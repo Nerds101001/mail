@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useCRM } from '../store'
 import { enrichLead, isValidEmail, PIPELINE_STAGES, STAGE_COLORS, STATUS_COLORS, fmtDate } from '../utils'
 import { Modal, Btn, Input, Select, Textarea, Badge, Empty, PageHeader, toast } from '../components/ui'
@@ -23,7 +23,12 @@ export default function Leads() {
   const [sendLoading, setSendLoading] = useState(false)
   const [verifying, setVerifying] = useState(false)
   const [scores, setScores] = useState({}) // leadId → { score, label }
-  const [scoresLoaded, setScoresLoaded] = useState(false)
+  const [researchingId, setResearchingId] = useState(null)
+
+  // Auto-load engagement scores on mount
+  useEffect(() => {
+    if (leads.length > 0) fetchScores(leads)
+  }, []) // eslint-disable-line
 
   const filtered = leads.filter(l => {
     const s = search.toLowerCase()
@@ -33,18 +38,41 @@ export default function Leads() {
       && (!priF    || l.priority === priF)
   })
 
-  function save(newLeads) { setLeads(newLeads); saveNow() } // Use immediate save instead of debounced
+  function save(newLeads) { setLeads(newLeads); saveNow() }
 
-  function addLead() {
+  async function fetchScores(leadList) {
+    try {
+      const ids = leadList.map(l => l.id).join(',')
+      const res = await fetch(`/api/ops?type=lead-scores&ids=${ids}`)
+      const data = await res.json()
+      setScores(prev => ({ ...prev, ...data }))
+    } catch { /* silent */ }
+  }
+
+  async function addLead() {
     if (!form.name || !form.email) { toast('Name and email required', 'error'); return }
     if (!isValidEmail(form.email)) { toast('Invalid email', 'error'); return }
     if (leads.find(l => l.email.toLowerCase() === form.email.toLowerCase())) { toast('Email already exists', 'error'); return }
-    const l = enrichLead({ id:'lead_'+Date.now(), ...form, email:form.email.toLowerCase(), tags:form.tags.split(',').map(t=>t.trim()).filter(Boolean), opens:0, clicks:0, score:40, lastSent:'', domain:'', priority:'LOW', createdAt:new Date().toISOString() })
+
+    // Auto-verify email via MX DNS check
+    let status = 'VALID'
+    try {
+      const vr = await fetch(`/api/ops?type=verify-email&email=${encodeURIComponent(form.email)}`)
+      const vd = await vr.json()
+      if (!vd.valid) { status = 'INVALID'; toast(`⚠ Email may be invalid: ${vd.reason}`, 'warn') }
+    } catch { /* non-blocking */ }
+
+    const l = enrichLead({ id:'lead_'+Date.now(), ...form, status, email:form.email.toLowerCase(), tags:form.tags.split(',').map(t=>t.trim()).filter(Boolean), opens:0, clicks:0, score:40, lastSent:'', domain:'', priority:'LOW', createdAt:new Date().toISOString() })
     save([...leads, l])
     logActivity(`Added lead: ${form.name} <${form.email}>`)
-    toast(`${form.name} added`, 'success')
+    toast(`${form.name} added${status === 'INVALID' ? ' (invalid email flagged)' : ''}`, status === 'INVALID' ? 'warn' : 'success')
     setAddOpen(false)
     setForm({ name:'', email:'', company:'', phone:'', role:'GENERAL', category:'General', tags:'', notes:'', pipelineStage:'COLD' })
+
+    // Auto-suggest AI research note if company is provided and API key exists
+    if (form.company && settings?.openaiKey && !form.notes) {
+      researchLead({ id: l.id, name: form.name, company: form.company, category: form.category, role: form.role }, [...leads, l])
+    }
   }
 
   function deleteLead(id) {
@@ -67,46 +95,84 @@ export default function Leads() {
     toast(`Stage updated → ${stage}`, 'success')
   }
 
-  function importCSV() {
+  async function importCSV() {
     const lines = csvText.trim().split('\n').map(l => l.trim()).filter(Boolean)
     if (lines.length < 2) { toast('Need header + at least 1 row', 'error'); return }
     const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
     const ni = headers.indexOf('name'), ei = headers.indexOf('email')
     if (ei < 0) { toast('CSV must have Email column', 'error'); return }
-    let added = 0
-    const newLeads = [...leads]
+
+    const fresh = []
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
       const email = cols[ei] || ''
       if (!email || !isValidEmail(email)) continue
-      if (newLeads.find(l => l.email.toLowerCase() === email.toLowerCase())) continue
+      if (leads.find(l => l.email.toLowerCase() === email.toLowerCase())) continue
       const ci = headers.indexOf('company'), phi = headers.indexOf('phone')
-      const cati = headers.indexOf('category'), tagi = headers.indexOf('tags')
-      const name    = ni >= 0  ? (cols[ni]   || email.split('@')[0]) : email.split('@')[0]
-      const company = ci >= 0  ? (cols[ci]   || '') : ''
-      const phone   = phi >= 0 ? (cols[phi]  || '') : ''
+      const cati = headers.indexOf('category'), tagi = headers.indexOf('tags'), ni2 = headers.indexOf('notes')
+      const name     = ni >= 0   ? (cols[ni]   || email.split('@')[0]) : email.split('@')[0]
+      const company  = ci >= 0   ? (cols[ci]   || '') : ''
+      const phone    = phi >= 0  ? (cols[phi]  || '') : ''
       const category = cati >= 0 ? (cols[cati] || 'General') : 'General'
-      const tags    = tagi >= 0 ? cols[tagi].split(';').map(t=>t.trim()).filter(Boolean) : []
-      newLeads.push(enrichLead({ id:'lead_'+(Date.now()+i), name, email:email.toLowerCase(), company, phone, role:'', category, tags, status:'VALID', pipelineStage:'COLD', stage:'', opens:0, clicks:0, score:40, lastSent:'', domain:'', priority:'LOW', createdAt:new Date().toISOString() }))
-      added++
+      const tags     = tagi >= 0 ? cols[tagi].split(';').map(t=>t.trim()).filter(Boolean) : []
+      const notes    = ni2 >= 0  ? (cols[ni2]  || '') : ''
+      fresh.push(enrichLead({ id:'lead_'+(Date.now()+i), name, email:email.toLowerCase(), company, phone, role:'', category, tags, notes, status:'VALID', pipelineStage:'COLD', stage:'', opens:0, clicks:0, score:40, lastSent:'', domain:'', priority:'LOW', createdAt:new Date().toISOString() }))
     }
-    save(newLeads)
-    logActivity(`CSV import: ${added} leads`)
-    toast(`Imported ${added} leads`, 'success')
+
+    if (!fresh.length) { toast('No new valid leads found', 'warn'); return }
+
+    toast(`Verifying ${fresh.length} emails...`, 'info')
+
+    // Auto bulk-verify all imported emails
+    try {
+      const vr = await fetch('/api/ops?type=verify-bulk', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ emails: fresh.map(l => l.email) }) })
+      const { results } = await vr.json()
+      let invalid = 0
+      fresh.forEach(l => {
+        if (results[l.email] && !results[l.email].valid) { l.status = 'INVALID'; invalid++ }
+      })
+      const newLeads = [...leads, ...fresh]
+      save(newLeads)
+      logActivity(`CSV import: ${fresh.length} leads (${invalid} invalid)`)
+      toast(`Imported ${fresh.length} leads — ${invalid} flagged invalid`, invalid > 0 ? 'warn' : 'success')
+    } catch {
+      // If verify fails, still import without verification
+      save([...leads, ...fresh])
+      toast(`Imported ${fresh.length} leads (verification skipped)`, 'success')
+    }
+
     setImportOpen(false); setCsvText('')
   }
 
-  async function loadEngagementScores() {
-    if (leads.length === 0) return
-    setScoresLoaded(false)
+  async function researchLead(lead, currentLeads) {
+    if (!settings?.openaiKey) { toast('Set NVIDIA API key in Settings first', 'error'); return }
+    setResearchingId(lead.id)
     try {
-      const ids = leads.map(l => l.id).join(',')
-      const res = await fetch(`/api/ops?type=lead-scores&ids=${ids}`)
+      const res = await fetch('/api/ops?type=generate-ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey: settings.openaiKey,
+          count: 1,
+          name: lead.name,
+          company: lead.company || '',
+          role: lead.role || 'decision maker',
+          category: lead.category || 'Business',
+          brief: { product: 'B2B software/ERP solutions', industries: lead.category || '' },
+          customPrompt: `Do NOT write a sales email. Instead, write ONLY a 1-2 sentence personalization note (max 40 words) that describes what pain points ${lead.company || 'this company'} likely faces based on their industry (${lead.category || 'general business'}), and what specific angle would make a cold email resonate. Format: plain text, no JSON, no subject line, just the note.`
+        })
+      })
       const data = await res.json()
-      setScores(data)
-      setScoresLoaded(true)
-      toast('Engagement scores loaded', 'success')
-    } catch { toast('Could not load scores', 'error') }
+      const raw = data.variants?.[0]?.body || data.body || ''
+      // Extract just the note — strip any email-like content
+      const note = raw.replace(/^(hi|dear|hello).*/im, '').replace(/best,[\s\S]*/i, '').trim().slice(0, 200)
+      if (note) {
+        const updated = (currentLeads || leads).map(l => l.id === lead.id ? { ...l, notes: note } : l)
+        save(updated)
+        toast(`AI note added for ${lead.name}`, 'success')
+      }
+    } catch(e) { toast('Research failed: ' + e.message, 'error') }
+    setResearchingId(null)
   }
 
   async function verifyAllEmails() {
@@ -172,8 +238,7 @@ export default function Leads() {
     <div>
       <PageHeader title="Lead Management" subtitle={`${leads.length} total leads`}>
         <Btn variant="secondary" size="sm" onClick={() => setImportOpen(true)}><Upload size={14} /> Import CSV</Btn>
-        <Btn variant="secondary" size="sm" onClick={verifyAllEmails} disabled={verifying}>{verifying ? 'Verifying...' : <><CheckCircle size={14}/> Verify Emails</>}</Btn>
-        <Btn variant="secondary" size="sm" onClick={loadEngagementScores}><Zap size={14} /> {scoresLoaded ? 'Refresh Scores' : 'Load Scores'}</Btn>
+        <Btn variant="secondary" size="sm" onClick={verifyAllEmails} disabled={verifying}>{verifying ? 'Verifying...' : <><CheckCircle size={14}/> Re-Verify</>}</Btn>
         <Btn variant="primary" onClick={() => setAddOpen(true)}><Plus size={14} /> Add Lead</Btn>
       </PageHeader>
 
@@ -263,6 +328,17 @@ export default function Leads() {
                     <div className="flex items-center gap-1">
                       <button className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors" title="Send Email" onClick={() => { setEmailLead(l); setEmailBody(''); setEmailSubject(''); setEmailOpen(true) }}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                      </button>
+                      <button
+                        className="p-1.5 rounded-lg hover:bg-purple-50 text-purple-400 transition-colors disabled:opacity-40"
+                        title={l.notes ? `Notes: ${l.notes.slice(0,80)}...` : 'AI Research — auto-generate personalization note'}
+                        disabled={researchingId === l.id}
+                        onClick={() => researchLead(l, leads)}
+                      >
+                        {researchingId === l.id
+                          ? <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                          : <span className="text-xs font-bold">{l.notes ? '📝' : '✦'}</span>
+                        }
                       </button>
                       <select className="text-xs border border-slate-200 rounded-lg px-1.5 py-1 bg-white text-slate-600 hover:border-slate-300 transition-colors" value="" onChange={e => { if(e.target.value) changeStage(l.id, e.target.value) }}>
                         <option value="">Stage</option>
