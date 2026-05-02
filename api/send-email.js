@@ -187,7 +187,7 @@ module.exports = async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   const { leadId, to, subject, body, senderName, replyTo, gmailUser, campaignId } = req.body;
-  const appUrl = process.env.APP_URL;
+  const appUrl = process.env.APP_URL || "https://enginerdsmail.vercel.app";
 
   if (!leadId || !to || !subject || !body)
     return res.status(400).json({ error: "Missing required fields: leadId, to, subject, body" });
