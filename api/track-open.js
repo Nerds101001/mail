@@ -21,30 +21,28 @@ module.exports = async (req, res) => {
 
   const { id, cid } = req.query;
 
-  // Redirect to a unique pixel URL on every request.
+  // Run tracking BEFORE redirect so Vercel doesn't terminate function early.
+  if (id) {
+    try {
+      const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
+                 || req.headers["x-real-ip"]
+                 || "unknown";
+      const ua = req.headers["user-agent"] || "unknown";
+
+      console.log(`🔍 [OPEN] Lead:${id} Camp:${cid||'—'} IP:${ip} UA:${ua.slice(0, 80)}`);
+
+      const result = await trackOpen(id, ip, ua, cid || null);
+      console.log(result.counted
+        ? `✅ [OPEN] Counted lead ${id}, total: ${result.count}`
+        : `⏭️  [OPEN] Skipped (${result.reason})`);
+    } catch (e) {
+      console.error(`❌ [OPEN] Lead ${id}:`, e.message);
+    }
+  }
+
+  // Redirect to unique pixel URL AFTER tracking is done.
   // Unique token = Gmail cannot reuse a cached response from a previous open
   // because the redirect target URL changes each time.
-  // 302 (not 301/200) = by HTTP spec, not permanently cacheable.
   const token = Date.now().toString(36) + Math.random().toString(36).slice(2);
   res.redirect(302, `${APP_URL}/api/track-pixel?t=${token}`);
-
-  // Tracking runs after redirect is sent — Vercel keeps function alive until
-  // this async function resolves (we must await, not fire-and-forget).
-  if (!id) return;
-
-  try {
-    const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
-               || req.headers["x-real-ip"]
-               || "unknown";
-    const ua = req.headers["user-agent"] || "unknown";
-
-    console.log(`🔍 [OPEN] Lead:${id} Camp:${cid||'—'} IP:${ip} UA:${ua.slice(0, 80)}`);
-
-    const result = await trackOpen(id, ip, ua, cid || null);
-    console.log(result.counted
-      ? `✅ [OPEN] Counted lead ${id}, total: ${result.count}`
-      : `⏭️  [OPEN] Skipped (${result.reason})`);
-  } catch (e) {
-    console.error(`❌ [OPEN] Lead ${id}:`, e.message);
-  }
 };

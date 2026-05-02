@@ -46,30 +46,29 @@ module.exports = async (req, res) => {
 
   res.setHeader("Access-Control-Allow-Origin", "*");
 
-  // Redirect immediately — tracking runs after but before function returns
-  res.redirect(302, redirectUrl);
+  // Run tracking BEFORE redirect so Vercel doesn't terminate function early.
+  if (id) {
+    try {
+      const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
+                 || req.headers["x-real-ip"]
+                 || req.connection?.remoteAddress
+                 || "unknown";
+      const ua = req.headers["user-agent"] || "unknown";
 
-  if (!id) return;
+      console.log(`🔗 [CLICK] Lead:${id} Campaign:${cid||'—'} IP:${ip} URL:${decoded.slice(0,60)}`);
 
-  try {
-    const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
-               || req.headers["x-real-ip"]
-               || req.connection?.remoteAddress
-               || "unknown";
-    const ua = req.headers["user-agent"] || "unknown";
-
-    console.log(`🔗 [CLICK] Lead:${id} Campaign:${cid||'—'} IP:${ip} URL:${decoded.slice(0,60)}`);
-
-    if (isLikelyBot(ua)) {
-      console.log(`🤖 [CLICK] Bot UA, skipping`);
-      return;
+      if (!isLikelyBot(ua)) {
+        const result = await trackClick(id, ip, ua, decoded, cid || null);
+        console.log(result.counted
+          ? `✅ [CLICK] Counted lead ${id}, total: ${result.count}`
+          : `⏭️  [CLICK] Skipped lead ${id} (${result.reason})`);
+      } else {
+        console.log(`🤖 [CLICK] Bot UA, skipping`);
+      }
+    } catch (e) {
+      console.error(`❌ [CLICK] Lead ${id}:`, e.message);
     }
-
-    const result = await trackClick(id, ip, ua, decoded, cid || null);
-    console.log(result.counted
-      ? `✅ [CLICK] Counted lead ${id}, total: ${result.count}`
-      : `⏭️  [CLICK] Skipped lead ${id} (${result.reason})`);
-  } catch (e) {
-    console.error(`❌ [CLICK] Lead ${id}:`, e.message);
   }
+
+  res.redirect(302, redirectUrl);
 };
