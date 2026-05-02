@@ -1,11 +1,16 @@
 // api/ops.js — Unified ops endpoint with improved tracking
-// GET /api/ops?type=tasks             → daily task list
-// GET /api/ops?type=reminder          → send morning digest email
-// GET /api/ops?type=tracking&ids=     → open/click stats (optimized)
-// GET /api/ops?type=events&leadId=    → detailed tracking events for one lead
-// GET /api/ops?type=all-sends         → all campaign_leads rows with campaign names + tracking stats
-// GET /api/ops?type=gmail-status      → Gmail connection status
+// GET /api/ops?type=tasks                    → daily task list
+// GET /api/ops?type=reminder                 → send morning digest email
+// GET /api/ops?type=tracking&ids=            → open/click stats (optimized)
+// GET /api/ops?type=events&leadId=           → detailed tracking events for one lead
+// GET /api/ops?type=all-sends                → all campaign_leads rows with campaign names + tracking stats
+// GET /api/ops?type=gmail-status             → Gmail connection status
+// GET /api/ops?type=verify-email&email=      → MX DNS check (free, no API)
+// POST /api/ops?type=deliverability          → pre-send spam/quality score
+// GET /api/ops?type=lead-scores&ids=         → lead scores from tracking events
+// GET /api/ops?type=best-variant&campaignId= → best performing variant index
 
+const dns        = require("dns").promises;
 const { get, set, getTrackingStats, getTrackingEvents, ensureTable } = require("./_redis");
 const { neon } = require("@neondatabase/serverless");
 const nodemailer = require("nodemailer");
@@ -212,7 +217,7 @@ module.exports = async (req, res) => {
   // ── AI EMAIL GENERATION ───────────────────────────────────────────────
   if (type === "generate-ai" && req.method === "POST") {
     try {
-      const { name, company, role, category, apiKey, customPrompt, count = 1, brief = {} } = req.body;
+      const { name, company, role, category, apiKey, customPrompt, count = 1, brief = {}, notes = "" } = req.body;
 
       if (!apiKey) return res.status(400).json({ error: 'NVIDIA API key is required' });
 
@@ -262,6 +267,7 @@ RECIPIENT:
 - Name: ${name || '[Name]'}
 - Company: ${company || '[Company]'}
 - Role: ${role || 'decision maker'}
+${notes ? `- Personalization note: ${notes}\n  USE THIS to make the email specific to this person/company.` : ''}
 ${customPrompt ? `\nEXTRA INSTRUCTIONS: ${customPrompt}` : ''}
 
 THIS VARIANT (#${i + 1} of ${variantCount}) — Approach: "${approach.name}"
@@ -357,6 +363,176 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
     } catch (error) {
       console.error('❌ AI Generation fatal error:', error.message);
       return res.status(500).json({ error: error.message });
+    }
+  }
+
+  // ── EMAIL VERIFICATION (free MX DNS check) ───────────────────────────
+  if (type === "verify-email") {
+    const email = req.query.email || "";
+    const parts = email.trim().split("@");
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      return res.json({ valid: false, reason: "Invalid format" });
+    }
+    const domain = parts[1].toLowerCase();
+    try {
+      const records = await dns.resolveMx(domain);
+      if (records && records.length > 0) {
+        return res.json({ valid: true, domain, mx: records[0].exchange });
+      }
+      return res.json({ valid: false, reason: "No mail server for this domain" });
+    } catch {
+      return res.json({ valid: false, reason: "Domain not found or unreachable" });
+    }
+  }
+
+  // ── BULK EMAIL VERIFICATION ──────────────────────────────────────────
+  if (type === "verify-bulk" && req.method === "POST") {
+    const { emails = [] } = req.body;
+    const results = {};
+    // Cache MX results per domain to avoid redundant lookups
+    const domainCache = {};
+    for (const email of emails.slice(0, 200)) {
+      const parts = email.trim().split("@");
+      if (parts.length !== 2 || !parts[0] || !parts[1]) {
+        results[email] = { valid: false, reason: "Invalid format" };
+        continue;
+      }
+      const domain = parts[1].toLowerCase();
+      if (domainCache[domain] === undefined) {
+        try {
+          const records = await dns.resolveMx(domain);
+          domainCache[domain] = records && records.length > 0;
+        } catch {
+          domainCache[domain] = false;
+        }
+      }
+      results[email] = domainCache[domain]
+        ? { valid: true }
+        : { valid: false, reason: "No mail server for domain" };
+    }
+    return res.json({ results });
+  }
+
+  // ── DELIVERABILITY SCORE ──────────────────────────────────────────────
+  if (type === "deliverability" && req.method === "POST") {
+    const { subject = "", body = "", fromDomain = "", replyTo = "" } = req.body;
+    const checks = [];
+    let score = 10;
+
+    // Subject checks
+    if (!subject.trim()) {
+      checks.push({ label: "Subject line missing", pass: false, impact: -3 }); score -= 3;
+    } else {
+      const subjectWords = subject.trim().split(/\s+/).length;
+      if (subjectWords < 3)  { checks.push({ label: "Subject too short (< 3 words)",  pass: false, impact: -1 }); score -= 1; }
+      if (subjectWords > 12) { checks.push({ label: "Subject too long (> 12 words)",   pass: false, impact: -1 }); score -= 1; }
+
+      const SPAM_SUBJECT = ["free","winner","won","prize","cash","urgent","act now","limited time","click here","guaranteed","no risk","100%","make money","earn money","order now","buy now","discount","sale","offer expires","congratulations","dear friend","special promotion"];
+      const subjectLower = subject.toLowerCase();
+      const spamHits = SPAM_SUBJECT.filter(w => subjectLower.includes(w));
+      if (spamHits.length > 0) {
+        checks.push({ label: `Spam words in subject: ${spamHits.slice(0,3).join(", ")}`, pass: false, impact: -spamHits.length });
+        score -= Math.min(spamHits.length, 3);
+      }
+
+      if (/[A-Z]{4,}/.test(subject)) { checks.push({ label: "CAPS LOCK words in subject", pass: false, impact: -2 }); score -= 2; }
+      if ((subject.match(/!/g)||[]).length > 1) { checks.push({ label: "Multiple ! in subject", pass: false, impact: -1 }); score -= 1; }
+      if (!/[?!.]$/.test(subject.trim())) checks.push({ label: "Subject has natural ending", pass: true, impact: 0 });
+    }
+
+    // Body checks
+    const wordCount = body.trim().split(/\s+/).filter(Boolean).length;
+    if (wordCount < 40)  { checks.push({ label: `Body too short (${wordCount} words, aim for 80–180)`, pass: false, impact: -2 }); score -= 2; }
+    if (wordCount > 300) { checks.push({ label: `Body too long (${wordCount} words, aim for 80–180)`,  pass: false, impact: -1 }); score -= 1; }
+    if (wordCount >= 40 && wordCount <= 200) checks.push({ label: `Good email length (${wordCount} words)`, pass: true, impact: 0 });
+
+    const hasUnsubscribe = /unsubscribe/i.test(body);
+    if (!hasUnsubscribe) { checks.push({ label: "No unsubscribe link (CAN-SPAM risk)", pass: false, impact: -2 }); score -= 2; }
+    else checks.push({ label: "Unsubscribe link present", pass: true, impact: 0 });
+
+    const linkCount = (body.match(/https?:\/\//g)||[]).length;
+    if (linkCount > 3) { checks.push({ label: `Too many links (${linkCount}) — max 3`, pass: false, impact: -1 }); score -= 1; }
+    else if (linkCount > 0) checks.push({ label: `${linkCount} link(s) — looks natural`, pass: true, impact: 0 });
+
+    const hasPersonalization = /\[name\]|\[company\]|\[role\]/i.test(body) || /\{name\}|\{company\}/i.test(body);
+    if (hasPersonalization) checks.push({ label: "Personalization tokens detected", pass: true, impact: 0 });
+
+    const SPAM_BODY = ["click here","free offer","act now","limited time","order now","buy now","no obligation","no credit card","risk free","100% free","earn extra","work from home","make money fast"];
+    const bodyLower = body.toLowerCase();
+    const bodySpam = SPAM_BODY.filter(w => bodyLower.includes(w));
+    if (bodySpam.length > 0) {
+      checks.push({ label: `Spam phrases in body: ${bodySpam.slice(0,2).join(", ")}`, pass: false, impact: -bodySpam.length });
+      score -= Math.min(bodySpam.length, 2);
+    }
+
+    const hasSignature = /best,|regards,|cheers,|sincerely,/i.test(body);
+    if (hasSignature) checks.push({ label: "Professional signature found", pass: true, impact: 0 });
+    else { checks.push({ label: "No signature detected", pass: false, impact: -1 }); score -= 1; }
+
+    score = Math.max(0, Math.min(10, score));
+    const rating = score >= 8 ? "Excellent" : score >= 6 ? "Good" : score >= 4 ? "Fair" : "Poor";
+    return res.json({ score, rating, checks, wordCount });
+  }
+
+  // ── LEAD SCORES ───────────────────────────────────────────────────────
+  if (type === "lead-scores") {
+    try {
+      if (!ids) return res.json({});
+      const leadIds = ids.split(",").filter(Boolean);
+      await ensureTable();
+      const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+      const rows = await sql`
+        SELECT lead_id,
+          COUNT(*) FILTER (WHERE event_type = 'open')  AS opens,
+          COUNT(*) FILTER (WHERE event_type = 'click') AS clicks
+        FROM tracking_events
+        WHERE lead_id = ANY(${leadIds})
+        GROUP BY lead_id
+      `;
+      const scores = {};
+      rows.forEach(r => {
+        const opens  = parseInt(r.opens)  || 0;
+        const clicks = parseInt(r.clicks) || 0;
+        // Scoring: first open=20, each additional open=5 (cap 40), each click=15 (cap 45)
+        const openScore  = Math.min(20 + Math.max(0, opens - 1) * 5, 40);
+        const clickScore = Math.min(clicks * 15, 45);
+        const raw = opens > 0 ? openScore + clickScore : 0;
+        scores[r.lead_id] = { score: Math.min(raw, 100), opens, clicks,
+          label: raw >= 70 ? "Hot" : raw >= 40 ? "Warm" : raw > 0 ? "Engaged" : "Cold" };
+      });
+      leadIds.forEach(id => { if (!scores[id]) scores[id] = { score: 0, opens: 0, clicks: 0, label: "Cold" }; });
+      return res.json(scores);
+    } catch(e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  // ── BEST PERFORMING VARIANT ───────────────────────────────────────────
+  if (type === "best-variant") {
+    try {
+      const campaignId = req.query.campaignId;
+      if (!campaignId) return res.json({ variantIndex: 0, reason: "no campaignId" });
+      await ensureTable();
+      const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+      // For each variant_index, compute open rate = opens / sends
+      const rows = await sql`
+        SELECT cl.variant_index,
+          COUNT(DISTINCT cl.lead_id) AS sends,
+          COUNT(DISTINCT te.lead_id) FILTER (WHERE te.event_type = 'open') AS openers
+        FROM campaign_leads cl
+        LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
+        WHERE cl.campaign_id = ${campaignId} AND cl.status = 'sent'
+        GROUP BY cl.variant_index
+        ORDER BY (COUNT(DISTINCT te.lead_id) FILTER (WHERE te.event_type = 'open')::float /
+                  NULLIF(COUNT(DISTINCT cl.lead_id), 0)) DESC NULLS LAST
+        LIMIT 1
+      `;
+      if (!rows.length) return res.json({ variantIndex: 0, reason: "no data" });
+      const best = rows[0];
+      const openRate = best.sends > 0 ? Math.round((parseInt(best.openers) / parseInt(best.sends)) * 100) : 0;
+      return res.json({ variantIndex: parseInt(best.variant_index), sends: parseInt(best.sends), openers: parseInt(best.openers), openRate });
+    } catch(e) {
+      return res.status(500).json({ error: e.message });
     }
   }
 

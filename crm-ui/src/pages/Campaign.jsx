@@ -30,6 +30,8 @@ export default function Campaign() {
   const [status, setStatus]             = useState('Ready to launch')
   const [log, setLog]                   = useState([])
   const [genLoading, setGenLoading]     = useState(false)
+  const [delivScore, setDelivScore]     = useState(null) // { score, rating, checks }
+  const [delivLoading, setDelivLoading] = useState(false)
   const [campaignName, setCampaignName] = useState(`Campaign ${new Date().toLocaleDateString('en-GB')}`)
   const bodyRef = useRef(null)
 
@@ -128,6 +130,23 @@ export default function Campaign() {
       toast('Generation failed: ' + e.message, 'error')
     }
     setGenLoading(false)
+  }
+
+  async function checkDeliverability() {
+    const subject = mode === 'custom' ? customSubj : (currentVariant.subject || '')
+    const body    = mode === 'custom' ? customBody  : (currentVariant.body    || '')
+    if (!subject && !body) { toast('Generate or write an email first', 'info'); return }
+    setDelivLoading(true)
+    try {
+      const res = await fetch('/api/ops?type=deliverability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject, body })
+      })
+      const data = await res.json()
+      setDelivScore(data)
+    } catch(e) { toast('Check failed: ' + e.message, 'error') }
+    setDelivLoading(false)
   }
 
   async function sendOne(lead, subject, body, profile, campaignId) {
@@ -250,11 +269,39 @@ export default function Campaign() {
             ? <Btn variant="secondary" onClick={scheduleCampaign} disabled={running||!scheduleTime}><Calendar size={13}/> Schedule</Btn>
             : <Btn variant="danger" size="sm" onClick={cancelSchedule}>✕ Cancel Schedule</Btn>
           }
+          <Btn variant="secondary" onClick={checkDeliverability} disabled={delivLoading||running}>
+            {delivLoading ? '...' : '🎯 Check Score'}
+          </Btn>
           <Btn variant="primary" onClick={runCampaign} disabled={running||scheduled}>
             <Play size={14} /> {running ? 'Running...' : 'Run Campaign'}
           </Btn>
         </div>
       </PageHeader>
+
+      {delivScore && (
+        <div className={`rounded-xl border p-4 ${delivScore.score >= 8 ? 'bg-emerald-50 border-emerald-200' : delivScore.score >= 6 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'}`}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl font-black">{delivScore.score}/10</span>
+              <div>
+                <div className={`font-bold text-sm ${delivScore.score >= 8 ? 'text-emerald-700' : delivScore.score >= 6 ? 'text-amber-700' : 'text-red-700'}`}>
+                  Deliverability: {delivScore.rating}
+                </div>
+                <div className="text-xs text-slate-500">{delivScore.wordCount} words</div>
+              </div>
+            </div>
+            <button onClick={() => setDelivScore(null)} className="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+          </div>
+          <div className="grid grid-cols-1 gap-1">
+            {delivScore.checks.map((c, i) => (
+              <div key={i} className={`flex items-start gap-2 text-xs py-1 ${c.pass ? 'text-emerald-700' : 'text-red-700'}`}>
+                <span className="flex-shrink-0 mt-0.5">{c.pass ? '✅' : '❌'}</span>
+                <span>{c.label}{c.impact < 0 ? ` (${c.impact})` : ''}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {followupInfo && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-800 flex items-center gap-2">

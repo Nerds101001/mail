@@ -21,6 +21,9 @@ export default function Leads() {
   const [emailSubject, setEmailSubject] = useState('')
   const [genLoading, setGenLoading] = useState(false)
   const [sendLoading, setSendLoading] = useState(false)
+  const [verifying, setVerifying] = useState(false)
+  const [scores, setScores] = useState({}) // leadId → { score, label }
+  const [scoresLoaded, setScoresLoaded] = useState(false)
 
   const filtered = leads.filter(l => {
     const s = search.toLowerCase()
@@ -93,14 +96,46 @@ export default function Leads() {
     setImportOpen(false); setCsvText('')
   }
 
+  async function loadEngagementScores() {
+    if (leads.length === 0) return
+    setScoresLoaded(false)
+    try {
+      const ids = leads.map(l => l.id).join(',')
+      const res = await fetch(`/api/ops?type=lead-scores&ids=${ids}`)
+      const data = await res.json()
+      setScores(data)
+      setScoresLoaded(true)
+      toast('Engagement scores loaded', 'success')
+    } catch { toast('Could not load scores', 'error') }
+  }
+
+  async function verifyAllEmails() {
+    setVerifying(true)
+    try {
+      const emails = leads.map(l => l.email)
+      const res = await fetch('/api/ops?type=verify-bulk', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ emails }) })
+      const { results } = await res.json()
+      const newLeads = leads.map(l => {
+        const r = results[l.email]
+        if (!r) return l
+        return { ...l, status: r.valid ? (l.status === 'INVALID' ? 'VALID' : l.status) : 'INVALID' }
+      })
+      const invalidCount = Object.values(results).filter(r => !r.valid).length
+      save(newLeads)
+      toast(`Verified ${emails.length} emails — ${invalidCount} invalid`, invalidCount > 0 ? 'warn' : 'success')
+    } catch(e) { toast('Verification failed: ' + e.message, 'error') }
+    setVerifying(false)
+  }
+
   async function generateEmail() {
     if (!settings.openaiKey) { toast('Set NVIDIA API key in Settings', 'error'); return }
     setGenLoading(true)
     try {
-      const res = await fetch('/api/ops?type=generate-ai', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:emailLead.name, company:emailLead.company||'their company', role:emailLead.role||'', category:emailLead.category||'', apiKey:settings.openaiKey }) })
+      const res = await fetch('/api/ops?type=generate-ai', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:emailLead.name, company:emailLead.company||'their company', role:emailLead.role||'', category:emailLead.category||'', apiKey:settings.openaiKey, notes: emailLead.notes || '' }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      setEmailSubject(data.subject); setEmailBody(data.body)
+      const v = data.variants?.[0] || data
+      setEmailSubject(v.subject); setEmailBody(v.body)
     } catch(e) { toast('AI failed: '+e.message, 'error') }
     setGenLoading(false)
   }
@@ -137,7 +172,8 @@ export default function Leads() {
     <div>
       <PageHeader title="Lead Management" subtitle={`${leads.length} total leads`}>
         <Btn variant="secondary" size="sm" onClick={() => setImportOpen(true)}><Upload size={14} /> Import CSV</Btn>
-        <Btn variant="secondary" size="sm" onClick={() => { const newLeads = leads.map(enrichLead); save(newLeads); toast('Enriched', 'success') }}><Zap size={14} /> Enrich</Btn>
+        <Btn variant="secondary" size="sm" onClick={verifyAllEmails} disabled={verifying}>{verifying ? 'Verifying...' : <><CheckCircle size={14}/> Verify Emails</>}</Btn>
+        <Btn variant="secondary" size="sm" onClick={loadEngagementScores}><Zap size={14} /> {scoresLoaded ? 'Refresh Scores' : 'Load Scores'}</Btn>
         <Btn variant="primary" onClick={() => setAddOpen(true)}><Plus size={14} /> Add Lead</Btn>
       </PageHeader>
 
@@ -209,7 +245,17 @@ export default function Leads() {
                     <span className={`badge text-[11px] ${stc}`}>{l.status || '—'}</span>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="font-bold text-emerald-600">{l.score || 0}</span>
+                    {scores[l.id] ? (
+                      <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${
+                        scores[l.id].label === 'Hot'     ? 'bg-red-100 text-red-700' :
+                        scores[l.id].label === 'Warm'    ? 'bg-amber-100 text-amber-700' :
+                        scores[l.id].label === 'Engaged' ? 'bg-blue-100 text-blue-700' :
+                                                           'bg-slate-100 text-slate-500'}`}>
+                        {scores[l.id].label === 'Hot' ? '🔥' : scores[l.id].label === 'Warm' ? '🌡' : ''} {scores[l.id].score}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 text-xs">{l.score || 0}</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-slate-500 text-xs">{l.opens||0}👁 {l.clicks||0}🖱</td>
                   <td className="px-4 py-3 text-slate-400 text-xs">{fmtDate(l.lastSent)}</td>
