@@ -1,17 +1,13 @@
 // api/track-open.js
-// Gmail caching reality (from Litmus, Prospeo, gblock research 2024-2026):
-//   - Gmail Image Proxy pre-fetches all images at delivery from 66.249.x.x IPs
-//   - Subsequent opens of the same email on GMAIL WEB DESKTOP serve from Google's
-//     cache — our server never sees a second request. This is Gmail's design and
-//     cannot be bypassed by any server-side technique (headers, 302, etc.).
-//   - Gmail MOBILE, Outlook, Apple Mail (no MPP), and other clients DO re-fetch
-//     on each open — multiple opens track correctly for those clients.
-//
-// Strategy:
-//   1. Return 302 → unique pixel URL (best attempt at preventing cache reuse)
-//   2. Known email proxy IPs (Google/Apple) bypass the 15s timing guard —
-//      their pre-fetch is the only open signal we'll ever get from Gmail desktop
-//   3. 2-minute IP+campaign dedup prevents counting one load twice
+// Gmail tracking reality (observed from live data, May 2026):
+//   - Gmail Image Proxy pre-fetches at delivery (66.249.x.x, within 1-3s)
+//   - When user actually opens, Gmail re-fetches from a DIFFERENT Google IP
+//     (74.125.x.x etc.) because our 302 unique-token redirect prevents caching
+//   - Both the false pre-fetch AND real opens come from Google proxy IPs
+//   - The 15s timing guard (applied to ALL IPs) separates them:
+//       delivery pre-fetch  → fires within 3s  → blocked
+//       real open           → fires after 15s+ → counted
+//   - Cache-Control: no-store prevents Google from caching our 302 response
 
 const { trackOpen } = require("./_redis");
 const APP_URL = process.env.APP_URL || "https://enginerdsmail.vercel.app";
@@ -40,9 +36,8 @@ module.exports = async (req, res) => {
     }
   }
 
-  // Redirect to unique pixel URL AFTER tracking is done.
-  // Unique token = Gmail cannot reuse a cached response from a previous open
-  // because the redirect target URL changes each time.
+  // no-store prevents Gmail proxy from caching this 302 — forces a new request on each open
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   const token = Date.now().toString(36) + Math.random().toString(36).slice(2);
   res.redirect(302, `${APP_URL}/api/track-pixel?t=${token}`);
 };

@@ -321,48 +321,41 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
     const now = Date.now();
     const oneHourAgo = now - (60 * 60 * 1000);
 
-    // ── Timing guard — unknown IPs only ───────────────────────────────────────
-    // Gmail delivers tracking pixels exclusively through Google Image Proxy
-    // (66.249.x.x etc.). Google pre-fetches at delivery AND caches the image —
-    // it does NOT re-fetch when the user actually opens the email. So the
-    // pre-fetch IS the only open signal for Gmail users; blocking it means 0 opens.
-    //
-    // Strategy:
-    //   Known email proxies (Google/Apple/Microsoft): skip timing guard entirely.
-    //     Their pre-fetch counts as the open (industry standard — Mailchimp etc.).
-    //     The 1-hour IP dedup below prevents double-counting.
-    //   Unknown IPs: apply 15s guard to catch other scanner types.
-    const isEmailProxy = isScannerIp(ip);
-    if (!isEmailProxy) {
-      const guardRaw = await sql`
-        SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
-          AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
-      `.catch(() => []);
-      if (guardRaw.length > 0) {
-        const sentAt = parseInt(guardRaw[0].value) || 0;
-        if (now - sentAt < 15000) {
-          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} (${Math.round((now-sentAt)/1000)}s after send)`);
-          return { counted: false, reason: 'scanner guard (15s)', count: 0 };
-        }
+    // ── Timing guard — ALL IPs including Google/Apple proxy ──────────────────
+    // Gmail uses a unique-token 302 redirect so Google re-fetches on EVERY open
+    // (not just at delivery). Both the delivery pre-fetch AND each real open
+    // arrive from Google proxy IPs (66.249.x.x, 74.125.x.x etc.).
+    // The ONLY reliable way to tell them apart is timing:
+    //   - Delivery pre-fetch fires within 1-3s of send
+    //   - Real opens happen 15+ seconds later
+    // So we apply the 15s guard to ALL IPs, including known proxies.
+    const guardRaw = await sql`
+      SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
+        AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
+    `.catch(() => []);
+    if (guardRaw.length > 0) {
+      const sentAt = parseInt(guardRaw[0].value) || 0;
+      if (now - sentAt < 15000) {
+        console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} (${Math.round((now-sentAt)/1000)}s after send)`);
+        return { counted: false, reason: 'scanner guard (15s)', count: 0 };
       }
     }
 
-    // Dedup: only block if same IP opened within the last 2 minutes
-    // (prevents double-counting a single load that triggers multiple requests,
-    // but allows the same person opening again later to count).
-    const twoMinutesAgo = now - (2 * 60 * 1000);
+    // Dedup: block same IP within 30 seconds (prevents double-counting a single
+    // open that triggers multiple proxy requests) but allows re-opens after 30s.
+    const thirtySecondsAgo = now - (30 * 1000);
     const existing = await sql`
       SELECT created_at FROM tracking_events
       WHERE lead_id = ${leadId}
         AND event_type = 'open'
         AND ip = ${ip}
         AND campaign_id = ${campaignId || null}
-        AND created_at > ${twoMinutesAgo}
+        AND created_at > ${thirtySecondsAgo}
       LIMIT 1
     `;
 
     if (existing.length > 0) {
-      return { counted: false, reason: '2 min dedup', count: 0 };
+      return { counted: false, reason: '30s dedup', count: 0 };
     }
 
     // Count this open
