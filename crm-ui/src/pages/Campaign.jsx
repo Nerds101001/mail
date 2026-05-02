@@ -84,20 +84,35 @@ export default function Campaign() {
   }
 
   async function getContent(lead, variantPool, index = 0) {
+    const sub = (s) => (s || '')
+      .replace(/\[Name\]/gi,    lead.name    || '')
+      .replace(/\[Company\]/gi, lead.company || '')
+      .replace(/\[Role\]/gi,    lead.role    || '')
+      .replace(/their company/gi, lead.company || 'your company')
+
+    // Inject lead notes into variant body — no API call per lead.
+    // Variants are the frame; notes are a personalization hook injected
+    // after the greeting line so every email feels researched.
+    function injectNotes(body, lead) {
+      if (!lead.notes || !lead.notes.trim()) return body
+      const hook = `Given that ${lead.company || 'your company'} ${lead.notes.trim().replace(/^(is |are |has |have )/i, '')},`
+      // Replace "Hi [Name],\n\n" with "Hi [Name],\n\n{hook} " prefix on first sentence
+      return body.replace(
+        /^(Hi [^\n,]+,\n\n)/i,
+        `$1${hook} `
+      )
+    }
+
     if (mode === 'custom') {
-      const r = s => s.replace(/\[Name\]/g, lead.name||'').replace(/\[Company\]/g, lead.company||'').replace(/\[Role\]/g, lead.role||'')
-      return { subject: r(customSubj), body: r(customBody) + buildAttachmentText() }
+      return { subject: sub(customSubj), body: injectNotes(sub(customBody), lead) + buildAttachmentText() }
     }
     if (variantPool && variantPool.length > 0) {
       const v = variantPool[index % variantPool.length]
-      const personalize = s => s
-        .replace(/\[Name\]/g, lead.name||'').replace(/\[Company\]/g, lead.company||'')
-        .replace(/\[Role\]/g, lead.role||'').replace(/their company/gi, lead.company||'your company')
-      return { subject: personalize(v.subject), body: personalize(v.body) + buildAttachmentText() }
+      return { subject: sub(v.subject), body: injectNotes(sub(v.body), lead) + buildAttachmentText() }
     }
     return {
-      subject: `Question for ${lead.company||'your business'}`,
-      body: `Hi ${lead.name},\n\nI noticed ${lead.company||'your business'} and thought we could help with your tech operations.\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution` + buildAttachmentText()
+      subject: `Question for ${lead.company || 'your business'}`,
+      body: injectNotes(`Hi ${lead.name},\n\nI noticed ${lead.company||'your business'} and thought we could help with your tech operations.\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`, lead) + buildAttachmentText()
     }
   }
 
@@ -172,6 +187,29 @@ export default function Campaign() {
     const senderProfiles = activeProfiles.filter(p => selectedSenders.has(p.user||p.email||''))
     const targets = getTargets().slice(0, cfg.batch)
     if (!senderProfiles.length || !targets.length) { toast('Missing senders or leads', 'error'); return }
+
+    // ── Pre-flight: spam/content check ──────────────────────────────────
+    const checkSubject = mode === 'custom' ? customSubj : (currentVariant.subject || '')
+    const checkBody    = mode === 'custom' ? customBody  : (currentVariant.body    || '')
+    if (checkSubject || checkBody) {
+      try {
+        const dr = await fetch('/api/ops?type=deliverability', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ subject: checkSubject, body: checkBody })
+        })
+        const ds = await dr.json()
+        setDelivScore(ds)
+        const failed = ds.checks.filter(c => !c.pass)
+        if (ds.score < 5) {
+          toast(`⛔ Score ${ds.score}/10 — fix issues before sending (see score panel)`, 'error')
+          return
+        }
+        if (ds.score < 7) {
+          const ok = window.confirm(`⚠ Deliverability score is ${ds.score}/10.\n\nIssues:\n${failed.map(c=>'• '+c.label).join('\n')}\n\nSend anyway?`)
+          if (!ok) return
+        }
+      } catch { /* non-blocking — don't prevent send on check failure */ }
+    }
 
     setRunning(true); setLog([]); setProgress(0)
     const campaignId = `camp_${Date.now()}`
