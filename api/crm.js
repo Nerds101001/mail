@@ -165,6 +165,12 @@ module.exports = async (req, res) => {
         })));
       }
 
+      if (req.method === "DELETE" && id) {
+        await sql`DELETE FROM campaign_leads WHERE campaign_id=${id}`;
+        await sql`DELETE FROM campaigns WHERE id=${id} AND (user_id=${userId} OR ${userId}='admin')`;
+        return res.json({ ok: true });
+      }
+
       if (req.method === "POST") {
         const { id: providedId, name, target, sender, leads: campLeads, stats, brief, variants } = req.body;
         const campId = providedId || `camp_${Date.now()}`;

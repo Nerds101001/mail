@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { PageHeader, Empty, Btn, Card, toast } from '../components/ui'
 import { fmtDate } from '../utils'
-import { History, ChevronDown, ChevronRight, Send, Eye, MousePointer, AlertCircle } from 'lucide-react'
+import { History, ChevronDown, ChevronRight, Send, Eye, MousePointer, AlertCircle, Trash2 } from 'lucide-react'
 
 function parseBrowser(ua) {
   if (!ua || ua === '—') return '—'
@@ -93,6 +93,20 @@ export default function CampaignHistory() {
     return { status: lead.status, display: lead.status }
   }
 
+  async function deleteCampaign(c, e) {
+    e.stopPropagation()
+    if (!confirm(`Delete "${c.name}"?\n\nThis removes the campaign and all its send history from the database. Tracking data (opens/clicks) is also deleted. This cannot be undone.`)) return
+    try {
+      const res = await fetch(`/api/crm?type=campaigns&id=${c.id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Delete failed')
+      setCampaigns(prev => prev.filter(x => x.id !== c.id))
+      if (expanded === c.id) { setExpanded(null); setDetail(null) }
+      toast(`"${c.name}" deleted`, 'success')
+    } catch(e) {
+      toast('Could not delete campaign', 'error')
+    }
+  }
+
   async function openEmailModal(l) {
     setViewingEmail(l)
     setModalEvents([])
@@ -147,6 +161,11 @@ export default function CampaignHistory() {
                 </div>
                 <Btn variant="ghost" size="sm" onClick={e => { e.stopPropagation(); window.location.href = `/campaign?followup=${c.id}` }}
                   title="Re-target leads from this campaign that had zero opens">↩ Follow Up</Btn>
+                <button
+                  onClick={e => deleteCampaign(c, e)}
+                  title="Delete this campaign and all its history"
+                  className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                ><Trash2 size={14}/></button>
                 <div className="flex items-center gap-4 text-sm">
                   <div className="flex items-center gap-1.5 text-blue-600">
                     <Send size={13} /><span className="font-bold">{c.total_sent}</span><span className="text-slate-400 text-xs">sent</span>
