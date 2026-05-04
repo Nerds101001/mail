@@ -4,17 +4,18 @@ import { fmtDate } from '../utils'
 import { UserX, Download } from 'lucide-react'
 
 export default function Unsubscribes() {
-  const { leads, setLeads, pushToRedis } = useCRM()
+  const { leads, setLeads, saveNow } = useCRM()
 
   const unsubscribed = leads.filter(l =>
     l.status === 'UNSUBSCRIBED' || l.pipelineStage === 'UNSUBSCRIBED'
   )
 
-  function resubscribe(id) {
+  async function resubscribe(id) {
     if (!confirm('Re-subscribe this contact? They will be able to receive emails again.')) return
-    setLeads(leads.map(l => l.id === id ? { ...l, status: 'VALID', pipelineStage: 'COLD' } : l))
-    pushToRedis()
-    toast('Contact re-subscribed', 'success')
+    const updated = leads.map(l => l.id === id ? { ...l, status: 'VALID', pipelineStage: 'COLD' } : l)
+    setLeads(updated)
+    await saveNow()
+    toast('Contact re-subscribed ✓', 'success')
   }
 
   function exportList() {

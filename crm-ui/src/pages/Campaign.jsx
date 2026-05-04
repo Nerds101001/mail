@@ -29,10 +29,11 @@ export default function Campaign() {
   const [progress, setProgress]         = useState(0)
   const [status, setStatus]             = useState('Ready to launch')
   const [log, setLog]                   = useState([])
-  const [genLoading, setGenLoading]     = useState(false)
-  const [delivScore, setDelivScore]     = useState(null) // { score, rating, checks }
-  const [delivLoading, setDelivLoading] = useState(false)
-  const [campaignName, setCampaignName] = useState(`Campaign ${new Date().toLocaleDateString('en-GB')}`)
+  const [genLoading, setGenLoading]                   = useState(false)
+  const [delivScore, setDelivScore]                   = useState(null) // { score, rating, checks }
+  const [delivLoading, setDelivLoading]               = useState(false)
+  const [campaignName, setCampaignName]               = useState(`Campaign ${new Date().toLocaleDateString('en-GB')}`)
+  const [usePersonalization, setUsePersonalization]   = useState(false)
   const bodyRef = useRef(null)
 
   // Follow-up mode — detect ?followup=campId in URL
@@ -94,6 +95,7 @@ export default function Campaign() {
     // Variants are the frame; notes are a personalization hook injected
     // after the greeting line so every email feels researched.
     function injectNotes(body, lead) {
+      if (!usePersonalization) return body  // OFF = pure variant rotation
       if (!lead.notes || !lead.notes.trim()) return body
       const hook = `Given that ${lead.company || 'your company'} ${lead.notes.trim().replace(/^(is |are |has |have )/i, '')},`
       // Replace "Hi [Name],\n\n" with "Hi [Name],\n\n{hook} " prefix on first sentence
@@ -420,6 +422,20 @@ export default function Campaign() {
             </div>
             <div><label className="label">Sender Display Name</label><input className="input" value={cfg.sender} onChange={e=>setCfg({...cfg,sender:e.target.value})} /></div>
             <div><label className="label">Reply-To Email</label><input className="input" value={cfg.replyTo} onChange={e=>setCfg({...cfg,replyTo:e.target.value})} /></div>
+
+            {/* Personalization toggle */}
+            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <div>
+                <p className="text-xs font-semibold text-slate-700">AI Personalization</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">{usePersonalization ? 'Lead notes injected into each email' : 'Standard variant rotation (faster)'}</p>
+              </div>
+              <button
+                onClick={() => setUsePersonalization(p => !p)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${usePersonalization ? 'bg-emerald-500' : 'bg-slate-300'}`}
+              >
+                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${usePersonalization ? 'translate-x-4' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
 
             {/* Sender round-robin */}
             {activeProfiles.length > 0 && (

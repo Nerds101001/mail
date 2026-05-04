@@ -1,5 +1,5 @@
 // Global state — simple React context + localStorage
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 
 const CRMContext = createContext(null)
 
@@ -15,45 +15,64 @@ export function CRMProvider({ children }) {
   const [settings,   setSettings]   = useState(() => load('crm_settings', {}))
   const [activity,   setActivity]   = useState(() => load('crm_activity', []))
   const [gmailStatus,setGmailStatus]= useState({ connected: false, email: null })
-  const [saveTimer,  setSaveTimer]  = useState(null)
+  const saveTimerRef = useRef(null)
 
-  // Persist to localStorage
-  useEffect(() => { localStorage.setItem('crm_leads',    JSON.stringify(leads))    }, [leads])
-  useEffect(() => { localStorage.setItem('crm_clients',  JSON.stringify(clients))  }, [clients])
-  useEffect(() => { localStorage.setItem('crm_deals',    JSON.stringify(deals))    }, [deals])
-  useEffect(() => { localStorage.setItem('crm_profiles', JSON.stringify(profiles)) }, [profiles])
-  useEffect(() => { localStorage.setItem('crm_settings', JSON.stringify(settings)) }, [settings])
-  useEffect(() => { localStorage.setItem('crm_activity', JSON.stringify(activity.slice(-200))) }, [activity])
+  // Refs so push/save callbacks always read the LATEST state (avoids stale closure bug)
+  const leadsRef    = useRef(leads)
+  const clientsRef  = useRef(clients)
+  const dealsRef    = useRef(deals)
+  const profilesRef = useRef(profiles)
+  const settingsRef = useRef(settings)
+  const activityRef = useRef(activity)
+
+  // Keep refs in sync with state
+  useEffect(() => { leadsRef.current    = leads;    localStorage.setItem('crm_leads',    JSON.stringify(leads))    }, [leads])
+  useEffect(() => { clientsRef.current  = clients;  localStorage.setItem('crm_clients',  JSON.stringify(clients))  }, [clients])
+  useEffect(() => { dealsRef.current    = deals;    localStorage.setItem('crm_deals',    JSON.stringify(deals))    }, [deals])
+  useEffect(() => { profilesRef.current = profiles; localStorage.setItem('crm_profiles', JSON.stringify(profiles)) }, [profiles])
+  useEffect(() => { settingsRef.current = settings; localStorage.setItem('crm_settings', JSON.stringify(settings)) }, [settings])
+  useEffect(() => { activityRef.current = activity; localStorage.setItem('crm_activity', JSON.stringify(activity.slice(-200))) }, [activity])
+
+  // Helper: build the payload from refs (always current)
+  function buildPayload() {
+    return {
+      leads:    leadsRef.current,
+      clients:  clientsRef.current,
+      deals:    dealsRef.current,
+      profiles: profilesRef.current,
+      settings: settingsRef.current,
+      activity: activityRef.current.slice(-200),
+    }
+  }
 
   const pushToRedis = useCallback(() => {
-    if (saveTimer) clearTimeout(saveTimer)
-    const t = setTimeout(async () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(async () => {
       try {
         const token = localStorage.getItem('crm_token') || ''
         await fetch('/api/crm?type=save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ leads, clients, deals, profiles, settings, activity: activity.slice(-200) })
+          body: JSON.stringify(buildPayload())
         })
         console.log('✅ Data saved to database')
       } catch(e) { console.warn('❌ Database sync failed:', e) }
-    }, 500) // Reduced from 3000ms to 500ms for faster saves
-    setSaveTimer(t)
-  }, [leads, clients, deals, profiles, settings, activity])
+    }, 500)
+  }, []) // no deps — reads from refs, always current
 
   // Immediate save without debounce - for critical operations
   const saveNow = useCallback(async () => {
-    if (saveTimer) clearTimeout(saveTimer)
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     try {
       const token = localStorage.getItem('crm_token') || ''
       await fetch('/api/crm?type=save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ leads, clients, deals, profiles, settings, activity: activity.slice(-200) })
+        body: JSON.stringify(buildPayload())
       })
       console.log('✅ Data saved immediately to database')
     } catch(e) { console.warn('❌ Database sync failed:', e) }
-  }, [leads, clients, deals, profiles, settings, activity])
+  }, []) // no deps — reads from refs, always current
 
   const logActivity = useCallback((msg) => {
     setActivity(prev => [...prev, { time: Date.now(), msg }].slice(-200))
