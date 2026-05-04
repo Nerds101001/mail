@@ -175,26 +175,54 @@ export default function Leads() {
         skippedStats.emptyEmail++
         continue
       }
-      if (!isValidEmail(email)) {
-        skippedStats.invalidEmail++
-        continue
-      }
-      if (leads.find(l => l.email.toLowerCase() === email.toLowerCase())) {
-        skippedStats.duplicateEmail++
-        continue
-      }
       
-      skippedStats.processed++
-      const ci = headers.indexOf('company'), phi = headers.indexOf('phone')
-      const cati = headers.indexOf('category'), tagi = headers.indexOf('tags'), ni2 = headers.indexOf('notes')
-      const name     = ni >= 0   ? (cols[ni]   || '') : '' // Don't extract name from email, keep blank if not provided
-      const company  = ci >= 0   ? (cols[ci]   || '') : ''
-      const phone    = phi >= 0  ? (cols[phi]  || '') : ''
-      const category = cati >= 0 ? (cols[cati] || 'General') : 'General'
-      const tags     = tagi >= 0 ? cols[tagi].split(';').map(t=>t.trim()).filter(Boolean) : []
-      const notes    = ni2 >= 0  ? (cols[ni2]  || '') : ''
-      const group    = groupName || 'Default' // Assign to specified group or 'Default'
-      fresh.push(enrichLead({ id:'lead_'+(Date.now()+i), name, email:email.toLowerCase(), company, phone, role:'', category, tags, notes, group, status:'VALID', pipelineStage:'COLD', stage:'', opens:0, clicks:0, score:40, lastSent:'', domain:'', priority:'LOW', createdAt:new Date().toISOString() }))
+      // Handle comma-separated emails - split and create multiple leads
+      const emails = email.split(',').map(e => e.trim()).filter(Boolean)
+      
+      for (const singleEmail of emails) {
+        if (!isValidEmail(singleEmail)) {
+          skippedStats.invalidEmail++
+          continue
+        }
+        if (leads.find(l => l.email.toLowerCase() === singleEmail.toLowerCase())) {
+          skippedStats.duplicateEmail++
+          continue
+        }
+        
+        skippedStats.processed++
+        const ci = headers.indexOf('company'), phi = headers.indexOf('phone')
+        const cati = headers.indexOf('category'), tagi = headers.indexOf('tags'), ni2 = headers.indexOf('notes')
+        const name     = ni >= 0   ? (cols[ni]   || '') : '' // Don't extract name from email, keep blank if not provided
+        const company  = ci >= 0   ? (cols[ci]   || '') : ''
+        const phone    = phi >= 0  ? (cols[phi]  || '') : ''
+        const category = cati >= 0 ? (cols[cati] || 'General') : 'General'
+        const tags     = tagi >= 0 ? cols[tagi].split(';').map(t=>t.trim()).filter(Boolean) : []
+        const notes    = ni2 >= 0  ? (cols[ni2]  || '') : ''
+        const group    = groupName || 'Default' // Assign to specified group or 'Default'
+        
+        fresh.push(enrichLead({ 
+          id:'lead_'+(Date.now()+i+fresh.length), 
+          name, 
+          email: singleEmail.toLowerCase(), 
+          company, 
+          phone, 
+          role:'', 
+          category, 
+          tags, 
+          notes, 
+          group, 
+          status:'VALID', 
+          pipelineStage:'COLD', 
+          stage:'', 
+          opens:0, 
+          clicks:0, 
+          score:40, 
+          lastSent:'', 
+          domain:'', 
+          priority:'LOW', 
+          createdAt:new Date().toISOString() 
+        }))
+      }
     }
 
     if (!fresh.length) { 
