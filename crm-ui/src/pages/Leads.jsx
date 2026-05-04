@@ -156,7 +156,7 @@ export default function Leads() {
       if (leads.find(l => l.email.toLowerCase() === email.toLowerCase())) continue
       const ci = headers.indexOf('company'), phi = headers.indexOf('phone')
       const cati = headers.indexOf('category'), tagi = headers.indexOf('tags'), ni2 = headers.indexOf('notes')
-      const name     = ni >= 0   ? (cols[ni]   || email.split('@')[0]) : email.split('@')[0]
+      const name     = ni >= 0   ? (cols[ni]   || '') : '' // Don't extract name from email, keep blank if not provided
       const company  = ci >= 0   ? (cols[ci]   || '') : ''
       const phone    = phi >= 0  ? (cols[phi]  || '') : ''
       const category = cati >= 0 ? (cols[cati] || 'General') : 'General'
