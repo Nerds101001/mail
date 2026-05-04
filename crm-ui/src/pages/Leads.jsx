@@ -341,9 +341,9 @@ export default function Leads() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <div className="w-7 h-7 rounded-full bg-emerald-100 flex items-center justify-center text-xs font-bold text-emerald-700 flex-shrink-0">
-                        {(l.name||'?')[0].toUpperCase()}
+                        {l.name ? l.name[0].toUpperCase() : 'N/A'}
                       </div>
-                      <span className="font-semibold text-slate-900">{l.name}</span>
+                      <span className="font-semibold text-slate-900">{l.name || 'N/A'}</span>
                       {isHot && <Flame size={13} className="text-red-500" />}
                     </div>
                   </td>
