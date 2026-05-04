@@ -19,7 +19,9 @@ export const enrichLead = (l) => {
   // Only block truly invalid emails — personal and role-based are sendable
   if (!['SENT','REPLIED','FOLLOW-UP','INVALID','DUPLICATE','DISPOSABLE','TYPO','INVALID-LENGTH','UNSUBSCRIBED'].includes(l.status)) l.status = 'VALID'
 
-  if (!l.company && domain) l.company = (domain.split('.')[0] || '').toUpperCase()
+  // Don't auto-fill company from domain - keep it blank if not provided
+  // if (!l.company && domain) l.company = (domain.split('.')[0] || '').toUpperCase()
+  
   if (!l.role) {
     if (e.includes('ceo') || e.includes('founder') || e.includes('owner')) l.role = 'FOUNDER'
     else if (e.includes('sales')) l.role = 'SALES'
