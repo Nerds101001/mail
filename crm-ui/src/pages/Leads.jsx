@@ -5,7 +5,7 @@ import { Modal, Btn, Input, Select, Textarea, Badge, Empty, PageHeader, toast } 
 import { Plus, Upload, CheckCircle, Zap, Trash2, UserCheck, Search, Filter, Flame, Users } from 'lucide-react'
 
 export default function Leads() {
-  const { leads, setLeads, profiles, settings, logActivity, pushToRedis, saveNow } = useCRM()
+  const { leads, setLeads, profiles, settings, logActivity, pushToRedis, saveLeads } = useCRM()
   const [search, setSearch]   = useState('')
   const [stageF, setStageF]   = useState('')
   const [statusF, setStatusF] = useState('')
@@ -38,7 +38,10 @@ export default function Leads() {
       && (!priF    || l.priority === priF)
   })
 
-  function save(newLeads) { setLeads(newLeads); saveNow() }
+  function save(newLeads) { 
+    setLeads(newLeads); 
+    saveLeads(newLeads); // Use saveLeads to ensure immediate database save with the exact data
+  }
 
   async function fetchScores(leadList) {
     try {
