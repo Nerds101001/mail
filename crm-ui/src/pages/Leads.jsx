@@ -12,6 +12,8 @@ export default function Leads() {
   const [priF, setPriF]       = useState('')
   const [selected, setSelected] = useState(new Set())
   const [addOpen, setAddOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editLead, setEditLead] = useState(null)
   const [importOpen, setImportOpen] = useState(false)
   const [emailOpen, setEmailOpen] = useState(false)
   const [emailLead, setEmailLead] = useState(null)
@@ -76,6 +78,47 @@ export default function Leads() {
     if (form.company && settings?.openaiKey && !form.notes) {
       researchLead({ id: l.id, name: form.name, company: form.company, category: form.category, role: form.role }, [...leads, l])
     }
+  }
+
+  function openEditLead(lead) {
+    setEditLead(lead)
+    setForm({
+      name: lead.name || '',
+      email: lead.email || '',
+      company: lead.company || '',
+      phone: lead.phone || '',
+      role: lead.role || 'GENERAL',
+      category: lead.category || 'General',
+      tags: (lead.tags || []).join(', '),
+      notes: lead.notes || '',
+      pipelineStage: lead.pipelineStage || 'COLD'
+    })
+    setEditOpen(true)
+  }
+
+  function updateLead() {
+    if (!form.name || !form.email) { toast('Name and email required', 'error'); return }
+    if (!isValidEmail(form.email)) { toast('Invalid email', 'error'); return }
+    
+    // Check if email already exists (excluding current lead)
+    const existingLead = leads.find(l => l.email.toLowerCase() === form.email.toLowerCase() && l.id !== editLead.id)
+    if (existingLead) { toast('Email already exists', 'error'); return }
+
+    const updatedLead = {
+      ...editLead,
+      ...form,
+      email: form.email.toLowerCase(),
+      tags: form.tags.split(',').map(t=>t.trim()).filter(Boolean),
+      updatedAt: new Date().toISOString()
+    }
+
+    const newLeads = leads.map(l => l.id === editLead.id ? updatedLead : l)
+    save(newLeads)
+    logActivity(`Updated lead: ${form.name} <${form.email}>`)
+    toast(`${form.name} updated`, 'success')
+    setEditOpen(false)
+    setEditLead(null)
+    setForm({ name:'', email:'', company:'', phone:'', role:'GENERAL', category:'General', tags:'', notes:'', pipelineStage:'COLD' })
   }
 
   function deleteLead(id) {
@@ -332,6 +375,9 @@ export default function Leads() {
                       <button className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors" title="Send Email" onClick={() => { setEmailLead(l); setEmailBody(''); setEmailSubject(''); setEmailOpen(true) }}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
                       </button>
+                      <button className="p-1.5 rounded-lg hover:bg-green-50 text-green-500 transition-colors" title="Edit Lead" onClick={() => openEditLead(l)}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      </button>
                       <button
                         className="p-1.5 rounded-lg hover:bg-purple-50 text-purple-400 transition-colors disabled:opacity-40"
                         title={l.notes ? `Notes: ${l.notes.slice(0,80)}...` : 'AI Research — auto-generate personalization note'}
@@ -389,6 +435,43 @@ export default function Leads() {
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="secondary" onClick={() => setAddOpen(false)}>Cancel</Btn>
             <Btn variant="primary" onClick={addLead}><Plus size={14} /> Add Lead</Btn>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Lead Modal */}
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title={`Edit Lead — ${editLead?.name}`}>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Full Name *" value={form.name} onChange={e => setForm({...form, name:e.target.value})} placeholder="John Doe" />
+            <Input label="Email *" type="email" value={form.email} onChange={e => setForm({...form, email:e.target.value})} placeholder="john@company.com" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Company" value={form.company} onChange={e => setForm({...form, company:e.target.value})} placeholder="Acme Corp" />
+            <Input label="Phone" value={form.phone} onChange={e => setForm({...form, phone:e.target.value})} placeholder="+91 98765 43210" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Select label="Role" value={form.role} onChange={e => setForm({...form, role:e.target.value})}>
+              {['GENERAL','FOUNDER','SALES','HR','CTO','CFO'].map(r => <option key={r}>{r}</option>)}
+            </Select>
+            <Select label="Pipeline Stage" value={form.pipelineStage} onChange={e => setForm({...form, pipelineStage:e.target.value})}>
+              {PIPELINE_STAGES.slice(0,6).map(s => <option key={s}>{s}</option>)}
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Category" value={form.category} onChange={e => setForm({...form, category:e.target.value})} placeholder="SaaS, E-commerce..." />
+            <Input label="Tags (comma separated)" value={form.tags} onChange={e => setForm({...form, tags:e.target.value})} placeholder="VIP, Hot..." />
+          </div>
+          <Textarea label="Notes" value={form.notes} onChange={e => setForm({...form, notes:e.target.value})} placeholder="Any notes..." />
+          <div className="flex justify-end gap-2 pt-2">
+            <Btn variant="secondary" onClick={() => setEditOpen(false)}>Cancel</Btn>
+            <Btn variant="primary" onClick={updateLead}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+              Update Lead
+            </Btn>
           </div>
         </div>
       </Modal>
