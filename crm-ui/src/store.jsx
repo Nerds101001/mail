@@ -74,6 +74,31 @@ export function CRMProvider({ children }) {
     } catch(e) { console.warn('❌ Database sync failed:', e) }
   }, []) // no deps — reads from refs, always current
 
+  // Save with explicit new leads array — bypasses all state/ref timing issues.
+  // Use this whenever you call setLeads() and need the save to reflect the NEW data immediately.
+  const saveLeads = useCallback(async (newLeads) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    // Update ref and localStorage right now, before the useEffect fires
+    leadsRef.current = newLeads
+    localStorage.setItem('crm_leads', JSON.stringify(newLeads))
+    try {
+      const token = localStorage.getItem('crm_token') || ''
+      await fetch('/api/crm?type=save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          leads:    newLeads,
+          clients:  clientsRef.current,
+          deals:    dealsRef.current,
+          profiles: profilesRef.current,
+          settings: settingsRef.current,
+          activity: activityRef.current.slice(-200),
+        })
+      })
+      console.log('✅ Leads saved to database')
+    } catch(e) { console.warn('❌ Database sync failed:', e) }
+  }, []) // no deps — newLeads passed explicitly, rest read from refs
+
   const logActivity = useCallback((msg) => {
     setActivity(prev => [...prev, { time: Date.now(), msg }].slice(-200))
   }, [])
@@ -117,7 +142,7 @@ export function CRMProvider({ children }) {
     <CRMContext.Provider value={{
       leads, setLeads, clients, setClients, deals, setDeals,
       profiles, setProfiles, settings, setSettings, activity, setActivity,
-      gmailStatus, setGmailStatus, logActivity, pushToRedis, saveNow, loadFromRedis, checkGmailStatus
+      gmailStatus, setGmailStatus, logActivity, pushToRedis, saveNow, saveLeads, loadFromRedis, checkGmailStatus
     }}>
       {children}
     </CRMContext.Provider>

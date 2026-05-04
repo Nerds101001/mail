@@ -4,7 +4,7 @@ import { fmtDate } from '../utils'
 import { UserX, Download } from 'lucide-react'
 
 export default function Unsubscribes() {
-  const { leads, setLeads, saveNow } = useCRM()
+  const { leads, setLeads, saveLeads } = useCRM()
 
   const unsubscribed = leads.filter(l =>
     l.status === 'UNSUBSCRIBED' || l.pipelineStage === 'UNSUBSCRIBED'
@@ -12,9 +12,11 @@ export default function Unsubscribes() {
 
   async function resubscribe(id) {
     if (!confirm('Re-subscribe this contact? They will be able to receive emails again.')) return
+    // Build updated array first, then pass it directly to saveLeads —
+    // this avoids the stale-state/ref timing bug (setLeads is async).
     const updated = leads.map(l => l.id === id ? { ...l, status: 'VALID', pipelineStage: 'COLD' } : l)
     setLeads(updated)
-    await saveNow()
+    await saveLeads(updated)
     toast('Contact re-subscribed ✓', 'success')
   }
 
