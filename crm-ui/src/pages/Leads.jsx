@@ -10,14 +10,16 @@ export default function Leads() {
   const [stageF, setStageF]   = useState('')
   const [statusF, setStatusF] = useState('')
   const [priF, setPriF]       = useState('')
+  const [groupF, setGroupF]   = useState('') // Group filter
   const [selected, setSelected] = useState(new Set())
   const [addOpen, setAddOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [editLead, setEditLead] = useState(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [groupName, setGroupName] = useState('') // For CSV import grouping
   const [emailOpen, setEmailOpen] = useState(false)
   const [emailLead, setEmailLead] = useState(null)
-  const [form, setForm] = useState({ name:'', email:'', company:'', phone:'', role:'GENERAL', category:'General', tags:'', notes:'', pipelineStage:'COLD' })
+  const [form, setForm] = useState({ name:'', email:'', company:'', phone:'', role:'GENERAL', category:'General', tags:'', notes:'', pipelineStage:'COLD', group:'' })
   const [csvText, setCsvText] = useState('')
   const [emailBody, setEmailBody] = useState('')
   const [emailSubject, setEmailSubject] = useState('')
@@ -32,12 +34,16 @@ export default function Leads() {
     if (leads.length > 0) fetchScores(leads)
   }, []) // eslint-disable-line
 
+  // Get unique groups for filter
+  const uniqueGroups = [...new Set(leads.map(l => l.group).filter(Boolean))].sort()
+
   const filtered = leads.filter(l => {
     const s = search.toLowerCase()
     return (!s || [l.name||'',l.email||'',l.company||''].join(' ').toLowerCase().includes(s))
       && (!stageF  || l.pipelineStage === stageF)
       && (!statusF || l.status === statusF)
       && (!priF    || l.priority === priF)
+      && (!groupF  || l.group === groupF)
   })
 
   function save(newLeads) { 
@@ -72,7 +78,7 @@ export default function Leads() {
     logActivity(`Added lead: ${form.name} <${form.email}>`)
     toast(`${form.name} added${status === 'INVALID' ? ' (invalid email flagged)' : ''}`, status === 'INVALID' ? 'warn' : 'success')
     setAddOpen(false)
-    setForm({ name:'', email:'', company:'', phone:'', role:'GENERAL', category:'General', tags:'', notes:'', pipelineStage:'COLD' })
+    setForm({ name:'', email:'', company:'', phone:'', role:'GENERAL', category:'General', tags:'', notes:'', pipelineStage:'COLD', group:'' })
 
     // Auto-suggest AI research note if company is provided and API key exists
     if (form.company && settings?.openaiKey && !form.notes) {
@@ -91,7 +97,8 @@ export default function Leads() {
       category: lead.category || 'General',
       tags: (lead.tags || []).join(', '),
       notes: lead.notes || '',
-      pipelineStage: lead.pipelineStage || 'COLD'
+      pipelineStage: lead.pipelineStage || 'COLD',
+      group: lead.group || ''
     })
     setEditOpen(true)
   }
@@ -118,7 +125,7 @@ export default function Leads() {
     toast(`${form.name} updated`, 'success')
     setEditOpen(false)
     setEditLead(null)
-    setForm({ name:'', email:'', company:'', phone:'', role:'GENERAL', category:'General', tags:'', notes:'', pipelineStage:'COLD' })
+    setForm({ name:'', email:'', company:'', phone:'', role:'GENERAL', category:'General', tags:'', notes:'', pipelineStage:'COLD', group:'' })
   }
 
   function deleteLead(id) {
@@ -162,7 +169,8 @@ export default function Leads() {
       const category = cati >= 0 ? (cols[cati] || 'General') : 'General'
       const tags     = tagi >= 0 ? cols[tagi].split(';').map(t=>t.trim()).filter(Boolean) : []
       const notes    = ni2 >= 0  ? (cols[ni2]  || '') : ''
-      fresh.push(enrichLead({ id:'lead_'+(Date.now()+i), name, email:email.toLowerCase(), company, phone, role:'', category, tags, notes, status:'VALID', pipelineStage:'COLD', stage:'', opens:0, clicks:0, score:40, lastSent:'', domain:'', priority:'LOW', createdAt:new Date().toISOString() }))
+      const group    = groupName || 'Default' // Assign to specified group or 'Default'
+      fresh.push(enrichLead({ id:'lead_'+(Date.now()+i), name, email:email.toLowerCase(), company, phone, role:'', category, tags, notes, group, status:'VALID', pipelineStage:'COLD', stage:'', opens:0, clicks:0, score:40, lastSent:'', domain:'', priority:'LOW', createdAt:new Date().toISOString() }))
     }
 
     if (!fresh.length) { toast('No new valid leads found', 'warn'); return }
@@ -179,15 +187,15 @@ export default function Leads() {
       })
       const newLeads = [...leads, ...fresh]
       save(newLeads)
-      logActivity(`CSV import: ${fresh.length} leads (${invalid} invalid)`)
-      toast(`Imported ${fresh.length} leads — ${invalid} flagged invalid`, invalid > 0 ? 'warn' : 'success')
+      logActivity(`CSV import: ${fresh.length} leads (${invalid} invalid) added to group "${groupName || 'Default'}"`)
+      toast(`Imported ${fresh.length} leads to group "${groupName || 'Default'}" — ${invalid} flagged invalid`, invalid > 0 ? 'warn' : 'success')
     } catch {
       // If verify fails, still import without verification
       save([...leads, ...fresh])
-      toast(`Imported ${fresh.length} leads (verification skipped)`, 'success')
+      toast(`Imported ${fresh.length} leads to group "${groupName || 'Default'}" (verification skipped)`, 'success')
     }
 
-    setImportOpen(false); setCsvText('')
+    setImportOpen(false); setCsvText(''); setGroupName('')
   }
 
   async function researchLead(lead, currentLeads) {
@@ -306,6 +314,10 @@ export default function Leads() {
           <option value="">All Priority</option>
           <option>HIGH</option><option>MEDIUM</option><option>LOW</option>
         </select>
+        <select className="input w-36" value={groupF} onChange={e => setGroupF(e.target.value)}>
+          <option value="">All Groups</option>
+          {uniqueGroups.map(g => <option key={g} value={g}>{g}</option>)}
+        </select>
         {selected.size > 0 && (
           <Btn variant="danger" size="sm" onClick={bulkDelete}><Trash2 size={13} /> Delete {selected.size}</Btn>
         )}
@@ -320,6 +332,7 @@ export default function Leads() {
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Name</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Email</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Company</th>
+              <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Group</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Stage</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Status</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Score</th>
@@ -330,7 +343,7 @@ export default function Leads() {
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={10}><Empty icon={Users} title="No leads found" sub="Try adjusting your filters" /></td></tr>
+              <tr><td colSpan={11}><Empty icon={Users} title="No leads found" sub="Try adjusting your filters" /></td></tr>
             ) : filtered.map(l => {
               const sc = STAGE_COLORS[l.pipelineStage] || STAGE_COLORS.COLD
               const stc = STATUS_COLORS[l.status] || 'bg-slate-100 text-slate-600'
@@ -349,6 +362,9 @@ export default function Leads() {
                   </td>
                   <td className="px-4 py-3 text-slate-500 font-mono text-xs">{l.email}</td>
                   <td className="px-4 py-3 text-slate-600">{l.company || '—'}</td>
+                  <td className="px-4 py-3 text-slate-600">
+                    <span className="badge text-[11px] bg-blue-100 text-blue-700">{l.group || 'Default'}</span>
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`badge text-[11px] ${sc.bg} ${sc.text}`}>{l.pipelineStage || 'COLD'}</span>
                   </td>
@@ -431,6 +447,7 @@ export default function Leads() {
             <Input label="Category" value={form.category} onChange={e => setForm({...form, category:e.target.value})} placeholder="SaaS, E-commerce..." />
             <Input label="Tags (comma separated)" value={form.tags} onChange={e => setForm({...form, tags:e.target.value})} placeholder="VIP, Hot..." />
           </div>
+          <Input label="Group" value={form.group} onChange={e => setForm({...form, group:e.target.value})} placeholder="Rubber Industries, Tech Startups..." />
           <Textarea label="Notes" value={form.notes} onChange={e => setForm({...form, notes:e.target.value})} placeholder="Any notes..." />
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="secondary" onClick={() => setAddOpen(false)}>Cancel</Btn>
@@ -462,6 +479,7 @@ export default function Leads() {
             <Input label="Category" value={form.category} onChange={e => setForm({...form, category:e.target.value})} placeholder="SaaS, E-commerce..." />
             <Input label="Tags (comma separated)" value={form.tags} onChange={e => setForm({...form, tags:e.target.value})} placeholder="VIP, Hot..." />
           </div>
+          <Input label="Group" value={form.group} onChange={e => setForm({...form, group:e.target.value})} placeholder="Rubber Industries, Tech Startups..." />
           <Textarea label="Notes" value={form.notes} onChange={e => setForm({...form, notes:e.target.value})} placeholder="Any notes..." />
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="secondary" onClick={() => setEditOpen(false)}>Cancel</Btn>
@@ -497,6 +515,7 @@ export default function Leads() {
             />
           </div>
           <p className="text-xs text-slate-400 text-center">— or paste CSV below —</p>
+          <Input label="Group Name" value={groupName} onChange={e => setGroupName(e.target.value)} placeholder="Rubber Industries, Tech Startups..." />
           <Textarea label="" value={csvText} onChange={e => setCsvText(e.target.value)} placeholder={"Name,Email,Company,Phone,Category\nJohn Doe,john@acme.com,Acme Corp,,SaaS"} style={{ minHeight: 120 }} />
           <div className="flex justify-end gap-2">
             <Btn variant="secondary" onClick={() => setImportOpen(false)}>Cancel</Btn>

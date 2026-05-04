@@ -75,6 +75,7 @@ export default function Campaign() {
     if (cfg.target === 'hot')      return leads.filter(l => l.pipelineStage === 'HOT' || (l.opens >= 2 || l.clicks >= 1))
     if (cfg.target === 'category') return leads.filter(l => (l.category||'').toLowerCase() === fv)
     if (cfg.target === 'tag')      return leads.filter(l => (l.tags||[]).some(t => t.toLowerCase() === fv))
+    if (cfg.target === 'group')    return leads.filter(l => (l.group||'').toLowerCase() === fv)
     return []
   }
 
@@ -418,8 +419,12 @@ export default function Campaign() {
                 <option value="all">All Contacts</option>
                 <option value="hot">HOT Leads</option>
                 <option value="followup">Follow-Up</option>
+                <option value="group">Specific Group</option>
               </select>
             </div>
+            {cfg.target === 'group' && (
+              <div><label className="label">Group Name</label><input className="input" value={cfg.filterVal} onChange={e=>setCfg({...cfg,filterVal:e.target.value})} placeholder="Enter group name..." /></div>
+            )}
             <div><label className="label">Sender Display Name</label><input className="input" value={cfg.sender} onChange={e=>setCfg({...cfg,sender:e.target.value})} /></div>
             <div><label className="label">Reply-To Email</label><input className="input" value={cfg.replyTo} onChange={e=>setCfg({...cfg,replyTo:e.target.value})} /></div>
 
