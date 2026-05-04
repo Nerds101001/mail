@@ -9,6 +9,9 @@ export default function Campaign() {
   const [mode, setMode]       = useState('ai')
   const [cfg, setCfg]         = useState({ batch:30, rate:2, target:'valid', filterVal:'', sender:'Pawan Kumar - Enginerds Tech Solution', replyTo:'contact@enginerds.in' })
 
+  // Get unique groups for dropdown
+  const uniqueGroups = [...new Set(leads.map(l => l.group).filter(Boolean))].sort()
+
   // Campaign Brief — the AI brain context
   const [brief, setBrief] = useState({
     product:      '',
@@ -423,7 +426,15 @@ export default function Campaign() {
               </select>
             </div>
             {cfg.target === 'group' && (
-              <div><label className="label">Group Name</label><input className="input" value={cfg.filterVal} onChange={e=>setCfg({...cfg,filterVal:e.target.value})} placeholder="Enter group name..." /></div>
+              <div>
+                <label className="label">Group Name</label>
+                <select className="input" value={cfg.filterVal} onChange={e=>setCfg({...cfg,filterVal:e.target.value})}>
+                  <option value="">Select a group...</option>
+                  {uniqueGroups.map(group => (
+                    <option key={group} value={group}>{group}</option>
+                  ))}
+                </select>
+              </div>
             )}
             <div><label className="label">Sender Display Name</label><input className="input" value={cfg.sender} onChange={e=>setCfg({...cfg,sender:e.target.value})} /></div>
             <div><label className="label">Reply-To Email</label><input className="input" value={cfg.replyTo} onChange={e=>setCfg({...cfg,replyTo:e.target.value})} /></div>
