@@ -164,11 +164,27 @@ export default function Leads() {
     if (ei < 0) { toast('CSV must have Email column', 'error'); return }
 
     const fresh = []
+    let skippedStats = { invalidEmail: 0, duplicateEmail: 0, emptyEmail: 0, processed: 0 }
+    
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
       const email = cols[ei] || ''
-      if (!email || !isValidEmail(email)) continue
-      if (leads.find(l => l.email.toLowerCase() === email.toLowerCase())) continue
+      
+      // Track why leads are skipped
+      if (!email) {
+        skippedStats.emptyEmail++
+        continue
+      }
+      if (!isValidEmail(email)) {
+        skippedStats.invalidEmail++
+        continue
+      }
+      if (leads.find(l => l.email.toLowerCase() === email.toLowerCase())) {
+        skippedStats.duplicateEmail++
+        continue
+      }
+      
+      skippedStats.processed++
       const ci = headers.indexOf('company'), phi = headers.indexOf('phone')
       const cati = headers.indexOf('category'), tagi = headers.indexOf('tags'), ni2 = headers.indexOf('notes')
       const name     = ni >= 0   ? (cols[ni]   || '') : '' // Don't extract name from email, keep blank if not provided
@@ -181,9 +197,18 @@ export default function Leads() {
       fresh.push(enrichLead({ id:'lead_'+(Date.now()+i), name, email:email.toLowerCase(), company, phone, role:'', category, tags, notes, group, status:'VALID', pipelineStage:'COLD', stage:'', opens:0, clicks:0, score:40, lastSent:'', domain:'', priority:'LOW', createdAt:new Date().toISOString() }))
     }
 
-    if (!fresh.length) { toast('No new valid leads found', 'warn'); return }
+    if (!fresh.length) { 
+      const totalSkipped = skippedStats.invalidEmail + skippedStats.duplicateEmail + skippedStats.emptyEmail
+      toast(`No new leads imported. Skipped: ${totalSkipped} (${skippedStats.duplicateEmail} duplicates, ${skippedStats.invalidEmail} invalid emails, ${skippedStats.emptyEmail} empty emails)`, 'warn')
+      return 
+    }
 
-    toast(`Verifying ${fresh.length} emails...`, 'info')
+    const totalRows = lines.length - 1 // Exclude header
+    const totalSkipped = skippedStats.invalidEmail + skippedStats.duplicateEmail + skippedStats.emptyEmail
+    console.log(`📊 Import Summary: ${totalRows} rows processed, ${fresh.length} imported, ${totalSkipped} skipped`)
+    console.log(`📊 Skipped breakdown: ${skippedStats.duplicateEmail} duplicates, ${skippedStats.invalidEmail} invalid emails, ${skippedStats.emptyEmail} empty emails`)
+
+    toast(`Processing ${fresh.length} leads for verification...`, 'info')
 
     // Auto bulk-verify all imported emails
     try {
@@ -195,12 +220,16 @@ export default function Leads() {
       })
       const newLeads = [...leads, ...fresh]
       save(newLeads)
-      logActivity(`CSV import: ${fresh.length} leads (${invalid} invalid) added to group "${groupName || 'Default'}"`)
-      toast(`Imported ${fresh.length} leads to group "${groupName || 'Default'}" — ${invalid} flagged invalid`, invalid > 0 ? 'warn' : 'success')
+      const totalRows = lines.length - 1
+      const totalSkipped = skippedStats.invalidEmail + skippedStats.duplicateEmail + skippedStats.emptyEmail
+      logActivity(`CSV import: ${fresh.length} leads (${invalid} invalid) added to group "${groupName || 'Default'}" - ${totalSkipped} skipped (${skippedStats.duplicateEmail} duplicates, ${skippedStats.invalidEmail} invalid, ${skippedStats.emptyEmail} empty)`)
+      toast(`✅ Imported ${fresh.length}/${totalRows} leads to "${groupName || 'Default'}" | Skipped: ${totalSkipped} (${skippedStats.duplicateEmail} duplicates, ${skippedStats.invalidEmail} invalid emails, ${skippedStats.emptyEmail} empty) | ${invalid} flagged invalid`, fresh.length > 0 ? 'success' : 'warn')
     } catch {
       // If verify fails, still import without verification
       save([...leads, ...fresh])
-      toast(`Imported ${fresh.length} leads to group "${groupName || 'Default'}" (verification skipped)`, 'success')
+      const totalRows = lines.length - 1
+      const totalSkipped = skippedStats.invalidEmail + skippedStats.duplicateEmail + skippedStats.emptyEmail
+      toast(`✅ Imported ${fresh.length}/${totalRows} leads to "${groupName || 'Default'}" | Skipped: ${totalSkipped} (${skippedStats.duplicateEmail} duplicates, ${skippedStats.invalidEmail} invalid emails, ${skippedStats.emptyEmail} empty) (verification skipped)`, 'success')
     }
 
     setImportOpen(false); setCsvText(''); setGroupName('')
