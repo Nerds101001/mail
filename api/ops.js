@@ -11,7 +11,7 @@
 // GET /api/ops?type=best-variant&campaignId= → best performing variant index
 
 const dns        = require("dns").promises;
-const { get, set, getTrackingStats, getTrackingEvents, ensureTable } = require("./_redis");
+const { get, set, del, getTrackingStats, getTrackingEvents, ensureTable } = require("./_redis");
 const { neon } = require("@neondatabase/serverless");
 const nodemailer = require("nodemailer");
 
@@ -531,6 +531,20 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       const best = rows[0];
       const openRate = best.sends > 0 ? Math.round((parseInt(best.openers) / parseInt(best.sends)) * 100) : 0;
       return res.json({ variantIndex: parseInt(best.variant_index), sends: parseInt(best.sends), openers: parseInt(best.openers), openRate });
+    } catch(e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  // POST /api/ops?type=resubscribe  { email }
+  // Clears the unsub:{email} DB flag so the send APIs stop blocking this address
+  if (type === "resubscribe" && req.method === "POST") {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ error: "Missing email" });
+      await del(`unsub:${email}`);
+      console.log(`Re-subscribed: unsub:${email} cleared`);
+      return res.json({ ok: true, email });
     } catch(e) {
       return res.status(500).json({ error: e.message });
     }

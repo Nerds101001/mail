@@ -10,14 +10,23 @@ export default function Unsubscribes() {
     l.status === 'UNSUBSCRIBED' || l.pipelineStage === 'UNSUBSCRIBED'
   )
 
-  async function resubscribe(id) {
+  async function resubscribe(lead) {
     if (!confirm('Re-subscribe this contact? They will be able to receive emails again.')) return
-    // Build updated array first, then pass it directly to saveLeads —
-    // this avoids the stale-state/ref timing bug (setLeads is async).
-    const updated = leads.map(l => l.id === id ? { ...l, status: 'VALID', pipelineStage: 'COLD' } : l)
-    setLeads(updated)
-    await saveLeads(updated)
-    toast('Contact re-subscribed ✓', 'success')
+    try {
+      // 1. Clear the unsub:{email} flag in the DB — this is what the send APIs actually check
+      await fetch('/api/ops?type=resubscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: lead.email }),
+      })
+      // 2. Update lead status in local state + persist to DB
+      const updated = leads.map(l => l.id === lead.id ? { ...l, status: 'VALID', pipelineStage: 'COLD' } : l)
+      setLeads(updated)
+      await saveLeads(updated)
+      toast(`${lead.name} re-subscribed ✓`, 'success')
+    } catch(e) {
+      toast('Failed to re-subscribe: ' + e.message, 'error')
+    }
   }
 
   function exportList() {
@@ -60,7 +69,7 @@ export default function Unsubscribes() {
                   <td className="px-4 py-3 text-slate-400 text-xs">{fmtDate(l.lastSent)}</td>
                   <td className="px-4 py-3 text-slate-400 text-xs max-w-[200px] truncate">{l.notes || '—'}</td>
                   <td className="px-4 py-3">
-                    <Btn variant="ghost" size="sm" onClick={() => resubscribe(l.id)}>↩ Re-subscribe</Btn>
+                    <Btn variant="ghost" size="sm" onClick={() => resubscribe(l)}>↩ Re-subscribe</Btn>
                   </td>
                 </tr>
               ))}
