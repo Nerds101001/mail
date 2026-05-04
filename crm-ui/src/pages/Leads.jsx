@@ -36,6 +36,14 @@ export default function Leads() {
 
   // Get unique groups for filter
   const uniqueGroups = [...new Set(leads.map(l => l.group).filter(Boolean))].sort()
+  
+  // Calculate group statistics
+  const groupStats = uniqueGroups.map(group => ({
+    name: group,
+    count: leads.filter(l => l.group === group).length,
+    validCount: leads.filter(l => l.group === group && l.status === 'VALID').length
+  }))
+  const defaultGroupCount = leads.filter(l => !l.group || l.group === 'Default').length
 
   const filtered = leads.filter(l => {
     const s = search.toLowerCase()
@@ -295,6 +303,29 @@ export default function Leads() {
         <Btn variant="secondary" size="sm" onClick={verifyAllEmails} disabled={verifying}>{verifying ? 'Verifying...' : <><CheckCircle size={14}/> Re-Verify</>}</Btn>
         <Btn variant="primary" onClick={() => setAddOpen(true)}><Plus size={14} /> Add Lead</Btn>
       </PageHeader>
+
+      {/* Group Statistics */}
+      {(groupStats.length > 0 || defaultGroupCount > 0) && (
+        <div className="mb-6">
+          <h3 className="text-sm font-bold text-slate-900 mb-3">📊 Group Statistics</h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+            {defaultGroupCount > 0 && (
+              <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                <div className="text-xs text-slate-500 mb-1">Default</div>
+                <div className="text-lg font-bold text-slate-900">{defaultGroupCount}</div>
+                <div className="text-xs text-slate-500">{leads.filter(l => (!l.group || l.group === 'Default') && l.status === 'VALID').length} valid</div>
+              </div>
+            )}
+            {groupStats.map(stat => (
+              <div key={stat.name} className="bg-blue-50 rounded-lg p-3 border border-blue-200 cursor-pointer hover:bg-blue-100 transition-colors" onClick={() => setGroupF(stat.name)}>
+                <div className="text-xs text-blue-600 mb-1 font-medium">{stat.name}</div>
+                <div className="text-lg font-bold text-blue-900">{stat.count}</div>
+                <div className="text-xs text-blue-600">{stat.validCount} valid</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-3 mb-4 flex-wrap">
