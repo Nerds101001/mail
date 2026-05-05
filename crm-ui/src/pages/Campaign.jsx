@@ -148,16 +148,12 @@ export default function Campaign() {
     const linkAttachments = attachments.filter(a => a.url && a.label)
     let text = ''
     
-    // Add link attachments (old behavior)
+    // Add link attachments (old behavior) - only if they exist
     if (linkAttachments.length > 0) {
       text += '\n\n' + linkAttachments.map(a => `📎 ${a.label}: ${a.url}`).join('\n')
     }
     
-    // Add selected file attachments info (new behavior)
-    const selectedFiles = fileAttachments.filter(a => selectedAttachments.includes(a.id))
-    if (selectedFiles.length > 0) {
-      text += '\n\n' + selectedFiles.map(a => `📎 ${a.label} (attached file)`).join('\n')
-    }
+    // NO text for file attachments - they will be actual email attachments
     
     return text
   }

@@ -66,7 +66,7 @@ async function getValidAccessToken(accountEmail = null) {
   return accessToken;
 }
 
-// ─── RFC 2822 builder with proper MIME multipart structure and file attachments ─────────────────
+// ─── RFC 2822 builder with inbox-friendly headers and file attachments ─────────────────
 function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, attachments = [] }) {
   const msgId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@enginerds.in>`;
   const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -101,6 +101,7 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, a
   
   const wrappedHtml = htmlLines.join('\r\n');
   
+  // Inbox-friendly headers to avoid Promotional tab
   const lines = [
     `From: ${from}`,
     `Reply-To: ${replyTo}`,
@@ -110,6 +111,10 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, a
     `Message-ID: ${msgId}`,
     `MIME-Version: 1.0`,
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    `X-Priority: 3`,
+    `X-MSMail-Priority: Normal`,
+    `Importance: Normal`,
+    `X-Mailer: Enginerds CRM`,
     `List-Unsubscribe: <${unsubscribeUrl}>`,
     `List-Unsubscribe-Post: List-Unsubscribe=One-Click`,
     ``,
@@ -139,6 +144,7 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, a
       `Content-Type: ${attachment.contentType}; name="${attachment.originalName}"`,
       `Content-Transfer-Encoding: base64`,
       `Content-Disposition: attachment; filename="${attachment.originalName}"`,
+      `Content-ID: <${attachment.id}>`,
       ``,
       attachment.base64Data
     );
@@ -176,31 +182,7 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, atta
     })
     .join('')
 
-  // Add trackable attachment download links
-  let attachmentLinks = '';
-  if (attachments.length > 0) {
-    attachmentLinks = `
-      <div style="margin:24px 0;padding:16px;background:#f8f9fa;border-radius:8px;border:1px solid #e9ecef;">
-        <h3 style="margin:0 0 12px 0;font-size:14px;color:#495057;">📎 Attachments</h3>
-        ${attachments.map(att => {
-          const downloadParams = campaignId
-            ? `id=${leadId}&cid=${campaignId}&attachment=${att.id}`
-            : `id=${leadId}&attachment=${att.id}`;
-          const downloadUrl = `${appUrl}/api/track?type=attachment&${downloadParams}`;
-          return `
-            <div style="margin:8px 0;padding:8px;background:white;border-radius:4px;border:1px solid #dee2e6;">
-              <a href="${downloadUrl}" style="color:#007bff;text-decoration:none;font-weight:500;">
-                📄 ${att.label || att.originalName}
-              </a>
-              <div style="font-size:11px;color:#6c757d;margin-top:2px;">
-                ${att.originalName} • ${(att.size / 1024).toFixed(1)}KB
-              </div>
-            </div>
-          `;
-        }).join('')}
-      </div>
-    `;
-  }
+  // NO attachment links section - files will be actual attachments only
 
   const trackingPixel = `<img src="${trackingPixelUrl}" width="1" height="1" alt="" style="display:none;border:0;">`;
   const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`;
@@ -211,14 +193,14 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, atta
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="x-apple-disable-message-reformatting">
+<title>${plainText.split('\n')[0] || 'Message'}</title>
 </head>
-<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#000000;background:#ffffff;">
-  <div style="padding:12px 16px;">
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,sans-serif;font-size:16px;line-height:1.5;color:#333333;background:#ffffff;">
+  <div style="max-width:600px;margin:0 auto;padding:20px;">
     ${paragraphs}
-    ${attachmentLinks}
-    <p style="margin:24px 0 0 0;font-size:11px;color:#aaaaaa;">
-      <a href="${unsubUrl}" style="color:#aaaaaa;text-decoration:underline;">Unsubscribe</a>
-    </p>
+    <div style="margin-top:40px;padding-top:20px;border-top:1px solid #eeeeee;font-size:12px;color:#888888;text-align:center;">
+      <a href="${unsubUrl}" style="color:#888888;text-decoration:underline;">Unsubscribe</a>
+    </div>
   </div>
   ${trackingPixel}
 </body>
@@ -276,6 +258,10 @@ module.exports = async (req, res) => {
         subject,
         html: htmlBody,
         headers: {
+          'X-Priority': '3',
+          'X-MSMail-Priority': 'Normal',
+          'Importance': 'Normal',
+          'X-Mailer': 'Enginerds CRM',
           'List-Unsubscribe': `<${appUrl}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}>`,
           'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
         },
