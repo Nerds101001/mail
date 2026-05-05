@@ -41,14 +41,23 @@ module.exports = async (req, res) => {
         const rows = await sql`
           SELECT lead_id,
             COUNT(*) FILTER (WHERE event_type = 'open')  AS opens,
-            COUNT(*) FILTER (WHERE event_type = 'click') AS clicks
+            COUNT(*) FILTER (WHERE event_type = 'click') AS clicks,
+            COUNT(*) FILTER (WHERE event_type = 'attachment_click') AS attachment_clicks
           FROM tracking_events
           WHERE lead_id = ANY(${leadIds}) AND campaign_id = ${campaignId}
           GROUP BY lead_id
         `;
         const stats = {};
-        rows.forEach(r => { stats[r.lead_id] = { opens: parseInt(r.opens)||0, clicks: parseInt(r.clicks)||0 }; });
-        leadIds.forEach(id => { if (!stats[id]) stats[id] = { opens: 0, clicks: 0 }; });
+        rows.forEach(r => { 
+          stats[r.lead_id] = { 
+            opens: parseInt(r.opens)||0, 
+            clicks: parseInt(r.clicks)||0,
+            attachment_clicks: parseInt(r.attachment_clicks)||0
+          }; 
+        });
+        leadIds.forEach(id => { 
+          if (!stats[id]) stats[id] = { opens: 0, clicks: 0, attachment_clicks: 0 }; 
+        });
         return res.json(stats);
       }
 
@@ -100,7 +109,8 @@ module.exports = async (req, res) => {
                      cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
                      COALESCE(c.name,'Unknown Campaign') as campaign_name,
                      COUNT(te.id) FILTER (WHERE te.event_type = 'open')  AS opens,
-                     COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks
+                     COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks,
+                     COUNT(te.id) FILTER (WHERE te.event_type = 'attachment_click') AS attachment_clicks
               FROM campaign_leads cl
               LEFT JOIN campaigns c ON c.id = cl.campaign_id
               LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
@@ -114,7 +124,8 @@ module.exports = async (req, res) => {
                      cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
                      COALESCE(c.name,'Unknown Campaign') as campaign_name,
                      COUNT(te.id) FILTER (WHERE te.event_type = 'open')  AS opens,
-                     COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks
+                     COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks,
+                     COUNT(te.id) FILTER (WHERE te.event_type = 'attachment_click') AS attachment_clicks
               FROM campaign_leads cl
               LEFT JOIN campaigns c ON c.id = cl.campaign_id
               LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
@@ -126,7 +137,12 @@ module.exports = async (req, res) => {
       ]);
 
       return res.json({
-        sends: sends.map(s => ({ ...s, opens: parseInt(s.opens)||0, clicks: parseInt(s.clicks)||0 })),
+        sends: sends.map(s => ({ 
+          ...s, 
+          opens: parseInt(s.opens)||0, 
+          clicks: parseInt(s.clicks)||0,
+          attachment_clicks: parseInt(s.attachment_clicks)||0
+        })),
         campaigns,
       });
     } catch(e) {

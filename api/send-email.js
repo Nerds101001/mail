@@ -151,7 +151,7 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, a
 }
 
 // ─── HTML body builder (improved deliverability) ─────────────────────────────────
-function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
+function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, attachments = []) {
   // Query-param tracking URLs — reliable across all Vercel rewrite configs.
   // Path-based URLs (/api/track/open/id/cid) lost the path after Vercel rewrite;
   // query params are passed through intact.
@@ -177,6 +177,32 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
     })
     .join('')
 
+  // Add trackable attachment download links
+  let attachmentLinks = '';
+  if (attachments.length > 0) {
+    attachmentLinks = `
+      <div style="margin:24px 0;padding:16px;background:#f8f9fa;border-radius:8px;border:1px solid #e9ecef;">
+        <h3 style="margin:0 0 12px 0;font-size:14px;color:#495057;">📎 Attachments</h3>
+        ${attachments.map(att => {
+          const downloadParams = campaignId
+            ? `id=${leadId}&cid=${campaignId}&attachment=${att.id}`
+            : `id=${leadId}&attachment=${att.id}`;
+          const downloadUrl = `${appUrl}/api/track-attachment?${downloadParams}`;
+          return `
+            <div style="margin:8px 0;padding:8px;background:white;border-radius:4px;border:1px solid #dee2e6;">
+              <a href="${downloadUrl}" style="color:#007bff;text-decoration:none;font-weight:500;">
+                📄 ${att.label || att.originalName}
+              </a>
+              <div style="font-size:11px;color:#6c757d;margin-top:2px;">
+                ${att.originalName} • ${(att.size / 1024).toFixed(1)}KB
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
   const trackingPixel = `<img src="${trackingPixelUrl}" width="1" height="1" alt="" style="display:none;border:0;">`;
   const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`;
 
@@ -190,6 +216,7 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
 <body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#000000;background:#ffffff;">
   <div style="padding:12px 16px;">
     ${paragraphs}
+    ${attachmentLinks}
     <p style="margin:24px 0 0 0;font-size:11px;color:#aaaaaa;">
       <a href="${unsubUrl}" style="color:#aaaaaa;text-decoration:underline;">Unsubscribe</a>
     </p>
@@ -234,7 +261,7 @@ module.exports = async (req, res) => {
     if (!gmailAccount) throw new Error("Gmail not connected — please reconnect in Settings");
     const from       = `${senderName || "Enginerds Tech"} <${gmailAccount}>`;
     const unsubUrl   = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}`;
-    const htmlBody   = buildHtmlBody(body, leadId, to, appUrl, campaignId);
+    const htmlBody   = buildHtmlBody(body, leadId, to, appUrl, campaignId, fileAttachments);
     const raw        = buildEmailRaw({ 
       from, 
       replyTo: replyTo || gmailAccount, 

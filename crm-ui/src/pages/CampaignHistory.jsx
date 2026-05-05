@@ -193,6 +193,13 @@ export default function CampaignHistory() {
                         </span>
                         <span className="text-slate-400 text-xs">clicks</span>
                       </div>
+                      <div className="flex items-center gap-1.5 text-purple-600">
+                        📎
+                        <span className="font-bold">
+                          {Object.values(trackingData).reduce((sum, t) => sum + (t.attachment_clicks || 0), 0)}
+                        </span>
+                        <span className="text-slate-400 text-xs">attachments</span>
+                      </div>
                     </>
                   )}
                   {/* Fallback to original stats if no tracking data */}
@@ -283,10 +290,11 @@ export default function CampaignHistory() {
                                 <span className={`badge text-[10px] ${statusColor[enhancedStatus.status] || 'bg-slate-100 text-slate-600'}`}>
                                   {enhancedStatus.display}
                                 </span>
-                                {leadTracking && (leadTracking.opens > 0 || leadTracking.clicks > 0) && (
+                                {leadTracking && (leadTracking.opens > 0 || leadTracking.clicks > 0 || leadTracking.attachment_clicks > 0) && (
                                   <div className="flex items-center gap-1 text-[10px] text-slate-400">
                                     {leadTracking.opens  > 0 && <span className="flex items-center gap-0.5"><Eye size={9}/>{leadTracking.opens}</span>}
                                     {leadTracking.clicks > 0 && <span className="flex items-center gap-0.5"><MousePointer size={9}/>{leadTracking.clicks}</span>}
+                                    {leadTracking.attachment_clicks > 0 && <span className="flex items-center gap-0.5">📎{leadTracking.attachment_clicks}</span>}
                                   </div>
                                 )}
                               </div>

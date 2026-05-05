@@ -29,6 +29,7 @@ export default function Campaign() {
   const [customBody, setCustomBody]     = useState('')
   const [attachments, setAttachments]   = useState([{ type:'link', label:'', url:'' }])
   const [fileAttachments, setFileAttachments] = useState([]) // Stored file attachments
+  const [selectedAttachments, setSelectedAttachments] = useState([]) // Selected attachments for this campaign
   const [attachmentLoading, setAttachmentLoading] = useState(false)
   const [running, setRunning]           = useState(false)
   const [progress, setProgress]         = useState(0)
@@ -152,9 +153,10 @@ export default function Campaign() {
       text += '\n\n' + linkAttachments.map(a => `📎 ${a.label}: ${a.url}`).join('\n')
     }
     
-    // Add file attachments info (new behavior)
-    if (fileAttachments.length > 0) {
-      text += '\n\n' + fileAttachments.map(a => `📎 ${a.label} (attached file)`).join('\n')
+    // Add selected file attachments info (new behavior)
+    const selectedFiles = fileAttachments.filter(a => selectedAttachments.includes(a.id))
+    if (selectedFiles.length > 0) {
+      text += '\n\n' + selectedFiles.map(a => `📎 ${a.label} (attached file)`).join('\n')
     }
     
     return text
@@ -253,7 +255,7 @@ export default function Campaign() {
         senderName: cfg.sender, 
         replyTo: cfg.replyTo, 
         campaignId,
-        attachments: fileAttachments.map(a => a.id) // Include file attachment IDs
+        attachments: selectedAttachments // Only send selected attachments
       }
       if (profile.type === 'smtp') payload.smtpConfig = profile
       if (profile.type === 'gmail') payload.gmailUser = profile.user
@@ -723,16 +725,30 @@ export default function Campaign() {
               {/* File List */}
               {fileAttachments.length > 0 ? (
                 <div className="space-y-2">
-                  <div className="text-xs font-medium text-slate-700 mb-2">Stored Files:</div>
+                  <div className="text-xs font-medium text-slate-700 mb-2">Available Files (Select for Campaign):</div>
                   {fileAttachments.map(att => (
                     <div key={att.id} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg">
-                      <div className="flex-1">
-                        <div className="font-medium text-slate-800 text-sm">{att.label}</div>
-                        <div className="text-slate-500 text-xs mt-1">
-                          📄 {att.originalName} • {(att.size / 1024).toFixed(1)}KB • {att.contentType}
-                        </div>
-                        <div className="text-slate-400 text-xs">
-                          Uploaded: {new Date(att.uploadedAt).toLocaleDateString()}
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedAttachments.includes(att.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedAttachments([...selectedAttachments, att.id])
+                            } else {
+                              setSelectedAttachments(selectedAttachments.filter(id => id !== att.id))
+                            }
+                          }}
+                          className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium text-slate-800 text-sm">{att.label}</div>
+                          <div className="text-slate-500 text-xs mt-1">
+                            📄 {att.originalName} • {(att.size / 1024).toFixed(1)}KB • {att.contentType}
+                          </div>
+                          <div className="text-slate-400 text-xs">
+                            Uploaded: {new Date(att.uploadedAt).toLocaleDateString()}
+                          </div>
                         </div>
                       </div>
                       <div className="flex gap-2 ml-4">
@@ -755,12 +771,41 @@ export default function Campaign() {
                       </div>
                     </div>
                   ))}
+                  
+                  {/* Selection Summary */}
+                  <div className="mt-3 p-2 bg-emerald-50 border border-emerald-200 rounded text-xs">
+                    <strong>Selected for Campaign:</strong> {selectedAttachments.length} file(s)
+                    {selectedAttachments.length > 0 && (
+                      <div className="mt-1">
+                        {fileAttachments
+                          .filter(att => selectedAttachments.includes(att.id))
+                          .map(att => att.label)
+                          .join(', ')}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Quick Selection Buttons */}
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={() => setSelectedAttachments(fileAttachments.map(a => a.id))}
+                      className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs rounded hover:bg-emerald-200"
+                    >
+                      ✅ Select All
+                    </button>
+                    <button
+                      onClick={() => setSelectedAttachments([])}
+                      className="px-3 py-1 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200"
+                    >
+                      ❌ Clear All
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="text-center py-6 text-slate-500">
                   <div className="text-2xl mb-2">📎</div>
                   <div className="text-sm">No files uploaded yet</div>
-                  <div className="text-xs">Upload files to attach them to all campaign emails</div>
+                  <div className="text-xs">Upload files to attach them to campaign emails</div>
                 </div>
               )}
             </div>
@@ -815,13 +860,21 @@ export default function Campaign() {
             </div>
             
             {/* Attachment Summary */}
-            {(fileAttachments.length > 0 || attachments.some(a => a.url && a.label)) && (
+            {(selectedAttachments.length > 0 || attachments.some(a => a.url && a.label)) && (
               <div className="mt-4 p-3 bg-slate-100 border border-slate-200 rounded-lg">
                 <div className="text-xs font-medium text-slate-700 mb-1">📋 Campaign Summary:</div>
                 <div className="text-xs text-slate-600">
-                  • {fileAttachments.length} file(s) will be attached to emails
+                  • {selectedAttachments.length} file(s) will be attached to emails
                   • {attachments.filter(a => a.url && a.label).length} link(s) will appear in email body
                 </div>
+                {selectedAttachments.length > 0 && (
+                  <div className="text-xs text-emerald-600 mt-1">
+                    <strong>Selected files:</strong> {fileAttachments
+                      .filter(att => selectedAttachments.includes(att.id))
+                      .map(att => att.label)
+                      .join(', ')}
+                  </div>
+                )}
               </div>
             )}
           </div>
