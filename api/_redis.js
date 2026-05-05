@@ -297,6 +297,46 @@ async function getTrackingEvents(leadId, campaignId = null, limit = 100) {
   }
 }
 
+// Enhanced detection for attachment-related scanning
+function isAttachmentScanRequest(userAgent, ip, timingSinceGuard) {
+  if (!userAgent || userAgent === 'unknown') return false;
+  
+  // Common patterns for attachment scanning
+  const attachmentScanPatterns = [
+    /attachment.*scan/i,
+    /security.*scan/i,
+    /virus.*scan/i,
+    /malware.*scan/i,
+    /content.*filter/i,
+    /email.*filter/i,
+    /spam.*filter/i,
+    /safe.*attachment/i,
+    /defender/i,
+    /protection/i,
+    /gateway/i,
+    /firewall/i,
+    /proxy.*scan/i,
+    /microsoft.*scan/i,
+    /google.*scan/i,
+    /outlook.*scan/i,
+    /exchange.*scan/i
+  ];
+  
+  // Check for attachment scanning user agents
+  const hasAttachmentScanUA = attachmentScanPatterns.some(pattern => pattern.test(userAgent));
+  
+  // Attachment scans often happen very quickly after delivery (within 10-30 seconds)
+  // but are different from the immediate delivery pre-fetch (1-5 seconds)
+  const isAttachmentScanTiming = timingSinceGuard > 5000 && timingSinceGuard < 30000;
+  
+  // Additional indicators: very short user agent strings or generic ones
+  const isSuspiciousUA = userAgent.length < 20 || 
+                        /^Mozilla\/[0-9.]+$/.test(userAgent) ||
+                        /^curl|^wget|^python|^java/i.test(userAgent);
+  
+  return hasAttachmentScanUA || (isAttachmentScanTiming && isSuspiciousUA);
+}
+
 // 66.249.x.x = Google delivery pre-fetch (Googlebot/Image Proxy at delivery time)
 // Always fires within 1-5s of send — always a false open, always block.
 function isDeliveryPrefetchIp(ip) {
@@ -342,18 +382,39 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
     // User proxy IPs (74.125.x.x, Apple MPP, Microsoft etc.) bypass the guard —
     // they only fire when the user actually opens, so count them directly.
     // Unknown IPs get a 50s guard to catch any other scanners.
+    let timingSinceGuard = 0;
+    let hasAttachments = false;
     if (!isUserProxyIp(ip)) {
       const guardRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
           AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
       `.catch(() => []);
       if (guardRaw.length > 0) {
-        const sentAt = parseInt(guardRaw[0].value) || 0;
-        if (now - sentAt < 5000) {
-          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} (${Math.round((now-sentAt)/1000)}s after send)`);
+        const guardValue = guardRaw[0].value || '';
+        const sentAt = parseInt(guardValue.split(':')[0]) || 0;
+        hasAttachments = guardValue.includes(':attachments:');
+        timingSinceGuard = now - sentAt;
+        
+        if (timingSinceGuard < 5000) {
+          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} (${Math.round(timingSinceGuard/1000)}s after send)`);
           return { counted: false, reason: 'scanner guard (5s)', count: 0 };
         }
       }
+    }
+
+    // ── Enhanced attachment scan detection ────────────────────────────────────
+    // Apply stricter filtering for emails with attachments
+    if (hasAttachments && isAttachmentScanRequest(userAgent, ip, timingSinceGuard)) {
+      console.log(`🛡️ [GUARD] Attachment scan blocked for lead ${leadId}: ${userAgent.slice(0, 60)}`);
+      return { counted: false, reason: 'attachment scan', count: 0 };
+    }
+
+    // For emails with attachments, apply additional timing-based filtering
+    if (hasAttachments && timingSinceGuard > 0 && timingSinceGuard < 15000) {
+      // Emails with attachments often trigger security scans within 15 seconds
+      // Be more conservative and require longer delay for attachment emails
+      console.log(`🛡️ [GUARD] Attachment email early open blocked for lead ${leadId} (${Math.round(timingSinceGuard/1000)}s after send)`);
+      return { counted: false, reason: 'attachment timing guard (15s)', count: 0 };
     }
 
     // Dedup: block same IP within 30s to prevent double-counting a single open

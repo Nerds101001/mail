@@ -138,7 +138,7 @@ module.exports = async (req, res) => {
 
   // ── GET ATTACHMENT DATA ───────────────────────────────────────────────
   else if (type === "download" && req.method === "GET") {
-    const { id } = req.query;
+    const { id, leadId, campaignId } = req.query;
     
     try {
       const attachments = await get("attachments").then(data => data ? JSON.parse(data) : []).catch(() => []);
@@ -146,6 +146,27 @@ module.exports = async (req, res) => {
       
       if (!attachment) {
         return res.status(404).json({ error: "Attachment not found" });
+      }
+
+      // Track attachment click if leadId is provided
+      if (leadId) {
+        try {
+          const { trackClick } = require("./_redis");
+          const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
+                     || req.headers["x-real-ip"]
+                     || "unknown";
+          const ua = req.headers["user-agent"] || "unknown";
+          
+          console.log(`📎 [ATTACHMENT CLICK] Lead:${leadId} File:${attachment.label} IP:${ip}`);
+          
+          // Track as click with special attachment URL format
+          const attachmentUrl = `attachment://${attachment.label}`;
+          await trackClick(leadId, ip, ua, attachmentUrl, campaignId || null);
+          
+        } catch (trackError) {
+          console.error(`❌ [ATTACHMENT CLICK] Tracking failed:`, trackError.message);
+          // Don't fail the download if tracking fails
+        }
       }
 
       // Increment download count

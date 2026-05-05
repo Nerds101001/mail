@@ -247,7 +247,10 @@ module.exports = async (req, res) => {
     // the API call returns, and the Image Proxy fires within milliseconds of
     // delivery. Writing AFTER send creates a race where the proxy hits the pixel
     // before the guard key exists in DB, causing every send to show 1 false open.
-    await set(`email:guard:${leadId}`, String(Date.now()), 30).catch(() => {});
+    const guardValue = fileAttachments.length > 0 
+      ? `${Date.now()}:attachments:${fileAttachments.length}`
+      : String(Date.now());
+    await set(`email:guard:${leadId}`, guardValue, 30).catch(() => {});
 
     const sendRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
       method: "POST",
