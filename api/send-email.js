@@ -65,8 +65,8 @@ async function getValidAccessToken(accountEmail = null) {
   return accessToken;
 }
 
-// ─── RFC 2822 builder with proper MIME multipart structure ─────────────────
-function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl }) {
+// ─── RFC 2822 builder with proper MIME multipart structure and file attachments ─────────────────
+function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, attachments = [] }) {
   const msgId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@enginerds.in>`;
   const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   
@@ -108,27 +108,45 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl })
     `Date: ${new Date().toUTCString()}`,
     `Message-ID: ${msgId}`,
     `MIME-Version: 1.0`,
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
     `List-Unsubscribe: <${unsubscribeUrl}>`,
     `List-Unsubscribe-Post: List-Unsubscribe=One-Click`,
     ``,
     `--${boundary}`,
+    `Content-Type: multipart/alternative; boundary="${boundary}_alt"`,
+    ``,
+    `--${boundary}_alt`,
     `Content-Type: text/plain; charset="UTF-8"`,
     `Content-Transfer-Encoding: 7bit`,
     ``,
     plainText,
     ``,
-    `--${boundary}`,
+    `--${boundary}_alt`,
     `Content-Type: text/html; charset="UTF-8"`,
     `Content-Transfer-Encoding: 8bit`,
     ``,
     wrappedHtml,
     ``,
-    `--${boundary}--`
-  ].join("\r\n");
+    `--${boundary}_alt--`
+  ];
+
+  // Add file attachments
+  for (const attachment of attachments) {
+    lines.push(
+      ``,
+      `--${boundary}`,
+      `Content-Type: ${attachment.contentType}; name="${attachment.originalName}"`,
+      `Content-Transfer-Encoding: base64`,
+      `Content-Disposition: attachment; filename="${attachment.originalName}"`,
+      ``,
+      attachment.base64Data
+    );
+  }
+
+  lines.push(``, `--${boundary}--`);
 
   // Gmail API requires the entire message to be base64url encoded
-  return Buffer.from(lines, 'utf-8').toString("base64")
+  return Buffer.from(lines.join("\r\n"), 'utf-8').toString("base64")
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
@@ -186,7 +204,7 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { leadId, to, subject, body, senderName, replyTo, gmailUser, campaignId } = req.body;
+  const { leadId, to, subject, body, senderName, replyTo, gmailUser, campaignId, attachments: attachmentIds = [] } = req.body;
   const appUrl = process.env.APP_URL || "https://enginerdsmail.vercel.app";
 
   if (!leadId || !to || !subject || !body)
@@ -197,6 +215,19 @@ module.exports = async (req, res) => {
     if (isUnsub === "true")
       return res.status(200).json({ success: false, skipped: true, reason: "UNSUBSCRIBED" });
 
+    // Load file attachments if any
+    let fileAttachments = [];
+    if (attachmentIds.length > 0) {
+      try {
+        const attachmentsData = await get("attachments").then(data => data ? JSON.parse(data) : []).catch(() => []);
+        fileAttachments = attachmentsData.filter(att => attachmentIds.includes(att.id));
+        console.log(`📎 [EMAIL] Loading ${fileAttachments.length} attachments for ${to}`);
+      } catch (error) {
+        console.error(`❌ [EMAIL] Failed to load attachments:`, error.message);
+        // Continue without attachments rather than failing the send
+      }
+    }
+
     // Use per-account token if gmailUser specified (multi-Gmail round-robin)
     const accessToken  = await getValidAccessToken(gmailUser || null);
     const gmailAccount = gmailUser || await get("gmail:email");
@@ -204,7 +235,15 @@ module.exports = async (req, res) => {
     const from       = `${senderName || "Enginerds Tech"} <${gmailAccount}>`;
     const unsubUrl   = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}`;
     const htmlBody   = buildHtmlBody(body, leadId, to, appUrl, campaignId);
-    const raw        = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, unsubscribeUrl: unsubUrl });
+    const raw        = buildEmailRaw({ 
+      from, 
+      replyTo: replyTo || gmailAccount, 
+      to, 
+      subject, 
+      htmlBody, 
+      unsubscribeUrl: unsubUrl,
+      attachments: fileAttachments
+    });
 
     // Write scanner-guard BEFORE sending — Gmail delivers nearly instantly after
     // the API call returns, and the Image Proxy fires within milliseconds of
@@ -221,6 +260,7 @@ module.exports = async (req, res) => {
     const result = await sendRes.json();
     if (result.error) throw new Error(result.error.message || "Gmail send failed");
 
+    console.log(`✅ [EMAIL] Sent to ${to} with ${fileAttachments.length} attachments`);
     res.json({ success: true, messageId: result.id });
   } catch (err) {
     console.error("send-email error:", err.message);

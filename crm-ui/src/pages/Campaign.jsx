@@ -28,6 +28,8 @@ export default function Campaign() {
   const [customSubj, setCustomSubj]     = useState('')
   const [customBody, setCustomBody]     = useState('')
   const [attachments, setAttachments]   = useState([{ type:'link', label:'', url:'' }])
+  const [fileAttachments, setFileAttachments] = useState([]) // Stored file attachments
+  const [attachmentLoading, setAttachmentLoading] = useState(false)
   const [running, setRunning]           = useState(false)
   const [progress, setProgress]         = useState(0)
   const [status, setStatus]             = useState('Ready to launch')
@@ -38,6 +40,65 @@ export default function Campaign() {
   const [campaignName, setCampaignName]               = useState(`Campaign ${new Date().toLocaleDateString('en-GB')}`)
   const [usePersonalization, setUsePersonalization]   = useState(false)
   const bodyRef = useRef(null)
+
+  // Load file attachments on component mount
+  useEffect(() => {
+    loadFileAttachments()
+  }, [])
+
+  async function loadFileAttachments() {
+    try {
+      const res = await fetch('/api/attachments?type=list')
+      const data = await res.json()
+      setFileAttachments(data.attachments || [])
+    } catch (error) {
+      console.error('Failed to load attachments:', error)
+    }
+  }
+
+  async function uploadAttachmentFromUrl(url, label) {
+    if (!url || !label) {
+      toast('Please provide both URL and label', 'error')
+      return
+    }
+
+    setAttachmentLoading(true)
+    try {
+      const res = await fetch('/api/attachments?type=upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, label })
+      })
+      
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      
+      toast(`Attachment "${label}" uploaded successfully`, 'success')
+      await loadFileAttachments() // Refresh list
+      
+    } catch (error) {
+      toast(`Upload failed: ${error.message}`, 'error')
+    }
+    setAttachmentLoading(false)
+  }
+
+  async function deleteFileAttachment(attachmentId) {
+    if (!confirm('Delete this attachment?')) return
+    
+    try {
+      const res = await fetch(`/api/attachments?type=delete&id=${attachmentId}`, {
+        method: 'DELETE'
+      })
+      
+      if (!res.ok) throw new Error('Delete failed')
+      
+      toast('Attachment deleted', 'success')
+      await loadFileAttachments() // Refresh list
+      
+    } catch (error) {
+      toast(`Delete failed: ${error.message}`, 'error')
+    }
+  }
 
   // Follow-up mode — detect ?followup=campId in URL
   const [followupIds, setFollowupIds] = useState(null) // Set of lead IDs to target
@@ -83,9 +144,20 @@ export default function Campaign() {
   }
 
   function buildAttachmentText() {
-    const valid = attachments.filter(a => a.url && a.label)
-    if (!valid.length) return ''
-    return '\n\n' + valid.map(a => `📎 ${a.label}: ${a.url}`).join('\n')
+    const linkAttachments = attachments.filter(a => a.url && a.label)
+    let text = ''
+    
+    // Add link attachments (old behavior)
+    if (linkAttachments.length > 0) {
+      text += '\n\n' + linkAttachments.map(a => `📎 ${a.label}: ${a.url}`).join('\n')
+    }
+    
+    // Add file attachments info (new behavior)
+    if (fileAttachments.length > 0) {
+      text += '\n\n' + fileAttachments.map(a => `📎 ${a.label} (attached file)`).join('\n')
+    }
+    
+    return text
   }
 
   async function getContent(lead, variantPool, index = 0) {
@@ -173,7 +245,16 @@ export default function Campaign() {
   async function sendOne(lead, subject, body, profile, campaignId) {
     try {
       const endpoint = profile.type === 'gmail' ? '/api/send-email' : '/api/send-smtp'
-      const payload = { leadId:lead.id, to:lead.email, subject, body, senderName:cfg.sender, replyTo:cfg.replyTo, campaignId }
+      const payload = { 
+        leadId: lead.id, 
+        to: lead.email, 
+        subject, 
+        body, 
+        senderName: cfg.sender, 
+        replyTo: cfg.replyTo, 
+        campaignId,
+        attachments: fileAttachments.map(a => a.id) // Include file attachment IDs
+      }
       if (profile.type === 'smtp') payload.smtpConfig = profile
       if (profile.type === 'gmail') payload.gmailUser = profile.user
       const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
@@ -545,19 +626,204 @@ export default function Campaign() {
 
           {/* Attachments */}
           <div className="mt-4 border-t pt-4">
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Link Attachments</label>
-              <button onClick={()=>setAttachments([...attachments,{type:'link',label:'',url:''}])} className="text-emerald-600 hover:text-emerald-700">
-                <Plus size={13}/>
-              </button>
+            <div className="flex items-center justify-between mb-4">
+              <label className="text-sm font-bold text-slate-900">Email Attachments</label>
+              <span className="text-xs text-slate-500">Manage files and links to include in emails</span>
             </div>
-            {attachments.map((a,i)=>(
-              <div key={i} className="flex gap-2 mb-2">
-                <input className="input text-xs flex-1" placeholder="Label" value={a.label} onChange={e=>{const n=[...attachments];n[i]={...n[i],label:e.target.value};setAttachments(n)}} />
-                <input className="input text-xs flex-1" placeholder="https://..." value={a.url} onChange={e=>{const n=[...attachments];n[i]={...n[i],url:e.target.value};setAttachments(n)}} />
-                <button onClick={()=>setAttachments(attachments.filter((_,j)=>j!==i))} className="text-red-400 hover:text-red-600"><X size={13}/></button>
+            
+            {/* File Attachments Section */}
+            <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-emerald-800">📎 File Attachments (Recommended)</h4>
+                  <p className="text-xs text-emerald-600">Upload files once, attach to all emails automatically</p>
+                </div>
+                <div className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-1 rounded">
+                  {fileAttachments.length} files stored
+                </div>
               </div>
-            ))}
+              
+              {/* Upload Interface */}
+              <div className="bg-white p-3 rounded border border-emerald-200 mb-3">
+                <div className="text-xs text-slate-600 mb-2">
+                  <strong>💡 Tip:</strong> Supports Google Drive, Dropbox, OneDrive sharing links, or direct download URLs
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <input 
+                    className="input text-sm" 
+                    placeholder="File label (e.g., Product Brochure)" 
+                    id="file-attachment-label"
+                  />
+                  <input 
+                    className="input text-sm" 
+                    placeholder="https://drive.google.com/file/d/... or direct URL" 
+                    id="file-attachment-url"
+                  />
+                  <button 
+                    onClick={() => {
+                      const label = document.getElementById('file-attachment-label').value.trim()
+                      const url = document.getElementById('file-attachment-url').value.trim()
+                      if (label && url) {
+                        uploadAttachmentFromUrl(url, label)
+                        document.getElementById('file-attachment-label').value = ''
+                        document.getElementById('file-attachment-url').value = ''
+                      } else {
+                        toast('Please enter both label and URL', 'error')
+                      }
+                    }}
+                    disabled={attachmentLoading}
+                    className="px-4 py-2 bg-emerald-600 text-white text-sm rounded hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {attachmentLoading ? (
+                      <>
+                        <RefreshCw size={14} className="animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Plus size={14} />
+                        Upload File
+                      </>
+                    )}
+                  </button>
+                </div>
+                
+                {/* Quick Test Buttons */}
+                <div className="mt-3 pt-3 border-t border-emerald-100">
+                  <div className="text-xs text-slate-600 mb-2">🧪 <strong>Quick Test:</strong></div>
+                  <div className="flex gap-2 flex-wrap">
+                    <button 
+                      onClick={() => {
+                        document.getElementById('file-attachment-label').value = 'Sample PDF'
+                        document.getElementById('file-attachment-url').value = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
+                      }}
+                      className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200"
+                    >
+                      📄 Sample PDF
+                    </button>
+                    <button 
+                      onClick={() => {
+                        document.getElementById('file-attachment-label').value = 'Sample Image'
+                        document.getElementById('file-attachment-url').value = 'https://file-examples.com/storage/fe68c8a7c69bd447d7770f6/2017/10/file_example_JPG_100kB.jpg'
+                      }}
+                      className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded hover:bg-purple-200"
+                    >
+                      🖼️ Sample Image
+                    </button>
+                    <button 
+                      onClick={loadFileAttachments}
+                      className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200"
+                    >
+                      🔄 Refresh List
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              {/* File List */}
+              {fileAttachments.length > 0 ? (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-slate-700 mb-2">Stored Files:</div>
+                  {fileAttachments.map(att => (
+                    <div key={att.id} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg">
+                      <div className="flex-1">
+                        <div className="font-medium text-slate-800 text-sm">{att.label}</div>
+                        <div className="text-slate-500 text-xs mt-1">
+                          📄 {att.originalName} • {(att.size / 1024).toFixed(1)}KB • {att.contentType}
+                        </div>
+                        <div className="text-slate-400 text-xs">
+                          Uploaded: {new Date(att.uploadedAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <div className="flex gap-2 ml-4">
+                        <a 
+                          href={`/api/attachments?type=download&id=${att.id}`}
+                          className="px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 flex items-center gap-1"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="View/Download file"
+                        >
+                          👁️ View
+                        </a>
+                        <button 
+                          onClick={() => deleteFileAttachment(att.id)}
+                          className="px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600 flex items-center gap-1"
+                          title="Delete file"
+                        >
+                          🗑️ Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-6 text-slate-500">
+                  <div className="text-2xl mb-2">📎</div>
+                  <div className="text-sm">No files uploaded yet</div>
+                  <div className="text-xs">Upload files to attach them to all campaign emails</div>
+                </div>
+              )}
+            </div>
+            
+            {/* Link Attachments Section (Legacy) */}
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-amber-800">🔗 Link Attachments (Legacy)</h4>
+                  <p className="text-xs text-amber-600">Links will appear in email body (not recommended)</p>
+                </div>
+                <button 
+                  onClick={()=>setAttachments([...attachments,{type:'link',label:'',url:''}])} 
+                  className="px-3 py-1 bg-amber-600 text-white text-xs rounded hover:bg-amber-700 flex items-center gap-1"
+                >
+                  <Plus size={12}/>
+                  Add Link
+                </button>
+              </div>
+              
+              {attachments.length > 0 ? (
+                <div className="space-y-2">
+                  {attachments.map((a,i)=>(
+                    <div key={i} className="flex gap-2 p-2 bg-white border border-amber-200 rounded">
+                      <input 
+                        className="input text-xs flex-1" 
+                        placeholder="Link label" 
+                        value={a.label} 
+                        onChange={e=>{const n=[...attachments];n[i]={...n[i],label:e.target.value};setAttachments(n)}} 
+                      />
+                      <input 
+                        className="input text-xs flex-1" 
+                        placeholder="https://..." 
+                        value={a.url} 
+                        onChange={e=>{const n=[...attachments];n[i]={...n[i],url:e.target.value};setAttachments(n)}} 
+                      />
+                      <button 
+                        onClick={()=>setAttachments(attachments.filter((_,j)=>j!==i))} 
+                        className="px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
+                        title="Remove link"
+                      >
+                        <X size={12}/>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-amber-600 text-sm">
+                  No link attachments added
+                </div>
+              )}
+            </div>
+            
+            {/* Attachment Summary */}
+            {(fileAttachments.length > 0 || attachments.some(a => a.url && a.label)) && (
+              <div className="mt-4 p-3 bg-slate-100 border border-slate-200 rounded-lg">
+                <div className="text-xs font-medium text-slate-700 mb-1">📋 Campaign Summary:</div>
+                <div className="text-xs text-slate-600">
+                  • {fileAttachments.length} file(s) will be attached to emails
+                  • {attachments.filter(a => a.url && a.label).length} link(s) will appear in email body
+                </div>
+              </div>
+            )}
           </div>
         </Card>
       </div>

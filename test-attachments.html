@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Attachment System</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+        input, button { margin: 5px; padding: 8px; }
+        button { background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .attachment-list { margin-top: 10px; }
+        .attachment-item { padding: 10px; margin: 5px 0; background: #f8f9fa; border-radius: 4px; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <h1>Attachment System Test</h1>
+    
+    <div class="section">
+        <h3>Upload Attachment from URL</h3>
+        <input type="text" id="attachmentLabel" placeholder="Attachment label (e.g., 'Product Brochure')" style="width: 300px;">
+        <input type="text" id="attachmentUrl" placeholder="https://example.com/file.pdf" style="width: 400px;">
+        <button onclick="uploadAttachment()">Upload</button>
+        <div id="uploadStatus"></div>
+    </div>
+    
+    <div class="section">
+        <h3>Stored Attachments</h3>
+        <button onclick="loadAttachments()">Refresh List</button>
+        <div id="attachmentList" class="attachment-list"></div>
+    </div>
+    
+    <div class="section">
+        <h3>Test Email with Attachments</h3>
+        <input type="email" id="testEmail" placeholder="your-email@example.com" style="width: 300px;">
+        <button onclick="sendTestEmail()">Send Test Email</button>
+        <div id="emailStatus"></div>
+    </div>
+
+    <script>
+        async function uploadAttachment() {
+            const label = document.getElementById('attachmentLabel').value;
+            const url = document.getElementById('attachmentUrl').value;
+            const status = document.getElementById('uploadStatus');
+            
+            if (!label || !url) {
+                status.innerHTML = '<div class="error">Please provide both label and URL</div>';
+                return;
+            }
+            
+            status.innerHTML = 'Uploading...';
+            
+            try {
+                const response = await fetch('/api/attachments?type=upload-url', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url, label })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    status.innerHTML = `<div class="success">✅ Uploaded: ${data.attachment.label} (${(data.attachment.size / 1024).toFixed(1)}KB)</div>`;
+                    document.getElementById('attachmentLabel').value = '';
+                    document.getElementById('attachmentUrl').value = '';
+                    loadAttachments(); // Refresh list
+                } else {
+                    status.innerHTML = `<div class="error">❌ Error: ${data.error}</div>`;
+                }
+            } catch (error) {
+                status.innerHTML = `<div class="error">❌ Network error: ${error.message}</div>`;
+            }
+        }
+        
+        async function loadAttachments() {
+            const list = document.getElementById('attachmentList');
+            list.innerHTML = 'Loading...';
+            
+            try {
+                const response = await fetch('/api/attachments?type=list');
+                const data = await response.json();
+                
+                if (data.attachments && data.attachments.length > 0) {
+                    list.innerHTML = data.attachments.map(att => `
+                        <div class="attachment-item">
+                            <strong>${att.label}</strong><br>
+                            <small>File: ${att.originalName} • Size: ${(att.size / 1024).toFixed(1)}KB • Type: ${att.contentType}</small><br>
+                            <small>Uploaded: ${new Date(att.uploadedAt).toLocaleString()}</small><br>
+                            <button onclick="viewAttachment('${att.id}')">View</button>
+                            <button onclick="deleteAttachment('${att.id}')" style="background: #dc3545;">Delete</button>
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = '<div>No attachments found</div>';
+                }
+            } catch (error) {
+                list.innerHTML = `<div class="error">Error loading attachments: ${error.message}</div>`;
+            }
+        }
+        
+        function viewAttachment(id) {
+            window.open(`/api/attachments?type=download&id=${id}`, '_blank');
+        }
+        
+        async function deleteAttachment(id) {
+            if (!confirm('Delete this attachment?')) return;
+            
+            try {
+                const response = await fetch(`/api/attachments?type=delete&id=${id}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    loadAttachments(); // Refresh list
+                } else {
+                    const data = await response.json();
+                    alert(`Delete failed: ${data.error}`);
+                }
+            } catch (error) {
+                alert(`Delete failed: ${error.message}`);
+            }
+        }
+        
+        async function sendTestEmail() {
+            const email = document.getElementById('testEmail').value;
+            const status = document.getElementById('emailStatus');
+            
+            if (!email) {
+                status.innerHTML = '<div class="error">Please enter an email address</div>';
+                return;
+            }
+            
+            status.innerHTML = 'Sending test email...';
+            
+            try {
+                // Get list of attachments first
+                const attachResponse = await fetch('/api/attachments?type=list');
+                const attachData = await attachResponse.json();
+                const attachmentIds = attachData.attachments ? attachData.attachments.map(a => a.id) : [];
+                
+                const response = await fetch('/api/send-email', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        leadId: 'test_' + Date.now(),
+                        to: email,
+                        subject: 'Test Email with Attachments',
+                        body: `Hello!\n\nThis is a test email from the Enginerds CRM system.\n\nAttachments included: ${attachmentIds.length} files\n\nBest regards,\nEnginerds Team`,
+                        senderName: 'Enginerds Test',
+                        replyTo: 'test@enginerds.in',
+                        attachments: attachmentIds
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    status.innerHTML = `<div class="success">✅ Test email sent successfully with ${attachmentIds.length} attachments!</div>`;
+                } else {
+                    status.innerHTML = `<div class="error">❌ Send failed: ${data.error}</div>`;
+                }
+            } catch (error) {
+                status.innerHTML = `<div class="error">❌ Network error: ${error.message}</div>`;
+            }
+        }
+        
+        // Load attachments on page load
+        loadAttachments();
+    </script>
+</body>
+</html>

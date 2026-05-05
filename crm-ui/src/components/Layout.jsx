@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useCRM } from '../store'
 import {
   LayoutDashboard, CheckSquare, Users, GitBranch, Send,
-  UserCheck, FileText, BarChart2, Settings, LogOut, Zap, Mail, UserX, History
+  UserCheck, FileText, BarChart2, Settings, LogOut, Zap, Mail, UserX, History, Paperclip
 } from 'lucide-react'
 
 const NAV = [
@@ -25,6 +25,7 @@ const NAV = [
     { to: '/unsubscribes', icon: UserX,           label: 'Unsubscribes' },
   ]},
   { label: 'Config', items: [
+    { to: '/attachments', icon: Paperclip,    label: 'Attachments' },
     { to: '/users',    icon: Users,           label: 'Users',    adminOnly: true },
     { to: '/settings', icon: Settings,        label: 'Settings' },
   ]},
