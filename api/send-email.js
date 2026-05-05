@@ -153,12 +153,10 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, a
 // ─── HTML body builder (improved deliverability) ─────────────────────────────────
 function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
   // Query-param tracking URLs — reliable across all Vercel rewrite configs.
-  // Path-based URLs (/api/track/open/id/cid) lost the path after Vercel rewrite;
-  // query params are passed through intact.
   const pixelParams = campaignId
-    ? `id=${leadId}&cid=${campaignId}`
-    : `id=${leadId}`;
-  const trackingPixelUrl = `${appUrl}/api/track-open?${pixelParams}`;
+    ? `type=open&id=${leadId}&cid=${campaignId}`
+    : `type=open&id=${leadId}`;
+  const trackingPixelUrl = `${appUrl}/api/tracking?${pixelParams}`;
 
   const paragraphs = plainText
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -168,9 +166,9 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
         /https?:\/\/[^\s<"&]+/g,
         (url) => {
           const clickParams = campaignId
-            ? `id=${leadId}&cid=${campaignId}&url=${encodeURIComponent(url)}`
-            : `id=${leadId}&url=${encodeURIComponent(url)}`;
-          return `<a href="${appUrl}/api/track-click?${clickParams}" style="color:#1a73e8;text-decoration:none;">${url}</a>`;
+            ? `type=click&id=${leadId}&cid=${campaignId}&url=${encodeURIComponent(url)}`
+            : `type=click&id=${leadId}&url=${encodeURIComponent(url)}`;
+          return `<a href="${appUrl}/api/tracking?${clickParams}" style="color:#1a73e8;text-decoration:none;">${url}</a>`;
         }
       )
       return `<p style="margin:0 0 14px 0;">${tracked}</p>`

@@ -9,6 +9,9 @@
     { "source": "/api/save-crm-data",          "destination": "/api/crm?type=save" },
     { "source": "/api/campaigns",              "destination": "/api/crm?type=campaigns" },
     { "source": "/api/events",                 "destination": "/api/ops?type=events" },
+    { "source": "/api/track-open",             "destination": "/api/tracking?type=open" },
+    { "source": "/api/track-click",            "destination": "/api/tracking?type=click" },
+    { "source": "/api/track-pixel",            "destination": "/api/tracking?type=pixel" },
     { "source": "/((?!api|assets|favicon|public).*)", "destination": "/index.html" }
   ],
   "headers": [
