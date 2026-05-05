@@ -333,7 +333,7 @@ export default function Leads() {
     const subject = emailSubject || `Quick idea for ${emailLead.company||'your company'}`
     setSendLoading(true)
     try {
-      const endpoint = profile.type === 'gmail' ? '/api/send-email' : '/api/send-smtp'
+      const endpoint = '/api/email'
       const payload = { leadId:emailLead.id, to:emailLead.email, subject, body, senderName:'Pawan Kumar - Enginerds Tech Solution', replyTo:'contact@enginerds.in' }
       if (profile.type === 'smtp') payload.smtpConfig = profile
       if (profile.type === 'gmail') payload.gmailUser = profile.user

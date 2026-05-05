@@ -246,7 +246,6 @@ export default function Campaign() {
 
   async function sendOne(lead, subject, body, profile, campaignId) {
     try {
-      const endpoint = profile.type === 'gmail' ? '/api/send-email' : '/api/send-smtp'
       const payload = { 
         leadId: lead.id, 
         to: lead.email, 
@@ -259,7 +258,7 @@ export default function Campaign() {
       }
       if (profile.type === 'smtp') payload.smtpConfig = profile
       if (profile.type === 'gmail') payload.gmailUser = profile.user
-      const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+      const res = await fetch('/api/email', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
       const data = await res.json().catch(() => ({}))
       if (data.bounced) return { ok: false, bounced: true }
       if (data.skipped) return { ok: false, skipped: true }

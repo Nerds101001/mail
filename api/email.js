@@ -1,5 +1,6 @@
-// api/send-email.js — Gmail OAuth sender (MNC-grade)
+// api/email.js — Unified email sending endpoint (consolidates send-email, send-smtp)
 const { get, set } = require("./_redis");
+const nodemailer = require("nodemailer");
 
 // ─── Token refresh with better error handling ────────────────────────────────────
 async function getValidAccessToken(accountEmail = null) {
@@ -153,12 +154,10 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, a
 // ─── HTML body builder (improved deliverability) ─────────────────────────────────
 function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, attachments = []) {
   // Query-param tracking URLs — reliable across all Vercel rewrite configs.
-  // Path-based URLs (/api/track/open/id/cid) lost the path after Vercel rewrite;
-  // query params are passed through intact.
   const pixelParams = campaignId
     ? `id=${leadId}&cid=${campaignId}`
     : `id=${leadId}`;
-  const trackingPixelUrl = `${appUrl}/api/track-open?${pixelParams}`;
+  const trackingPixelUrl = `${appUrl}/api/track?type=open&${pixelParams}`;
 
   const paragraphs = plainText
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -170,7 +169,7 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, atta
           const clickParams = campaignId
             ? `id=${leadId}&cid=${campaignId}&url=${encodeURIComponent(url)}`
             : `id=${leadId}&url=${encodeURIComponent(url)}`;
-          return `<a href="${appUrl}/api/track-click?${clickParams}" style="color:#1a73e8;text-decoration:none;">${url}</a>`;
+          return `<a href="${appUrl}/api/track?type=click&${clickParams}" style="color:#1a73e8;text-decoration:none;">${url}</a>`;
         }
       )
       return `<p style="margin:0 0 14px 0;">${tracked}</p>`
@@ -187,7 +186,7 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, atta
           const downloadParams = campaignId
             ? `id=${leadId}&cid=${campaignId}&attachment=${att.id}`
             : `id=${leadId}&attachment=${att.id}`;
-          const downloadUrl = `${appUrl}/api/track-attachment?${downloadParams}`;
+          const downloadUrl = `${appUrl}/api/track?type=attachment&${downloadParams}`;
           return `
             <div style="margin:8px 0;padding:8px;background:white;border-radius:4px;border:1px solid #dee2e6;">
               <a href="${downloadUrl}" style="color:#007bff;text-decoration:none;font-weight:500;">
@@ -226,12 +225,11 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, atta
 </html>`
 }
 
-// ─── Handler ──────────────────────────────────────────────────────────────────
 module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { leadId, to, subject, body, senderName, replyTo, gmailUser, campaignId, attachments: attachmentIds = [] } = req.body;
+  const { leadId, to, subject, body, senderName, replyTo, gmailUser, campaignId, attachments: attachmentIds = [], smtpConfig } = req.body;
   const appUrl = process.env.APP_URL || "https://enginerdsmail.vercel.app";
 
   if (!leadId || !to || !subject || !body)
@@ -255,42 +253,87 @@ module.exports = async (req, res) => {
       }
     }
 
-    // Use per-account token if gmailUser specified (multi-Gmail round-robin)
-    const accessToken  = await getValidAccessToken(gmailUser || null);
-    const gmailAccount = gmailUser || await get("gmail:email");
-    if (!gmailAccount) throw new Error("Gmail not connected — please reconnect in Settings");
-    const from       = `${senderName || "Enginerds Tech"} <${gmailAccount}>`;
-    const unsubUrl   = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}`;
-    const htmlBody   = buildHtmlBody(body, leadId, to, appUrl, campaignId, fileAttachments);
-    const raw        = buildEmailRaw({ 
-      from, 
-      replyTo: replyTo || gmailAccount, 
-      to, 
-      subject, 
-      htmlBody, 
-      unsubscribeUrl: unsubUrl,
-      attachments: fileAttachments
-    });
+    // ── SMTP SENDING ──────────────────────────────────────────────────────
+    if (smtpConfig) {
+      console.log(`📧 [SMTP] Sending to ${to} via ${smtpConfig.host}`);
+      
+      const transporter = nodemailer.createTransporter({
+        host: smtpConfig.host,
+        port: smtpConfig.port,
+        secure: smtpConfig.port === 465,
+        auth: {
+          user: smtpConfig.user,
+          pass: smtpConfig.pass,
+        },
+      });
 
-    // Write scanner-guard BEFORE sending — Gmail delivers nearly instantly after
-    // the API call returns, and the Image Proxy fires within milliseconds of
-    // delivery. Writing AFTER send creates a race where the proxy hits the pixel
-    // before the guard key exists in DB, causing every send to show 1 false open.
-    await set(`email:guard:${leadId}`, String(Date.now()), 30).catch(() => {});
+      const htmlBody = buildHtmlBody(body, leadId, to, appUrl, campaignId, fileAttachments);
+      
+      const mailOptions = {
+        from: `${senderName || "Enginerds Tech"} <${smtpConfig.user}>`,
+        replyTo: replyTo || smtpConfig.user,
+        to,
+        subject,
+        html: htmlBody,
+        headers: {
+          'List-Unsubscribe': `<${appUrl}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}>`,
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        },
+      };
 
-    const sendRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ raw }),
-    });
+      // Add file attachments
+      if (fileAttachments.length > 0) {
+        mailOptions.attachments = fileAttachments.map(att => ({
+          filename: att.originalName,
+          content: Buffer.from(att.base64Data, 'base64'),
+          contentType: att.contentType,
+        }));
+      }
 
-    const result = await sendRes.json();
-    if (result.error) throw new Error(result.error.message || "Gmail send failed");
+      await transporter.sendMail(mailOptions);
+      console.log(`✅ [SMTP] Sent to ${to} with ${fileAttachments.length} attachments`);
+      return res.json({ success: true, method: 'smtp' });
+    }
 
-    console.log(`✅ [EMAIL] Sent to ${to} with ${fileAttachments.length} attachments`);
-    res.json({ success: true, messageId: result.id });
+    // ── GMAIL SENDING ─────────────────────────────────────────────────────
+    else {
+      // Use per-account token if gmailUser specified (multi-Gmail round-robin)
+      const accessToken  = await getValidAccessToken(gmailUser || null);
+      const gmailAccount = gmailUser || await get("gmail:email");
+      if (!gmailAccount) throw new Error("Gmail not connected — please reconnect in Settings");
+      const from       = `${senderName || "Enginerds Tech"} <${gmailAccount}>`;
+      const unsubUrl   = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}`;
+      const htmlBody   = buildHtmlBody(body, leadId, to, appUrl, campaignId, fileAttachments);
+      const raw        = buildEmailRaw({ 
+        from, 
+        replyTo: replyTo || gmailAccount, 
+        to, 
+        subject, 
+        htmlBody, 
+        unsubscribeUrl: unsubUrl,
+        attachments: fileAttachments
+      });
+
+      // Write scanner-guard BEFORE sending — Gmail delivers nearly instantly after
+      // the API call returns, and the Image Proxy fires within milliseconds of
+      // delivery. Writing AFTER send creates a race where the proxy hits the pixel
+      // before the guard key exists in DB, causing every send to show 1 false open.
+      await set(`email:guard:${leadId}`, String(Date.now()), 30).catch(() => {});
+
+      const sendRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ raw }),
+      });
+
+      const result = await sendRes.json();
+      if (result.error) throw new Error(result.error.message || "Gmail send failed");
+
+      console.log(`✅ [GMAIL] Sent to ${to} with ${fileAttachments.length} attachments`);
+      res.json({ success: true, messageId: result.id, method: 'gmail' });
+    }
   } catch (err) {
-    console.error("send-email error:", err.message);
+    console.error("email send error:", err.message);
     res.status(500).json({ error: err.message });
   }
 };

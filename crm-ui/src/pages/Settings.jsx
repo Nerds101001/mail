@@ -30,7 +30,7 @@ export default function Settings() {
     const testTo = prompt('Send test to:', smtp.user); if (!testTo) return
     setTesting(true)
     try {
-      const res = await fetch('/api/send-smtp', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ leadId:'test', to:testTo, subject:'✅ SMTP Test — Enginerds CRM', body:'SMTP connection working!', senderName:smtp.name, smtpConfig:smtp }) })
+      const res = await fetch('/api/email', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ leadId:'test', to:testTo, subject:'✅ SMTP Test — Enginerds CRM', body:'SMTP connection working!', senderName:smtp.name, smtpConfig:smtp }) })
       const data = await res.json()
       if (res.ok) toast('Test email sent!', 'success')
       else throw new Error(data.error)

@@ -34,13 +34,13 @@ async function runE2E(req, res) {
     pass("Guard key set (20s ago)");
   } catch (e) { fail("Guard key write", e.message); return sendHtml(res, steps, startMs, APP_URL, "E2E"); }
 
-  // Hit track-open over real HTTP
-  const openUrl = `${APP_URL}/api/track-open?id=${testId}&cid=${campId}`;
+  // Hit track over real HTTP
+  const openUrl = `${APP_URL}/api/track?type=open&id=${testId}&cid=${campId}`;
   try {
     const r = await fetch(openUrl, { redirect: "manual" });
     (r.status === 302 || r.status === 200)
-      ? pass("track-open HTTP response", `status=${r.status}`)
-      : fail("track-open HTTP response", `status=${r.status} expected 302 — url=${openUrl}`);
+      ? pass("track open HTTP response", `status=${r.status}`)
+      : fail("track open HTTP response", `status=${r.status} expected 302 — url=${openUrl}`);
   } catch (e) { fail("track-open HTTP fetch", `${e.message} — url=${openUrl}`); }
 
   await new Promise(r => setTimeout(r, 1500));
@@ -51,7 +51,7 @@ async function runE2E(req, res) {
     const opens  = events.filter(e => e.event_type === "open");
     opens.length >= 1
       ? pass("Open recorded in DB", `${opens.length} event(s)`)
-      : fail("Open NOT in DB", "HTTP hit ok but nothing written — check Vercel logs for track-open errors");
+      : fail("Open NOT in DB", "HTTP hit ok but nothing written — check Vercel logs for track errors");
   } catch (e) { fail("Read open events", e.message); }
 
   // Dedup: second request within 2 min must not add another event
@@ -67,13 +67,13 @@ async function runE2E(req, res) {
         : fail("Dedup broken", `${opens2.length} opens instead of 1`);
   } catch (e) { fail("Dedup check", e.message); }
 
-  // Hit track-click over real HTTP
-  const clickUrl = `${APP_URL}/api/track-click?id=${testId}&cid=${campId}&url=${encodeURIComponent(testUrl)}`;
+  // Hit track click over real HTTP
+  const clickUrl = `${APP_URL}/api/track?type=click&id=${testId}&cid=${campId}&url=${encodeURIComponent(testUrl)}`;
   try {
     const r = await fetch(clickUrl, { redirect: "manual" });
     (r.status === 302 || r.status === 200)
-      ? pass("track-click HTTP response", `status=${r.status}`)
-      : fail("track-click HTTP response", `status=${r.status} expected 302`);
+      ? pass("track click HTTP response", `status=${r.status}`)
+      : fail("track click HTTP response", `status=${r.status} expected 302`);
   } catch (e) { fail("track-click HTTP fetch", e.message); }
 
   await new Promise(r => setTimeout(r, 1500));
@@ -84,7 +84,7 @@ async function runE2E(req, res) {
     const clicks = events.filter(e => e.event_type === "click");
     clicks.length >= 1
       ? pass("Click recorded in DB", `${clicks.length} event(s)`)
-      : fail("Click NOT in DB", "HTTP hit ok but nothing written — check Vercel logs for track-click errors");
+      : fail("Click NOT in DB", "HTTP hit ok but nothing written — check Vercel logs for track errors");
   } catch (e) { fail("Read click events", e.message); }
 
   // Cleanup
