@@ -567,5 +567,81 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
     }
   }
 
+  // GET /api/ops?type=send-test&to=email — send a real tracking test email via stored SMTP profile
+  if (type === "send-test") {
+    const APP_URL = process.env.APP_URL || "https://enginerdsmail.vercel.app";
+    const to      = req.query.to || "csenerds@gmail.com";
+    const leadId  = `test_send_${Date.now()}`;
+    const campId  = `camp_test_${Date.now()}`;
+    const steps   = [];
+    const spass   = (n, d="") => steps.push({ ok:true,  name:n, detail:d });
+    const sfail   = (n, d="") => steps.push({ ok:false, name:n, detail:d });
+
+    // Load SMTP profile from kv_store (includes password)
+    let smtpProfile;
+    try {
+      const raw  = await get("crm:profiles");
+      const profs = raw ? JSON.parse(raw) : [];
+      smtpProfile = profs.find(p => p.type === "smtp" && p.active);
+      if (!smtpProfile)                             return res.status(400).json({ error: "No active SMTP profile found" });
+      if (!smtpProfile.pass && !smtpProfile.password) return res.status(400).json({ error: "SMTP profile has no password stored" });
+      spass("SMTP profile loaded", `host=${smtpProfile.host} user=${smtpProfile.user}`);
+    } catch(e) { return res.status(500).json({ error: "Failed to load profiles: " + e.message }); }
+
+    const pixelUrl = `${APP_URL}/api/track-open?id=${leadId}&cid=${campId}`;
+    const unsubUrl = `${APP_URL}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}`;
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+<body style="font-family:Arial,sans-serif;font-size:14px;color:#000;padding:20px;">
+  <p>Hi,</p>
+  <p>This is a <strong>tracking test email</strong> from <strong>${smtpProfile.user}</strong>.</p>
+  <p>Open this email to trigger the tracking pixel and verify opens are recorded.</p>
+  <p style="color:#888;font-size:11px;">Lead: ${leadId} | Campaign: ${campId}</p>
+  <p style="margin-top:24px;font-size:11px;color:#aaa;"><a href="${unsubUrl}" style="color:#aaa;">Unsubscribe</a></p>
+  <img src="${pixelUrl}" width="1" height="1" alt="" border="0" style="display:block;width:1px;height:1px;opacity:0.01;">
+</body></html>`;
+
+    // Set guard key BEFORE sending
+    try { await set(`email:guard:${leadId}`, String(Date.now()), 60); spass("Guard key set"); }
+    catch(e) { sfail("Guard key", e.message); }
+
+    // Send
+    try {
+      const transporter = nodemailer.createTransport({
+        host: smtpProfile.host, port: parseInt(smtpProfile.port),
+        secure: !!smtpProfile.secure,
+        auth: { user: smtpProfile.user, pass: smtpProfile.pass || smtpProfile.password },
+        tls: { rejectUnauthorized: false }, connectionTimeout: 15000, greetingTimeout: 15000,
+      });
+      const info = await transporter.sendMail({
+        from: `"Enginerds Test" <${smtpProfile.user}>`, to,
+        subject: `📬 Tracking Test [${new Date().toLocaleTimeString()}] — open to verify`,
+        html,
+        headers: { "List-Unsubscribe": `<${unsubUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+      });
+      spass("Email sent ✅", `messageId=${info.messageId} → to=${to}`);
+    } catch(e) { sfail("Send FAILED", e.message); }
+
+    const checkUrl = `${APP_URL}/api/ops?type=events&leadId=${leadId}&campaignId=${campId}`;
+    const allOk   = steps.every(s => s.ok);
+    const outHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Send Test</title>
+<style>body{font-family:monospace;max-width:760px;margin:40px auto;padding:0 20px;background:#0d0d0d;color:#e0e0e0}
+.step{display:flex;gap:10px;padding:8px 12px;border-radius:6px;margin-bottom:6px;font-size:13px}
+.ok{background:#0f2a0f;border:1px solid #1a5c1a}.fail{background:#2a0f0f;border:1px solid #5c1a1a}
+.name{font-weight:600}.detail{color:#999;font-size:11px;margin-top:2px;word-break:break-all}
+.box{background:#111;border:1px solid #333;padding:12px;border-radius:6px;margin-top:16px;font-size:12px;word-break:break-all}
+.sum{margin-top:20px;padding:16px;border-radius:8px;text-align:center;font-size:15px;font-weight:700}
+.ok-sum{background:#0f3a0f;border:2px solid #22c55e;color:#22c55e}
+.fail-sum{background:#3a0f0f;border:2px solid #ef4444;color:#ef4444} a{color:#888}</style></head>
+<body><h1>📬 Send Test → ${to}</h1>
+${steps.map(s=>`<div class="step ${s.ok?'ok':'fail'}"><span>${s.ok?'✅':'❌'}</span><div><div class="name">${s.name}</div>${s.detail?`<div class="detail">${s.detail}</div>`:''}</div></div>`).join('')}
+<div class="sum ${allOk?'ok-sum':'fail-sum'}">${allOk?'✅ Email sent — open it then check events link below':'❌ FAILED'}</div>
+<div class="box"><b>Lead ID:</b> ${leadId}<br><b>Campaign:</b> ${campId}<br>
+<b>Pixel URL:</b> <a href="${pixelUrl}" target="_blank">${pixelUrl}</a><br>
+<b>Check events after opening:</b> <a href="${checkUrl}" target="_blank">${checkUrl}</a></div>
+</body></html>`;
+    res.setHeader("Content-Type","text/html");
+    return res.status(allOk?200:500).send(outHtml);
+  }
+
   res.status(400).json({ error: "Invalid type" });
 };
