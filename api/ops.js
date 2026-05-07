@@ -567,29 +567,5 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
     }
   }
 
-  // One-time cleanup: remove test-session events written by Claude Code curl tests.
-  // DELETE after confirming cleanup ran successfully.
-  if (type === "purge-test-events" && req.query.key === "enginerds2026") {
-    try {
-      await ensureTable();
-      const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
-      const del1 = await sql`
-        DELETE FROM tracking_events
-        WHERE ip IN ('112.196.44.154','112.196.44.155')
-           OR user_agent LIKE '%Claude-User%'
-           OR user_agent LIKE '%WindowsPowerShell%'
-        RETURNING id, lead_id, ip
-      `;
-      // Decrement simple_tracking for affected leads
-      const affected = [...new Set(del1.map(r => r.lead_id))];
-      for (const lid of affected) {
-        await sql`UPDATE simple_tracking SET opens = GREATEST(0, opens - 1) WHERE lead_id = ${lid}`.catch(() => {});
-      }
-      return res.json({ ok: true, deleted: del1.length, leads: affected });
-    } catch(e) {
-      return res.status(500).json({ error: e.message });
-    }
-  }
-
   res.status(400).json({ error: "Invalid type" });
 };
