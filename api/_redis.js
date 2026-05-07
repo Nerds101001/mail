@@ -347,19 +347,14 @@ function isDeliveryPrefetchIp(ip) {
   return /^66\.249\./.test(ip);
 }
 
-// Other Google infrastructure IPs (74.125, 64.233, 209.85 etc.) are used when
-// the user actually opens in Gmail — bypass timing guard, count as real open.
+// Other Google infrastructure IPs (74.125, 64.233, 209.85 etc.) are used by Gmail's
+// Image Proxy which fires immediately upon delivery, NOT when user opens.
 // Apple MPP (17.x) and Microsoft SafeLinks (40.94, 40.107, 52.100) are also
-// user-triggered, so bypass the timing guard too.
+// proxy services that pre-fetch images.
+// ALL IPs should go through the timing guard to prevent false opens.
 function isUserProxyIp(ip) {
-  if (!ip || ip === 'unknown') return false;
-  return /^74\.125\./.test(ip)  || /^64\.233\./.test(ip)  ||
-         /^209\.85\./.test(ip)  || /^216\.58\./.test(ip)  ||
-         /^216\.239\./.test(ip) || /^142\.250\./.test(ip) ||
-         /^108\.177\./.test(ip) ||                          // Google infra
-         /^17\./.test(ip)       ||                          // Apple MPP
-         /^40\.94\./.test(ip)   || /^40\.107\./.test(ip)  ||
-         /^52\.100\./.test(ip);                             // Microsoft
+  // Disabled - all IPs now go through timing guard
+  return false;
 }
 
 function isScannerIp(ip) { return isDeliveryPrefetchIp(ip); }
@@ -398,9 +393,9 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
         hasAttachments = guardValue.includes(':attachments:');
         timingSinceGuard = now - sentAt;
         
-        if (timingSinceGuard < 5000) {
+        if (timingSinceGuard < 15000) {
           console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} (${Math.round(timingSinceGuard/1000)}s after send)`);
-          return { counted: false, reason: 'scanner guard (5s)', count: 0 };
+          return { counted: false, reason: 'scanner guard (15s)', count: 0 };
         }
       }
     }
