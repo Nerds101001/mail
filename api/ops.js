@@ -59,30 +59,6 @@ module.exports = async (req, res) => {
           if (!stats[id]) stats[id] = { opens: 0, clicks: 0, attachment_clicks: 0 };
         });
 
-        // Fallback: for leads showing 0 opens AND 0 clicks in tracking_events,
-        // check simple_tracking (cumulative). This recovers data for opens that
-        // were recorded in simple_tracking but missed tracking_events due to a
-        // DB connection issue during logEvent. May over-count for leads emailed
-        // in multiple campaigns, but prevents false-zero display.
-        const zeroLeads = leadIds.filter(id => stats[id].opens === 0 && stats[id].clicks === 0);
-        if (zeroLeads.length > 0) {
-          try {
-            const fallback = await sql`
-              SELECT lead_id, opens, clicks FROM simple_tracking
-              WHERE lead_id = ANY(${zeroLeads})
-            `;
-            fallback.forEach(r => {
-              const o = parseInt(r.opens) || 0;
-              const c = parseInt(r.clicks) || 0;
-              if (o > 0 || c > 0) {
-                stats[r.lead_id] = { opens: o, clicks: c, attachment_clicks: 0, _fallback: true };
-              }
-            });
-          } catch(fe) {
-            console.error('[TRACKING FALLBACK ERROR]', fe.message);
-          }
-        }
-
         return res.json(stats);
       }
 
@@ -586,6 +562,30 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       await del(`unsub:${email}`);
       console.log(`Re-subscribed: unsub:${email} cleared`);
       return res.json({ ok: true, email });
+    } catch(e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  // One-time cleanup: remove test-session events written by Claude Code curl tests.
+  // DELETE after confirming cleanup ran successfully.
+  if (type === "purge-test-events" && req.query.key === "enginerds2026") {
+    try {
+      await ensureTable();
+      const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+      const del1 = await sql`
+        DELETE FROM tracking_events
+        WHERE ip IN ('112.196.44.154','112.196.44.155')
+           OR user_agent LIKE '%Claude-User%'
+           OR user_agent LIKE '%WindowsPowerShell%'
+        RETURNING id, lead_id, ip
+      `;
+      // Decrement simple_tracking for affected leads
+      const affected = [...new Set(del1.map(r => r.lead_id))];
+      for (const lid of affected) {
+        await sql`UPDATE simple_tracking SET opens = GREATEST(0, opens - 1) WHERE lead_id = ${lid}`.catch(() => {});
+      }
+      return res.json({ ok: true, deleted: del1.length, leads: affected });
     } catch(e) {
       return res.status(500).json({ error: e.message });
     }

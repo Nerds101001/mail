@@ -338,20 +338,22 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       return { counted: false, reason: 'delivery pre-fetch IP', count: 0 };
     }
 
-    // ── Timing guard — unknown IPs only ──────────────────────────────────────
-    // User proxy IPs (74.125.x.x, Apple MPP, Microsoft etc.) bypass the guard —
-    // they only fire when the user actually opens, so count them directly.
-    // Unknown IPs get a 50s guard to catch any other scanners.
-    if (!isUserProxyIp(ip)) {
+    // ── Timing guard — ALL IPs (including Google/Apple/Microsoft user proxies) ─
+    // Gmail delivery pre-fetch can use BOTH 66.249.x.x AND 74.125.x.x ranges.
+    // Previously we bypassed the guard for 74.125.x.x assuming it was always the
+    // user opening, but delivery-time scanners also use that range and fire within
+    // 1-3s of send. A 15s window safely blocks all delivery-time hits regardless
+    // of IP, while allowing real opens (which fire after the user notices and opens).
+    {
       const guardRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
           AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
       `.catch(() => []);
       if (guardRaw.length > 0) {
         const sentAt = parseInt(guardRaw[0].value) || 0;
-        if (now - sentAt < 5000) {
-          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} (${Math.round((now-sentAt)/1000)}s after send)`);
-          return { counted: false, reason: 'scanner guard (5s)', count: 0 };
+        if (now - sentAt < 15000) {
+          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} IP:${ip} (${Math.round((now-sentAt)/1000)}s after send)`);
+          return { counted: false, reason: 'scanner guard (15s)', count: 0 };
         }
       }
     }

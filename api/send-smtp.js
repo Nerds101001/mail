@@ -86,7 +86,7 @@ module.exports = async (req, res) => {
     // sendMail resolves, and scanner proxies fire within milliseconds.
     // Writing AFTER send races against the proxy hitting the pixel before
     // the guard key is persisted, causing every send to show 1 false open.
-    await set(`email:guard:${leadId}`, String(Date.now()), 30).catch(() => {});
+    await set(`email:guard:${leadId}`, String(Date.now()), 60).catch(() => {});
 
     const info = await transporter.sendMail({
       from:    `"${senderName}" <${user}>`,
