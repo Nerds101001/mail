@@ -330,9 +330,12 @@ function isAttachmentScanRequest(userAgent, ip, timingSinceGuard) {
   const isAttachmentScanTiming = timingSinceGuard > 5000 && timingSinceGuard < 30000;
   
   // Additional indicators: very short user agent strings or generic ones
-  const isSuspiciousUA = userAgent.length < 20 || 
+  // But exclude legitimate test user agents
+  const isSuspiciousUA = (userAgent.length < 20 || 
                         /^Mozilla\/[0-9.]+$/.test(userAgent) ||
-                        /^curl|^wget|^python|^java/i.test(userAgent);
+                        /^curl|^wget|^python-requests|^java/i.test(userAgent)) &&
+                        !userAgent.includes('node') && // Allow Node.js requests
+                        !userAgent.includes('undici'); // Allow undici (Node.js fetch)
   
   return hasAttachmentScanUA || (isAttachmentScanTiming && isSuspiciousUA);
 }

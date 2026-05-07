@@ -35,7 +35,7 @@ async function runE2E(req, res) {
   } catch (e) { fail("Guard key write", e.message); return sendHtml(res, steps, startMs, APP_URL, "E2E"); }
 
   // Hit track over real HTTP
-  const openUrl = `${APP_URL}/api/track?type=open&id=${testId}&cid=${campId}`;
+  const openUrl = `${APP_URL}/api/tracking?type=open&id=${testId}&cid=${campId}`;
   try {
     const r = await fetch(openUrl, { redirect: "manual" });
     (r.status === 302 || r.status === 200)
@@ -68,7 +68,7 @@ async function runE2E(req, res) {
   } catch (e) { fail("Dedup check", e.message); }
 
   // Hit track click over real HTTP
-  const clickUrl = `${APP_URL}/api/track?type=click&id=${testId}&cid=${campId}&url=${encodeURIComponent(testUrl)}`;
+  const clickUrl = `${APP_URL}/api/tracking?type=click&id=${testId}&cid=${campId}&url=${encodeURIComponent(testUrl)}`;
   try {
     const r = await fetch(clickUrl, { redirect: "manual" });
     (r.status === 302 || r.status === 200)
