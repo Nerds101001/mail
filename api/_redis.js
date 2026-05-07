@@ -383,16 +383,18 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       RETURNING opens
     `;
     
-    // Log the event
-    await logEvent({
-      lead_id: leadId,
-      event_type: 'open',
-      ip,
-      user_agent: userAgent,
-      campaign_id: campaignId || null,
-      target_url: campaignId ? `campaign:${campaignId}` : null
-    });
-    
+    // Log the event — reuse existing sql connection to avoid extra connection overhead.
+    // logEvent() creates a new getDb() instance which can timeout under cold-start load.
+    try {
+      await sql`
+        INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, created_at)
+        VALUES (${leadId}, 'open', ${ip}, ${userAgent}, ${campaignId ? `campaign:${campaignId}` : null}, ${campaignId || null}, ${now})
+      `;
+      console.log(`✅ [EVENT LOGGED] open lead:${leadId} camp:${campaignId||'—'}`);
+    } catch (e) {
+      console.error(`❌ [EVENT LOG FAILED] open lead:${leadId} camp:${campaignId||'—'}:`, e.message, e.stack || '');
+    }
+
     const count = parseInt(rows[0].opens);
     console.log(`✅ [TRACK OPEN] Unique open counted for ${leadId}, total: ${count}`);
     
@@ -444,16 +446,17 @@ async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
       RETURNING clicks
     `;
     
-    // Log the event
-    await logEvent({
-      lead_id: leadId,
-      event_type: 'click',
-      ip,
-      user_agent: userAgent,
-      campaign_id: campaignId || null,
-      target_url: targetUrl
-    });
-    
+    // Log the event — reuse existing sql connection (same reason as trackOpen)
+    try {
+      await sql`
+        INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, created_at)
+        VALUES (${leadId}, 'click', ${ip}, ${userAgent}, ${targetUrl}, ${campaignId || null}, ${now})
+      `;
+      console.log(`✅ [EVENT LOGGED] click lead:${leadId} camp:${campaignId||'—'}`);
+    } catch (e) {
+      console.error(`❌ [EVENT LOG FAILED] click lead:${leadId} camp:${campaignId||'—'}:`, e.message, e.stack || '');
+    }
+
     const count = parseInt(rows[0].clicks);
     console.log(`✅ [TRACK CLICK] Unique click counted for ${leadId}, total: ${count}`);
     

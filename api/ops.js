@@ -48,16 +48,41 @@ module.exports = async (req, res) => {
           GROUP BY lead_id
         `;
         const stats = {};
-        rows.forEach(r => { 
-          stats[r.lead_id] = { 
-            opens: parseInt(r.opens)||0, 
+        rows.forEach(r => {
+          stats[r.lead_id] = {
+            opens: parseInt(r.opens)||0,
             clicks: parseInt(r.clicks)||0,
             attachment_clicks: parseInt(r.attachment_clicks)||0
-          }; 
+          };
         });
-        leadIds.forEach(id => { 
-          if (!stats[id]) stats[id] = { opens: 0, clicks: 0, attachment_clicks: 0 }; 
+        leadIds.forEach(id => {
+          if (!stats[id]) stats[id] = { opens: 0, clicks: 0, attachment_clicks: 0 };
         });
+
+        // Fallback: for leads showing 0 opens AND 0 clicks in tracking_events,
+        // check simple_tracking (cumulative). This recovers data for opens that
+        // were recorded in simple_tracking but missed tracking_events due to a
+        // DB connection issue during logEvent. May over-count for leads emailed
+        // in multiple campaigns, but prevents false-zero display.
+        const zeroLeads = leadIds.filter(id => stats[id].opens === 0 && stats[id].clicks === 0);
+        if (zeroLeads.length > 0) {
+          try {
+            const fallback = await sql`
+              SELECT lead_id, opens, clicks FROM simple_tracking
+              WHERE lead_id = ANY(${zeroLeads})
+            `;
+            fallback.forEach(r => {
+              const o = parseInt(r.opens) || 0;
+              const c = parseInt(r.clicks) || 0;
+              if (o > 0 || c > 0) {
+                stats[r.lead_id] = { opens: o, clicks: c, attachment_clicks: 0, _fallback: true };
+              }
+            });
+          } catch(fe) {
+            console.error('[TRACKING FALLBACK ERROR]', fe.message);
+          }
+        }
+
         return res.json(stats);
       }
 
