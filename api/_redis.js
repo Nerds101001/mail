@@ -338,13 +338,12 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       return { counted: false, reason: 'delivery pre-fetch IP', count: 0 };
     }
 
-    // ── Timing guard — ALL IPs (including Google/Apple/Microsoft user proxies) ─
-    // Gmail delivery pre-fetch can use BOTH 66.249.x.x AND 74.125.x.x ranges.
-    // Previously we bypassed the guard for 74.125.x.x assuming it was always the
-    // user opening, but delivery-time scanners also use that range and fire within
-    // 1-3s of send. A 15s window safely blocks all delivery-time hits regardless
-    // of IP, while allowing real opens (which fire after the user notices and opens).
-    {
+    // ── Timing guard — unknown IPs only ──────────────────────────────────────
+    // Gmail Image Proxy fires the pixel ONCE per email — at delivery via 66.249.x.x
+    // (blocked above) OR when the user actually opens via 74.125.x.x / other Google
+    // IPs. These user-proxy IPs only fire on a real open so they bypass the guard.
+    // Unknown IPs get a 15s guard to catch any other scanners.
+    if (!isUserProxyIp(ip)) {
       const guardRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
           AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
