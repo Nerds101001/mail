@@ -148,6 +148,24 @@ async function runUnit(req, res) {
     await del(`email:guard:${freshId}`);
   } catch (e) { fail("Scanner guard test", e.message); }
 
+  // Test: Gmail proxy IP (74.125.x.x) bypasses timing guard even when guard key is fresh
+  try {
+    const gmailTestId = `test_gmail_${startMs}`;
+    const gmailIp = "74.125.120.100"; // Real Google Image Proxy IP
+    const gmailUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 (via ggpht.com GoogleImageProxy)";
+    // Set guard key as if email was just sent RIGHT NOW (within 15s)
+    await set(`email:guard:${gmailTestId}`, String(Date.now()), 60);
+    const gmailOpen = await trackOpen(gmailTestId, gmailIp, gmailUa, campId);
+    gmailOpen.counted
+      ? pass("Gmail proxy bypass — 74.125.x.x counted despite fresh guard ✓", `count=${gmailOpen.count}`)
+      : fail("Gmail proxy bypass BROKEN — 74.125.x.x blocked by timing guard", `reason=${gmailOpen.reason}`);
+    // Cleanup
+    const sql2 = getDb();
+    await sql2`DELETE FROM tracking_events WHERE lead_id = ${gmailTestId}`;
+    await sql2`DELETE FROM simple_tracking  WHERE lead_id = ${gmailTestId}`;
+    await del(`email:guard:${gmailTestId}`);
+  } catch (e) { fail("Gmail proxy bypass test", e.message); }
+
   try {
     const sql = getDb();
     await sql`DELETE FROM tracking_events WHERE lead_id = ${testId} OR lead_id LIKE ${'test_guard_%'}`;
