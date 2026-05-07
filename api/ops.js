@@ -583,8 +583,13 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       const raw  = await get("crm:profiles");
       const profs = raw ? JSON.parse(raw) : [];
       smtpProfile = profs.find(p => p.type === "smtp" && p.active);
-      if (!smtpProfile)                             return res.status(400).json({ error: "No active SMTP profile found" });
-      if (!smtpProfile.pass && !smtpProfile.password) return res.status(400).json({ error: "SMTP profile has no password stored" });
+      if (!smtpProfile) return res.status(400).json({ error: "No active SMTP profile found" });
+      // Passwords are stored separately (stripped from crm:profiles for security)
+      if (!smtpProfile.pass && !smtpProfile.password) {
+        const storedPass = await get(`smtp:pass:${smtpProfile.id}`);
+        if (storedPass) smtpProfile.pass = storedPass;
+      }
+      if (!smtpProfile.pass && !smtpProfile.password) return res.status(400).json({ error: "SMTP password not found — open Settings, re-save your SMTP profile, then retry" });
       spass("SMTP profile loaded", `host=${smtpProfile.host} user=${smtpProfile.user}`);
     } catch(e) { return res.status(500).json({ error: "Failed to load profiles: " + e.message }); }
 

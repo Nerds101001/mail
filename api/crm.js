@@ -65,6 +65,17 @@ module.exports = async (req, res) => {
   // ── SAVE ALL ─────────────────────────────────────────────────────────
   if (type === "save" && req.method === "POST") {
     const { leads, profiles, settings, activity, clients, deals } = req.body;
+
+    // Store SMTP passwords separately so backend senders can use them
+    if (Array.isArray(profiles)) {
+      for (const p of profiles) {
+        if (p.type === "smtp" && p.id && (p.pass || p.password)) {
+          const { set: kvSet } = require("./_redis");
+          await kvSet(`smtp:pass:${p.id}`, p.pass || p.password).catch(() => {});
+        }
+      }
+    }
+
     await Promise.all([
       leads    !== undefined ? safeSet(ns("crm:leads",    userId), leads) : null,
       profiles !== undefined ? safeSet("crm:profiles", sanitizeProfiles(profiles)) : null, // shared
