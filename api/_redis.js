@@ -304,19 +304,26 @@ function isDeliveryPrefetchIp(ip) {
   return /^66\.249\./.test(ip);
 }
 
-// Other Google infrastructure IPs (74.125, 64.233, 209.85 etc.) are used when
-// the user actually opens in Gmail — bypass timing guard, count as real open.
-// Apple MPP (17.x) and Microsoft SafeLinks (40.94, 40.107, 52.100) are also
-// user-triggered, so bypass the timing guard too.
+// GoogleImageProxy UA = Gmail's image proxy fetching on behalf of the server
+// (delivery scan, pre-fetch, or spam check). The UA string is the same regardless
+// of whether the hit came from 66.249.x.x or 74.125.x.x — both are proxy fetches,
+// not the user's own browser. A real user open shows the recipient's actual browser
+// UA (Chrome, Safari, Outlook) — it does NOT contain "GoogleImageProxy".
+function isGoogleImageProxy(userAgent) {
+  if (!userAgent || userAgent === 'unknown') return false;
+  return /GoogleImageProxy/i.test(userAgent) ||
+         /ggpht\.com/i.test(userAgent) ||
+         /Googlebot-Image/i.test(userAgent);
+}
+
+// Apple MPP (17.x) and Microsoft SafeLinks (40.94, 40.107, 52.100) are
+// user-triggered proxies — they fire when the user opens, not at delivery.
+// These bypass the timing guard since there's no delivery pre-fetch from these.
 function isUserProxyIp(ip) {
   if (!ip || ip === 'unknown') return false;
-  return /^74\.125\./.test(ip)  || /^64\.233\./.test(ip)  ||
-         /^209\.85\./.test(ip)  || /^216\.58\./.test(ip)  ||
-         /^216\.239\./.test(ip) || /^142\.250\./.test(ip) ||
-         /^108\.177\./.test(ip) ||                          // Google infra
-         /^17\./.test(ip)       ||                          // Apple MPP
+  return /^17\./.test(ip)       ||                          // Apple MPP
          /^40\.94\./.test(ip)   || /^40\.107\./.test(ip)  ||
-         /^52\.100\./.test(ip);                             // Microsoft
+         /^52\.100\./.test(ip);                             // Microsoft SafeLinks
 }
 
 function isScannerIp(ip) { return isDeliveryPrefetchIp(ip); }
@@ -330,19 +337,18 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
     const now = Date.now();
     const oneHourAgo = now - (60 * 60 * 1000);
 
-    // ── Block delivery pre-fetch (66.249.x.x) outright ───────────────────────
-    // This IP range is Google's delivery-time scanner — fires within 1-5s of
-    // send and is always a false open. Block it completely.
-    if (isDeliveryPrefetchIp(ip)) {
-      console.log(`🛡️ [GUARD] Delivery pre-fetch blocked for lead ${leadId}: ${ip}`);
-      return { counted: false, reason: 'delivery pre-fetch IP', count: 0 };
+    // ── Block all Google Image Proxy requests ────────────────────────────────
+    // 66.249.x.x = delivery-time scanner. 74.125.x.x with GoogleImageProxy UA =
+    // also a proxy fetch, NOT the user's browser. Both are blocked here.
+    // A real user open shows the recipient's actual browser UA, not GoogleImageProxy.
+    if (isDeliveryPrefetchIp(ip) || isGoogleImageProxy(userAgent)) {
+      console.log(`🛡️ [GUARD] Google proxy blocked for lead ${leadId}: IP=${ip} UA=${userAgent?.slice(0,60)}`);
+      return { counted: false, reason: 'google image proxy', count: 0 };
     }
 
-    // ── Timing guard — unknown IPs only ──────────────────────────────────────
-    // Gmail Image Proxy fires the pixel ONCE per email — at delivery via 66.249.x.x
-    // (blocked above) OR when the user actually opens via 74.125.x.x / other Google
-    // IPs. These user-proxy IPs only fire on a real open so they bypass the guard.
-    // Unknown IPs get a 15s guard to catch any other scanners.
+    // ── Timing guard — non-user-proxy IPs only ────────────────────────────────
+    // Apple MPP and Microsoft SafeLinks bypass the guard (user-triggered, no
+    // delivery pre-fetch). Unknown IPs get a 15s guard to catch other scanners.
     if (!isUserProxyIp(ip)) {
       const guardRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
