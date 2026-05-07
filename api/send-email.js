@@ -65,8 +65,8 @@ async function getValidAccessToken(accountEmail = null) {
   return accessToken;
 }
 
-// ─── RFC 2822 builder with proper MIME multipart structure and file attachments ─────────────────
-function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, attachments = [] }) {
+// ─── RFC 2822 builder with proper MIME multipart structure ─────────────────
+function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl }) {
   const msgId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@enginerds.in>`;
   const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   
@@ -108,55 +108,39 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, a
     `Date: ${new Date().toUTCString()}`,
     `Message-ID: ${msgId}`,
     `MIME-Version: 1.0`,
-    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
     `List-Unsubscribe: <${unsubscribeUrl}>`,
     `List-Unsubscribe-Post: List-Unsubscribe=One-Click`,
     ``,
     `--${boundary}`,
-    `Content-Type: multipart/alternative; boundary="${boundary}_alt"`,
-    ``,
-    `--${boundary}_alt`,
     `Content-Type: text/plain; charset="UTF-8"`,
     `Content-Transfer-Encoding: 7bit`,
     ``,
     plainText,
     ``,
-    `--${boundary}_alt`,
+    `--${boundary}`,
     `Content-Type: text/html; charset="UTF-8"`,
     `Content-Transfer-Encoding: 8bit`,
     ``,
     wrappedHtml,
     ``,
-    `--${boundary}_alt--`
-  ];
-
-  // Add file attachments
-  for (const attachment of attachments) {
-    lines.push(
-      ``,
-      `--${boundary}`,
-      `Content-Type: ${attachment.contentType}; name="${attachment.originalName}"`,
-      `Content-Transfer-Encoding: base64`,
-      `Content-Disposition: attachment; filename="${attachment.originalName}"`,
-      ``,
-      attachment.base64Data
-    );
-  }
-
-  lines.push(``, `--${boundary}--`);
+    `--${boundary}--`
+  ].join("\r\n");
 
   // Gmail API requires the entire message to be base64url encoded
-  return Buffer.from(lines.join("\r\n"), 'utf-8').toString("base64")
+  return Buffer.from(lines, 'utf-8').toString("base64")
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 // ─── HTML body builder (improved deliverability) ─────────────────────────────────
 function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
   // Query-param tracking URLs — reliable across all Vercel rewrite configs.
+  // Path-based URLs (/api/track/open/id/cid) lost the path after Vercel rewrite;
+  // query params are passed through intact.
   const pixelParams = campaignId
-    ? `type=open&id=${leadId}&cid=${campaignId}`
-    : `type=open&id=${leadId}`;
-  const trackingPixelUrl = `${appUrl}/api/tracking?${pixelParams}`;
+    ? `id=${leadId}&cid=${campaignId}`
+    : `id=${leadId}`;
+  const trackingPixelUrl = `${appUrl}/api/track-open?${pixelParams}`;
 
   const paragraphs = plainText
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -166,9 +150,9 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
         /https?:\/\/[^\s<"&]+/g,
         (url) => {
           const clickParams = campaignId
-            ? `type=click&id=${leadId}&cid=${campaignId}&url=${encodeURIComponent(url)}`
-            : `type=click&id=${leadId}&url=${encodeURIComponent(url)}`;
-          return `<a href="${appUrl}/api/tracking?${clickParams}" style="color:#1a73e8;text-decoration:none;">${url}</a>`;
+            ? `id=${leadId}&cid=${campaignId}&url=${encodeURIComponent(url)}`
+            : `id=${leadId}&url=${encodeURIComponent(url)}`;
+          return `<a href="${appUrl}/api/track-click?${clickParams}" style="color:#1a73e8;text-decoration:none;">${url}</a>`;
         }
       )
       return `<p style="margin:0 0 14px 0;">${tracked}</p>`
@@ -202,7 +186,7 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { leadId, to, subject, body, senderName, replyTo, gmailUser, campaignId, attachments: attachmentIds = [] } = req.body;
+  const { leadId, to, subject, body, senderName, replyTo, gmailUser, campaignId } = req.body;
   const appUrl = process.env.APP_URL || "https://enginerdsmail.vercel.app";
 
   if (!leadId || !to || !subject || !body)
@@ -213,19 +197,6 @@ module.exports = async (req, res) => {
     if (isUnsub === "true")
       return res.status(200).json({ success: false, skipped: true, reason: "UNSUBSCRIBED" });
 
-    // Load file attachments if any
-    let fileAttachments = [];
-    if (attachmentIds.length > 0) {
-      try {
-        const attachmentsData = await get("attachments").then(data => data ? JSON.parse(data) : []).catch(() => []);
-        fileAttachments = attachmentsData.filter(att => attachmentIds.includes(att.id));
-        console.log(`📎 [EMAIL] Loading ${fileAttachments.length} attachments for ${to}`);
-      } catch (error) {
-        console.error(`❌ [EMAIL] Failed to load attachments:`, error.message);
-        // Continue without attachments rather than failing the send
-      }
-    }
-
     // Use per-account token if gmailUser specified (multi-Gmail round-robin)
     const accessToken  = await getValidAccessToken(gmailUser || null);
     const gmailAccount = gmailUser || await get("gmail:email");
@@ -233,24 +204,13 @@ module.exports = async (req, res) => {
     const from       = `${senderName || "Enginerds Tech"} <${gmailAccount}>`;
     const unsubUrl   = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}`;
     const htmlBody   = buildHtmlBody(body, leadId, to, appUrl, campaignId);
-    const raw        = buildEmailRaw({ 
-      from, 
-      replyTo: replyTo || gmailAccount, 
-      to, 
-      subject, 
-      htmlBody, 
-      unsubscribeUrl: unsubUrl,
-      attachments: fileAttachments
-    });
+    const raw        = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, unsubscribeUrl: unsubUrl });
 
     // Write scanner-guard BEFORE sending — Gmail delivers nearly instantly after
     // the API call returns, and the Image Proxy fires within milliseconds of
     // delivery. Writing AFTER send creates a race where the proxy hits the pixel
     // before the guard key exists in DB, causing every send to show 1 false open.
-    const guardValue = fileAttachments.length > 0 
-      ? `${Date.now()}:attachments:${fileAttachments.length}`
-      : String(Date.now());
-    await set(`email:guard:${leadId}`, guardValue, 30).catch(() => {});
+    await set(`email:guard:${leadId}`, String(Date.now()), 30).catch(() => {});
 
     const sendRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
       method: "POST",
@@ -261,7 +221,6 @@ module.exports = async (req, res) => {
     const result = await sendRes.json();
     if (result.error) throw new Error(result.error.message || "Gmail send failed");
 
-    console.log(`✅ [EMAIL] Sent to ${to} with ${fileAttachments.length} attachments`);
     res.json({ success: true, messageId: result.id });
   } catch (err) {
     console.error("send-email error:", err.message);
