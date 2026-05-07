@@ -11,6 +11,11 @@ async function getValidAccessToken(accountEmail = null) {
   if (Date.now() > expiresAt - 60000) { // Refresh 1 minute before expiry
     const refreshToken = await get(`gmail:refresh_token${suffix}`);
     if (!refreshToken) {
+      // No refresh token — if access token still valid, use it as-is
+      if (accessToken && Date.now() < expiresAt) {
+        console.log(`⚠️ [GMAIL TOKEN] No refresh token, using existing access token (expires in ${Math.round((expiresAt - Date.now())/1000)}s)`);
+        return accessToken;
+      }
       throw new Error("Gmail connection expired - please reconnect in Settings");
     }
 
