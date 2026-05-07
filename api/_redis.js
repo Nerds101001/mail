@@ -303,6 +303,21 @@ function isDeliveryPrefetchIp(ip) {
   return /^66\.249\./.test(ip);
 }
 
+// Other Google infrastructure IPs (74.125, 64.233, 209.85 etc.) are used when
+// the user actually opens in Gmail — bypass timing guard, count as real open.
+// Apple MPP (17.x) and Microsoft SafeLinks (40.94, 40.107, 52.100) are also
+// user-triggered, so bypass the timing guard too.
+function isUserProxyIp(ip) {
+  if (!ip || ip === 'unknown') return false;
+  return /^74\.125\./.test(ip)  || /^64\.233\./.test(ip)  ||
+         /^209\.85\./.test(ip)  || /^216\.58\./.test(ip)  ||
+         /^216\.239\./.test(ip) || /^142\.250\./.test(ip) ||
+         /^108\.177\./.test(ip) ||                          // Google infra
+         /^17\./.test(ip)       ||                          // Apple MPP
+         /^40\.94\./.test(ip)   || /^40\.107\./.test(ip)  ||
+         /^52\.100\./.test(ip);                             // Microsoft
+}
+
 function isScannerIp(ip) { return isDeliveryPrefetchIp(ip); }
 
 // Deduplicated tracking for opens (only count unique opens within 1 hour window)
@@ -312,21 +327,20 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
     const sql = getDb();
 
     const now = Date.now();
-    const oneHourAgo = now - (60 * 60 * 1000);
 
     // ── Block 66.249.x.x delivery pre-fetch outright ─────────────────────────
+    // This IP range is Google's delivery-time scanner — fires within 1-5s of
+    // send and is always a false open. Block it completely.
     if (isDeliveryPrefetchIp(ip)) {
       console.log(`🛡️ [GUARD] Delivery pre-fetch blocked for lead ${leadId}: ${ip}`);
       return { counted: false, reason: 'delivery pre-fetch IP', count: 0 };
     }
 
-    // ── Timing guard — ALL IPs ─────────────────────────────────────────────────
-    // Gmail uses GoogleImageProxy UA for BOTH delivery scans (66.249.x.x, blocked
-    // above) AND when user actually opens (74.125.x.x, fires ~60-120s after send).
-    // Blocking by UA kills all Gmail tracking. Blocking by IP kills all Google opens.
-    // Timing is the only reliable signal: delivery hits fire within 1-5s, real opens
-    // fire after the email has been seen by the user (typically >15s after send).
-    {
+    // ── Timing guard — unknown IPs only ──────────────────────────────────────
+    // User proxy IPs (74.125.x.x, Apple MPP, Microsoft etc.) bypass the guard —
+    // they only fire when the user actually opens, so count them directly.
+    // Unknown IPs get a 15s guard to catch any other scanners.
+    if (!isUserProxyIp(ip)) {
       const guardRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
           AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
