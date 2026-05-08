@@ -19,14 +19,14 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
           const clickParams = campaignId
             ? `id=${leadId}&cid=${campaignId}&url=${encodeURIComponent(url)}`
             : `id=${leadId}&url=${encodeURIComponent(url)}`;
-          return `<a href="${appUrl}/api/track-click?${clickParams}" style="color:#1a73e8;text-decoration:none;">${url}</a>`;
+          return `<a href="${appUrl}/api/tracking?type=click&${clickParams}" style="color:#1a73e8;text-decoration:none;">${url}</a>`;
         }
       )
       return `<p style="margin:0 0 14px 0;">${tracked}</p>`
     })
     .join('')
 
-  const trackingPixel = `<img src="${appUrl}/api/track-open?${pixelParams}" width="1" height="1" alt="" style="display:none;border:0;"/>`
+  const trackingPixel = `<img src="${appUrl}/api/tracking?type=open&${pixelParams}" width="1" height="1" alt="" style="display:none;border:0;"/>`
   const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`
 
   return `<!DOCTYPE html>
