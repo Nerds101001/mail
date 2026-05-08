@@ -3,6 +3,10 @@ const { get, set } = require("./_redis");
 
 // ─── Token refresh with better error handling ────────────────────────────────────
 async function getValidAccessToken(accountEmail = null) {
+  // If no specific account given, resolve from stored gmail:email
+  if (!accountEmail) {
+    accountEmail = await get("gmail:email") || null;
+  }
   // Support per-account keys for multi-Gmail setup
   const suffix = accountEmail ? `:${accountEmail.replace(/[^a-z0-9]/gi, '_')}` : '';
   const expiresAt = parseInt(await get(`gmail:expires_at${suffix}`) || "0");
