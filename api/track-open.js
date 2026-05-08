@@ -1,17 +1,5 @@
 // api/track-open.js
-//
-// Gmail Image Proxy caching behaviour (confirmed May 2026):
-//   1. Delivery scan  — 66.249.x.x hits our URL, Google caches the response
-//   2. User open      — Gmail serves the CACHED response; never hits us again
-//
-// Fix: return 404 to 66.249.x.x so Google marks the image as "failed" and
-// does NOT cache it. When the user actually opens, Gmail re-fetches from us
-// (via 74.125.x.x / user-proxy IPs) and we record the open.
-//
-// For the timing guard (non-Google IPs within 15s of send): return 204 so
-// the browser gets a valid response but we don't count it.
-
-const { trackOpen, isDeliveryPrefetchIp: _unused } = require("./_redis");
+const { trackOpen, logEvent, getDb, ensureTable } = require("./_redis");
 
 // 1×1 transparent GIF
 const PIXEL = Buffer.from(
@@ -28,6 +16,7 @@ module.exports = async (req, res) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
+  res.setHeader("Content-Type", "image/gif");
 
   const { id, cid } = req.query;
   const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
@@ -35,27 +24,33 @@ module.exports = async (req, res) => {
              || "unknown";
   const ua = req.headers["user-agent"] || "unknown";
 
-  console.log(`🔍 [OPEN] Lead:${id||'?'} Camp:${cid||'—'} IP:${ip} UA:${ua.slice(0, 80)}`);
+  console.log(`📥 [PIXEL HIT] Lead:${id||'?'} Camp:${cid||'—'} IP:${ip} UA:${ua.slice(0, 100)}`);
 
-  // ── Delivery pre-fetch: return 404 so Google does NOT cache the image ──
-  // Gmail will re-fetch when user opens, giving us a countable 74.125.x.x hit.
-  if (isDeliveryPrefetch(ip)) {
-    console.log(`🛡️ [OPEN] Delivery pre-fetch 404'd for lead ${id}: ${ip}`);
-    return res.status(404).end();
-  }
-
-  // ── All other requests: run tracking then serve pixel ─────────────────
   if (id) {
     try {
-      const result = await trackOpen(id, ip, ua, cid || null);
-      console.log(result.counted
-        ? `✅ [OPEN] Counted lead ${id}, total: ${result.count}`
-        : `⏭️  [OPEN] Skipped (${result.reason})`);
+      // Log ALL hits (including delivery scans) so we can see what Gmail sends us
+      await ensureTable();
+      const sql = getDb();
+      const eventType = isDeliveryPrefetch(ip) ? 'delivery_scan' : 'open';
+
+      if (isDeliveryPrefetch(ip)) {
+        // Record delivery scan separately — don't count as open
+        await sql`
+          INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, created_at)
+          VALUES (${id}, 'delivery_scan', ${ip}, ${ua}, ${'scan'}, ${cid || null}, ${Date.now()})
+        `.catch(e => console.error('delivery_scan log failed:', e.message));
+        console.log(`🚚 [DELIVERY SCAN] Logged (not counted) lead:${id} ip:${ip}`);
+      } else {
+        // Real hit — run full tracking logic
+        const result = await trackOpen(id, ip, ua, cid || null);
+        console.log(result.counted
+          ? `✅ [OPEN] Counted lead ${id} total:${result.count} ip:${ip}`
+          : `⏭️  [OPEN] Skipped lead ${id} reason:${result.reason} ip:${ip}`);
+      }
     } catch (e) {
       console.error(`❌ [OPEN] Lead ${id}:`, e.message);
     }
   }
 
-  res.setHeader("Content-Type", "image/gif");
   res.send(PIXEL);
 };
