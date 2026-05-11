@@ -382,17 +382,18 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
             last_open = ${now}
       RETURNING opens
     `;
-    
-    // Log the event
-    await logEvent({
-      lead_id: leadId,
-      event_type: 'open',
-      ip,
-      user_agent: userAgent,
-      campaign_id: campaignId || null,
-      target_url: campaignId ? `campaign:${campaignId}` : null
-    });
-    
+
+    // Log event inline — reuse existing sql connection to avoid cold-start timeout
+    try {
+      await sql`
+        INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, created_at)
+        VALUES (${leadId}, 'open', ${ip}, ${userAgent}, ${campaignId ? `campaign:${campaignId}` : null}, ${campaignId || null}, ${now})
+      `;
+      console.log(`✅ [EVENT LOGGED] OPEN lead:${leadId} camp:${campaignId || '—'}`);
+    } catch (e) {
+      console.error(`❌ [EVENT LOG FAILED] open lead:${leadId}:`, e.message);
+    }
+
     const count = parseInt(rows[0].opens);
     console.log(`✅ [TRACK OPEN] Unique open counted for ${leadId}, total: ${count}`);
     
@@ -443,17 +444,18 @@ async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
             last_click = ${now}
       RETURNING clicks
     `;
-    
-    // Log the event
-    await logEvent({
-      lead_id: leadId,
-      event_type: 'click',
-      ip,
-      user_agent: userAgent,
-      campaign_id: campaignId || null,
-      target_url: targetUrl
-    });
-    
+
+    // Log event inline — reuse existing sql connection to avoid cold-start timeout
+    try {
+      await sql`
+        INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, created_at)
+        VALUES (${leadId}, 'click', ${ip}, ${userAgent}, ${targetUrl}, ${campaignId || null}, ${now})
+      `;
+      console.log(`✅ [EVENT LOGGED] CLICK lead:${leadId} camp:${campaignId || '—'}`);
+    } catch (e) {
+      console.error(`❌ [EVENT LOG FAILED] click lead:${leadId}:`, e.message);
+    }
+
     const count = parseInt(rows[0].clicks);
     console.log(`✅ [TRACK CLICK] Unique click counted for ${leadId}, total: ${count}`);
     
