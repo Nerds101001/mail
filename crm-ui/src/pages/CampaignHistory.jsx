@@ -113,7 +113,7 @@ export default function CampaignHistory() {
     setModalTab('body')
     setModalEventsLoading(true)
     try {
-      const res = await fetch(`/api/ops?type=events&leadId=${l.lead_id}`)
+      const res = await fetch(`/api/ops?type=events&leadId=${l.lead_id}${expanded ? `&campaignId=${expanded}` : ''}`)
       if (res.ok) { const d = await res.json(); setModalEvents(d.events || []) }
     } catch(e) {}
     setModalEventsLoading(false)
