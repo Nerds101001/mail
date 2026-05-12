@@ -56,8 +56,8 @@ module.exports = async (req, res) => {
       safeGet(ns("crm:deals", userId), []),
       get("crm:apikey").catch(() => null),
     ]);
-    // Profiles are shared (global)
-    const profiles = await safeGet("crm:profiles", []);
+    // Profiles are per-user (each user has their own email credentials)
+    const profiles = await safeGet(ns("crm:profiles", userId), []);
     const mergedSettings = apikey ? { ...settings, openaiKey: apikey } : settings;
 
     // ── Auto-sync pipeline stages from tracking data ───────────────────
@@ -111,7 +111,7 @@ module.exports = async (req, res) => {
     const { leads, profiles, settings, activity, clients, deals } = req.body;
     await Promise.all([
       leads    !== undefined ? safeSet(ns("crm:leads",    userId), leads) : null,
-      profiles !== undefined ? safeSet("crm:profiles", sanitizeProfiles(profiles)) : null, // shared
+      profiles !== undefined ? safeSet(ns("crm:profiles", userId), sanitizeProfiles(profiles)) : null, // per-user
       settings !== undefined ? safeSet("crm:settings", (({openaiKey,...s})=>s)(settings||{})) : null,
       settings?.openaiKey    ? safeSet("crm:apikey", settings.openaiKey) : null,
       activity !== undefined ? safeSet(ns("crm:activity", userId), activity) : null,
