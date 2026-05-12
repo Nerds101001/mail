@@ -19,12 +19,31 @@ async function safeGet(key, fallback) {
   try { const v = await get(key); return v ? JSON.parse(v) : fallback; } catch(e) { return fallback; }
 }
 
+async function getUserIdFromToken(token) {
+  if (!token) return "admin";
+  if (/^sess_\d+_[a-z0-9]+$/.test(token) && token.length < 40) return "admin";
+  try {
+    const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+    const rows = await sql`SELECT user_id FROM sessions WHERE token = ${token} AND expires_at > ${Date.now()} LIMIT 1`;
+    return rows[0]?.user_id || "admin";
+  } catch { return "admin"; }
+}
+
+function ns(key, userId) {
+  if (!userId || userId === "admin") return key;
+  return `${key}:${userId}`;
+}
+
 function daysDiff(d)  { if(!d) return null; return Math.ceil((new Date(d)-Date.now())/86400000); }
 function daysSince(d) { if(!d) return null; return Math.floor((Date.now()-new Date(d))/86400000); }
 
 module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   const { type, ids, leadId } = req.query;
+
+  // Resolve calling user from Authorization header or token query param
+  const token = req.headers.authorization?.replace("Bearer ", "") || req.query.token;
+  const userId = await getUserIdFromToken(token);
 
   // ── TRACKING STATS ─────────────────────────────────────────────────────
   // With campaignId: per-campaign counts from tracking_events (accurate)
@@ -158,37 +177,47 @@ module.exports = async (req, res) => {
   // ── DAILY TASKS ───────────────────────────────────────────────────────
   if (type === "tasks") {
     const [leads, clients, deals] = await Promise.all([
-      safeGet("crm:leads",[]), safeGet("crm:clients",[]), safeGet("crm:deals",[]),
+      safeGet(ns("crm:leads",   userId), []),
+      safeGet(ns("crm:clients", userId), []),
+      safeGet(ns("crm:deals",   userId), []),
     ]);
     const tasks = [];
     const today = new Date().toDateString();
 
-    leads.filter(l=>(l.opens>=2||l.clicks>=1)&&!["REPLIED","WON","LOST","UNSUBSCRIBED"].includes(l.pipelineStage))
-      .forEach(l=>tasks.push({priority:"HIGH",type:"CALL",icon:"🔥",title:`Call hot lead: ${l.name}`,detail:`${l.company||l.email} — ${l.opens||0} opens, ${l.clicks||0} clicks`,email:l.email,name:l.name}));
+    // Hot leads: use pipelineStage (synced from tracking on CRM load — reliable)
+    leads.filter(l => l.pipelineStage === "HOT" && !["REPLIED","WON","LOST","UNSUBSCRIBED"].includes(l.pipelineStage))
+      .forEach(l => tasks.push({ priority:"HIGH", type:"CALL", icon:"🔥", title:`Call hot lead: ${l.name}`, detail:`${l.company||l.email} — pipeline stage: HOT`, email:l.email, name:l.name }));
 
-    leads.filter(l=>l.status==="SENT"&&daysSince(l.lastSent)>=2)
-      .forEach(l=>tasks.push({priority:"MEDIUM",type:"FOLLOWUP",icon:"📧",title:`Follow up: ${l.name}`,detail:`Sent ${daysSince(l.lastSent)} days ago`,email:l.email,name:l.name}));
+    // Follow-ups: sent 2+ days ago, no reply
+    leads.filter(l => l.status === "SENT" && daysSince(l.lastSent) >= 2)
+      .forEach(l => tasks.push({ priority:"MEDIUM", type:"FOLLOWUP", icon:"📧", title:`Follow up: ${l.name}`, detail:`Sent ${daysSince(l.lastSent)} days ago — no reply yet`, email:l.email, name:l.name }));
 
-    deals.filter(d=>d.type==="DEMO"&&d.demoDate&&new Date(d.demoDate).toDateString()===today)
-      .forEach(d=>tasks.push({priority:"HIGH",type:"DEMO",icon:"📞",title:`Demo today: ${d.clientName||d.leadName}`,detail:`${d.demoTime||"Time TBD"}`,name:d.clientName||d.leadName}));
+    // Demos today
+    deals.filter(d => d.type === "DEMO" && d.demoDate && new Date(d.demoDate).toDateString() === today)
+      .forEach(d => tasks.push({ priority:"HIGH", type:"DEMO", icon:"📞", title:`Demo today: ${d.clientName||d.leadName}`, detail:`${d.demoTime||"Time TBD"}`, name:d.clientName||d.leadName }));
 
-    clients.filter(c=>c.renewalDate&&daysDiff(c.renewalDate)!==null&&daysDiff(c.renewalDate)<=30&&daysDiff(c.renewalDate)>=0)
-      .forEach(c=>tasks.push({priority:daysDiff(c.renewalDate)<=7?"HIGH":"MEDIUM",type:"RENEWAL",icon:"🔄",title:`Renewal due: ${c.name}`,detail:`${c.software||""} — ${daysDiff(c.renewalDate)} days left`,email:c.email,name:c.name}));
+    // Renewals coming up
+    clients.filter(c => c.renewalDate && daysDiff(c.renewalDate) !== null && daysDiff(c.renewalDate) <= 30 && daysDiff(c.renewalDate) >= 0)
+      .forEach(c => tasks.push({ priority: daysDiff(c.renewalDate) <= 7 ? "HIGH" : "MEDIUM", type:"RENEWAL", icon:"🔄", title:`Renewal due: ${c.name}`, detail:`${c.software||""} — ${daysDiff(c.renewalDate)} days left`, email:c.email, name:c.name }));
 
-    clients.filter(c=>c.paymentStatus==="OVERDUE")
-      .forEach(c=>tasks.push({priority:"HIGH",type:"PAYMENT",icon:"💰",title:`Overdue payment: ${c.name}`,detail:`${c.software||""} — ₹${c.amount||0}`,email:c.email,name:c.name}));
+    // Overdue payments
+    clients.filter(c => c.paymentStatus === "OVERDUE")
+      .forEach(c => tasks.push({ priority:"HIGH", type:"PAYMENT", icon:"💰", title:`Overdue payment: ${c.name}`, detail:`${c.software||""} — ₹${c.amount||0}`, email:c.email, name:c.name }));
 
-    tasks.sort((a,b)=>({HIGH:0,MEDIUM:1,LOW:2}[a.priority]-{HIGH:0,MEDIUM:1,LOW:2}[b.priority]));
-    return res.json({ tasks, generatedAt: new Date().toISOString(), counts:{total:tasks.length,high:tasks.filter(t=>t.priority==="HIGH").length} });
+    tasks.sort((a,b) => ({HIGH:0,MEDIUM:1,LOW:2}[a.priority] - {HIGH:0,MEDIUM:1,LOW:2}[b.priority]));
+    return res.json({ tasks, generatedAt: new Date().toISOString(), counts:{ total:tasks.length, high:tasks.filter(t=>t.priority==="HIGH").length } });
   }
 
   // ── SEND REMINDER ─────────────────────────────────────────────────────
   if (type === "reminder") {
     const [leads, clients, deals, profiles] = await Promise.all([
-      safeGet("crm:leads",[]), safeGet("crm:clients",[]), safeGet("crm:deals",[]), safeGet("crm:profiles",[]),
+      safeGet(ns("crm:leads",    userId), []),
+      safeGet(ns("crm:clients",  userId), []),
+      safeGet(ns("crm:deals",    userId), []),
+      safeGet(ns("crm:profiles", userId), []),
     ]);
     const today = new Date().toDateString();
-    const hotLeads      = leads.filter(l=>(l.opens>=2||l.clicks>=1)&&!["WON","LOST","UNSUBSCRIBED"].includes(l.pipelineStage));
+    const hotLeads = leads.filter(l => l.pipelineStage === "HOT" && !["WON","LOST","UNSUBSCRIBED"].includes(l.pipelineStage));
     const followups     = leads.filter(l=>l.status==="SENT"&&daysSince(l.lastSent)>=2);
     const demosToday    = deals.filter(d=>d.type==="DEMO"&&d.demoDate&&new Date(d.demoDate).toDateString()===today);
     const renewalsSoon  = clients.filter(c=>c.renewalDate&&daysDiff(c.renewalDate)!==null&&daysDiff(c.renewalDate)<=30&&daysDiff(c.renewalDate)>=0);

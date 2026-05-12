@@ -13,10 +13,12 @@ export default function Tasks() {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
 
+  const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
+
   async function load() {
     setLoading(true)
     try {
-      const res = await fetch('/api/tasks')
+      const res = await fetch('/api/ops?type=tasks', { headers: authHeader() })
       const data = await res.json()
       setTasks(data.tasks || [])
     } catch(e) { toast('Could not load tasks', 'error') }
@@ -26,9 +28,9 @@ export default function Tasks() {
   async function sendDigest() {
     setSending(true)
     try {
-      const res = await fetch('/api/send-reminder')
+      const res = await fetch('/api/ops?type=reminder', { headers: authHeader() })
       const data = await res.json()
-      if (data.ok) toast('Daily digest sent to contact@enginerds.in ✓', 'success')
+      if (data.ok) toast('Daily digest sent ✓', 'success')
       else toast('Could not send: ' + (data.reason || data.error), 'error')
     } catch(e) { toast('Send failed', 'error') }
     setSending(false)

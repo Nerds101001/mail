@@ -13,19 +13,24 @@ export default function Dashboard() {
 
   const sent    = leads.filter(l => ['SENT','REPLIED','FOLLOW-UP'].includes(l.status)).length
   const replied = leads.filter(l => l.status === 'REPLIED').length
-  const hot     = leads.filter(l => (l.opens >= 2 || l.clicks >= 1) && !['WON','LOST','UNSUBSCRIBED'].includes(l.pipelineStage)).length
+  const hot     = leads.filter(l => l.pipelineStage === 'HOT' && !['WON','LOST','UNSUBSCRIBED'].includes(l.pipelineStage)).length
   const renewalsSoon = clients.filter(c => { const d = daysDiff(c.renewalDate); return d !== null && d >= 0 && d <= 30 }).length
   const overdue = clients.filter(c => c.paymentStatus === 'OVERDUE').length
   const revenue = clients.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0)
 
+  const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
+
   useEffect(() => {
-    fetch('/api/tasks').then(r => r.json()).then(d => { setTasks(d.tasks || []); setLoadingTasks(false) }).catch(() => setLoadingTasks(false))
+    fetch('/api/ops?type=tasks', { headers: authHeader() })
+      .then(r => r.json())
+      .then(d => { setTasks(d.tasks || []); setLoadingTasks(false) })
+      .catch(() => setLoadingTasks(false))
   }, [])
 
   async function sendDigest() {
-    const res = await fetch('/api/send-reminder')
+    const res = await fetch('/api/ops?type=reminder', { headers: authHeader() })
     const d = await res.json()
-    if (d.ok) alert('Daily digest sent to contact@enginerds.in ✓')
+    if (d.ok) alert('Daily digest sent ✓')
     else alert('Could not send: ' + (d.reason || d.error))
   }
 
@@ -56,7 +61,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-bold text-slate-900">Today's Priority Tasks</h2>
             <div className="flex gap-2">
-              <Btn variant="ghost" size="sm" onClick={() => fetch('/api/tasks').then(r=>r.json()).then(d=>setTasks(d.tasks||[]))}>
+              <Btn variant="ghost" size="sm" onClick={() => fetch('/api/ops?type=tasks', { headers: authHeader() }).then(r=>r.json()).then(d=>setTasks(d.tasks||[]))}>
                 <RefreshCw size={13} />
               </Btn>
               <Btn variant="secondary" size="sm" onClick={sendDigest}><Mail size={13} /> Digest</Btn>
