@@ -135,5 +135,71 @@ module.exports = async (req, res) => {
     }
   }
 
+  // ── UPLOAD FROM URL ──────────────────────────────────────────────────────────
+  // Body: { url: string, label: string }
+  // Downloads the file server-side (supports Google Drive / Dropbox / direct URLs)
+  // and stores it as base64 in Postgres — same schema as the direct upload endpoint.
+  if (type === "upload-url" && req.method === "POST") {
+    const { url, label } = req.body || {};
+    if (!url || !label) return res.status(400).json({ error: "url and label are required" });
+
+    try {
+      // Convert Google Drive sharing link → direct download URL
+      let downloadUrl = url;
+      if (url.includes("drive.google.com/file/d/")) {
+        const fileId = url.match(/\/file\/d\/([a-zA-Z0-9-_]+)/)?.[1];
+        if (fileId) {
+          downloadUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+          console.log(`📎 [ATTACH URL] Converted Drive URL → ${downloadUrl}`);
+        }
+      }
+
+      console.log(`📎 [ATTACH URL] Downloading: ${downloadUrl}`);
+      const response = await fetch(downloadUrl);
+      if (!response.ok) throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+
+      const contentType   = response.headers.get("content-type") || "application/octet-stream";
+      const buffer        = await response.arrayBuffer();
+      const maxSize       = 10 * 1024 * 1024; // 10 MB
+      if (buffer.byteLength > maxSize)
+        throw new Error(`File too large: ${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB (max 10 MB)`);
+
+      // Determine a sensible original filename
+      let originalName = label;
+      const cd = response.headers.get("content-disposition");
+      if (cd && cd.includes("filename=")) {
+        const m = cd.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        if (m?.[1]) originalName = m[1].replace(/['"]/g, "");
+      } else {
+        try {
+          const pathPart = new URL(downloadUrl).pathname.split("/").pop();
+          if (pathPart && pathPart.includes(".")) originalName = decodeURIComponent(pathPart);
+        } catch {}
+        if (!originalName.includes(".")) {
+          const ext = (contentType.split("/")[1] || "bin").split(";")[0].trim();
+          originalName = `${label.replace(/[^a-zA-Z0-9]/g, "_")}.${ext}`;
+        }
+      }
+
+      const attId    = `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const b64data  = Buffer.from(buffer).toString("base64");
+
+      const sql = await getDb();
+      await sql`
+        INSERT INTO attachments (id, label, original_name, content_type, size, data, uploaded_at)
+        VALUES (
+          ${attId}, ${label}, ${originalName}, ${contentType},
+          ${buffer.byteLength}, ${b64data}, ${Date.now()}
+        )
+      `;
+
+      console.log(`✅ [ATTACH URL] Stored: "${label}" / ${originalName} (${Math.round(buffer.byteLength / 1024)} KB) id=${attId}`);
+      return res.json({ ok: true, id: attId, label, originalName, size: buffer.byteLength, contentType });
+    } catch (e) {
+      console.error("❌ [ATTACH URL]", e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
   res.status(400).json({ error: "Invalid type or method" });
 };

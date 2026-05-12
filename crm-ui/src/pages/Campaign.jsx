@@ -2,12 +2,15 @@ import { useState, useRef, useEffect } from 'react'
 import { useCRM } from '../store'
 import { Btn, Card, PageHeader, toast } from '../components/ui'
 import RichEditor, { htmlToPlain } from '../components/RichEditor'
-import { Play, Zap, RefreshCw, ChevronLeft, ChevronRight, Plus, X, Calendar, Paperclip, Upload, Check } from 'lucide-react'
+import { Play, Zap, RefreshCw, ChevronLeft, ChevronRight, Plus, X, Calendar } from 'lucide-react'
 
 export default function Campaign() {
   const { leads, setLeads, profiles, settings, logActivity } = useCRM()
   const [mode, setMode]       = useState('ai')
   const [cfg, setCfg]         = useState({ batch:30, rate:2, target:'valid', filterVal:'', sender:'Pawan Kumar - Enginerds Tech Solution', replyTo:'contact@enginerds.in' })
+
+  // Get unique groups for dropdown
+  const uniqueGroups = [...new Set(leads.map(l => l.group).filter(Boolean))].sort()
 
   // Campaign Brief — the AI brain context
   const [brief, setBrief] = useState({
@@ -24,60 +27,88 @@ export default function Campaign() {
   const [variantIdx, setVariantIdx]     = useState(0)
   const [customSubj, setCustomSubj]     = useState('')
   const [customBody, setCustomBody]     = useState('')
-  // Stored-attachment picker
-  const [storedAttachments, setStoredAttachments] = useState([])   // all files on server
-  const [selectedAttIds, setSelectedAttIds]       = useState(new Set()) // selected IDs
-  const [attLoading, setAttLoading]               = useState(false)
-  const [attUploading, setAttUploading]           = useState(false)
-  const attFileRef = useRef(null)
+
+  // Link attachments (legacy — appear as plain text in email body)
+  const [attachments, setAttachments]   = useState([{ type:'link', label:'', url:'' }])
+
+  // File attachments (stored on server — appear as tracked download links)
+  const [fileAttachments, setFileAttachments]       = useState([])
+  const [selectedAttachments, setSelectedAttachments] = useState([])
+  const [attachmentLoading, setAttachmentLoading]   = useState(false)
+
   const [running, setRunning]           = useState(false)
   const [progress, setProgress]         = useState(0)
   const [status, setStatus]             = useState('Ready to launch')
   const [log, setLog]                   = useState([])
   const [genLoading, setGenLoading]                   = useState(false)
-  const [delivScore, setDelivScore]                   = useState(null) // { score, rating, checks }
+  const [delivScore, setDelivScore]                   = useState(null)
   const [delivLoading, setDelivLoading]               = useState(false)
   const [campaignName, setCampaignName]               = useState(`Campaign ${new Date().toLocaleDateString('en-GB')}`)
   const [usePersonalization, setUsePersonalization]   = useState(false)
   const bodyRef = useRef(null)
 
-  // Load stored attachments on mount
-  useEffect(() => { loadStoredAttachments() }, [])
+  // Load file attachments on component mount
+  useEffect(() => {
+    loadFileAttachments()
+  }, [])
 
-  async function loadStoredAttachments() {
-    setAttLoading(true)
+  async function loadFileAttachments() {
     try {
       const res = await fetch('/api/attachments?type=list')
-      if (res.ok) { const d = await res.json(); setStoredAttachments(d.attachments || []) }
-    } catch(e) {}
-    setAttLoading(false)
+      const data = await res.json()
+      setFileAttachments(data.attachments || [])
+    } catch (error) {
+      console.error('Failed to load attachments:', error)
+    }
   }
 
-  async function uploadAndSelectFile(file) {
-    if (file.size > 4 * 1024 * 1024) { toast(`${file.name}: max 4 MB`, 'error'); return }
-    setAttUploading(true)
+  async function uploadAttachmentFromUrl(url, label) {
+    if (!url || !label) {
+      toast('Please provide both URL and label', 'error')
+      return
+    }
+
+    setAttachmentLoading(true)
     try {
-      const data = await new Promise((resolve, reject) => {
-        const r = new FileReader()
-        r.onload  = () => resolve(r.result.split(',')[1])
-        r.onerror = reject
-        r.readAsDataURL(file)
+      const res = await fetch('/api/attachments?type=upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, label })
       })
-      const res = await fetch('/api/attachments?type=upload', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: file.name, contentType: file.type, size: file.size, data })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+
+      toast(`Attachment "${label}" uploaded successfully`, 'success')
+      await loadFileAttachments()
+
+    } catch (error) {
+      toast(`Upload failed: ${error.message}`, 'error')
+    }
+    setAttachmentLoading(false)
+  }
+
+  async function deleteFileAttachment(attachmentId) {
+    if (!confirm('Delete this attachment?')) return
+
+    try {
+      const res = await fetch(`/api/attachments?id=${attachmentId}`, {
+        method: 'DELETE'
       })
-      if (!res.ok) throw new Error((await res.json()).error || 'Upload failed')
-      const { id } = await res.json()
-      await loadStoredAttachments()
-      setSelectedAttIds(prev => new Set([...prev, id]))
-      toast(`${file.name} uploaded & selected ✓`, 'success')
-    } catch(e) { toast(`Upload failed: ${e.message}`, 'error') }
-    setAttUploading(false)
+
+      if (!res.ok) throw new Error('Delete failed')
+
+      toast('Attachment deleted', 'success')
+      setSelectedAttachments(prev => prev.filter(id => id !== attachmentId))
+      await loadFileAttachments()
+
+    } catch (error) {
+      toast(`Delete failed: ${error.message}`, 'error')
+    }
   }
 
   // Follow-up mode — detect ?followup=campId in URL
-  const [followupIds, setFollowupIds] = useState(null) // Set of lead IDs to target
+  const [followupIds, setFollowupIds] = useState(null)
   const [followupInfo, setFollowupInfo] = useState('')
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search)
@@ -106,7 +137,6 @@ export default function Campaign() {
   const currentVariant = variants[variantIdx] || { subject: 'Subject will appear here', body: 'Fill the Campaign Brief and click Generate Variants...' }
 
   function getTargets() {
-    // Follow-up mode overrides the target filter
     if (followupIds) return leads.filter(l => followupIds.has(l.id))
     const fv = cfg.filterVal.trim().toLowerCase()
     if (cfg.target === 'all')      return leads.slice()
@@ -115,7 +145,14 @@ export default function Campaign() {
     if (cfg.target === 'hot')      return leads.filter(l => l.pipelineStage === 'HOT' || (l.opens >= 2 || l.clicks >= 1))
     if (cfg.target === 'category') return leads.filter(l => (l.category||'').toLowerCase() === fv)
     if (cfg.target === 'tag')      return leads.filter(l => (l.tags||[]).some(t => t.toLowerCase() === fv))
+    if (cfg.target === 'group')    return leads.filter(l => (l.group||'').toLowerCase() === fv)
     return []
+  }
+
+  function buildAttachmentText() {
+    const linkAttachments = attachments.filter(a => a.url && a.label)
+    if (linkAttachments.length === 0) return ''
+    return '\n\n' + linkAttachments.map(a => `📎 ${a.label}: ${a.url}`).join('\n')
   }
 
   async function getContent(lead, variantPool, index = 0) {
@@ -125,14 +162,10 @@ export default function Campaign() {
       .replace(/\[Role\]/gi,    lead.role    || '')
       .replace(/their company/gi, lead.company || 'your company')
 
-    // Inject lead notes into variant body — no API call per lead.
-    // Variants are the frame; notes are a personalization hook injected
-    // after the greeting line so every email feels researched.
     function injectNotes(body, lead) {
-      if (!usePersonalization) return body  // OFF = pure variant rotation
+      if (!usePersonalization) return body
       if (!lead.notes || !lead.notes.trim()) return body
       const hook = `Given that ${lead.company || 'your company'} ${lead.notes.trim().replace(/^(is |are |has |have )/i, '')},`
-      // Replace "Hi [Name],\n\n" with "Hi [Name],\n\n{hook} " prefix on first sentence
       return body.replace(
         /^(Hi [^\n,]+,\n\n)/i,
         `$1${hook} `
@@ -140,15 +173,15 @@ export default function Campaign() {
     }
 
     if (mode === 'custom') {
-      return { subject: sub(customSubj), body: injectNotes(sub(customBody), lead) }
+      return { subject: sub(customSubj), body: injectNotes(sub(customBody), lead) + buildAttachmentText() }
     }
     if (variantPool && variantPool.length > 0) {
       const v = variantPool[index % variantPool.length]
-      return { subject: sub(v.subject), body: injectNotes(sub(v.body), lead) }
+      return { subject: sub(v.subject), body: injectNotes(sub(v.body), lead) + buildAttachmentText() }
     }
     return {
       subject: `Question for ${lead.company || 'your business'}`,
-      body: injectNotes(`Hi ${lead.name},\n\nI noticed ${lead.company||'your business'} and thought we could help with your tech operations.\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`, lead)
+      body: injectNotes(`Hi ${lead.name},\n\nI noticed ${lead.company||'your business'} and thought we could help with your tech operations.\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`, lead) + buildAttachmentText()
     }
   }
 
@@ -203,11 +236,20 @@ export default function Campaign() {
   async function sendOne(lead, subject, body, profile, campaignId) {
     try {
       const endpoint = profile.type === 'gmail' ? '/api/send-email' : '/api/send-smtp'
-      // Build attachment metadata list for selected attachments
-      const selectedAtts = storedAttachments
-        .filter(a => selectedAttIds.has(a.id))
-        .map(a => ({ id: a.id, name: a.original_name }))
-      const payload = { leadId:lead.id, to:lead.email, subject, body, senderName:cfg.sender, replyTo:cfg.replyTo, campaignId, attachments: selectedAtts }
+      // Build {id, name} objects from selected attachment IDs
+      const selectedAtts = fileAttachments
+        .filter(a => selectedAttachments.includes(a.id))
+        .map(a => ({ id: a.id, name: a.label }))
+      const payload = {
+        leadId: lead.id,
+        to: lead.email,
+        subject,
+        body,
+        senderName: cfg.sender,
+        replyTo: cfg.replyTo,
+        campaignId,
+        attachments: selectedAtts
+      }
       if (profile.type === 'smtp') payload.smtpConfig = profile
       if (profile.type === 'gmail') payload.gmailUser = profile.user
       const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
@@ -228,7 +270,6 @@ export default function Campaign() {
     const targets = getTargets().slice(0, cfg.batch)
     if (!senderProfiles.length || !targets.length) { toast('Missing senders or leads', 'error'); return }
 
-    // ── Pre-flight: spam/content check ──────────────────────────────────
     const checkSubject = mode === 'custom' ? customSubj : (currentVariant.subject || '')
     const checkBody    = mode === 'custom' ? customBody  : (currentVariant.body    || '')
     if (checkSubject || checkBody) {
@@ -248,7 +289,7 @@ export default function Campaign() {
           const ok = window.confirm(`⚠ Deliverability score is ${ds.score}/10.\n\nIssues:\n${failed.map(c=>'• '+c.label).join('\n')}\n\nSend anyway?`)
           if (!ok) return
         }
-      } catch { /* non-blocking — don't prevent send on check failure */ }
+      } catch { /* non-blocking */ }
     }
 
     setRunning(true); setLog([]); setProgress(0)
@@ -269,7 +310,6 @@ export default function Campaign() {
       const { subject, body } = vData
       const varIdx     = i % (variants.length || 1)
 
-      // Daily send cap check
       const capKey   = `warmup:${profile.id}:${today}`
       const sentToday = parseInt(localStorage.getItem(capKey) || '0')
       const dailyCap  = profile.dailyCap || 50
@@ -308,7 +348,7 @@ export default function Campaign() {
       target:   cfg.target,
       sender:   cfg.sender,
       brief,
-      variants, // store full variant pool for AI training
+      variants,
       stats:    { sent: processed, failed: targets.length - processed, skipped: 0 },
       leads:    campaignDataLeads,
     }
@@ -408,7 +448,7 @@ export default function Campaign() {
         </Card>
       )}
 
-      {/* Campaign Brief — feeds the AI */}
+      {/* Campaign Brief */}
       <Card className="p-5">
         <h3 className="text-sm font-bold text-slate-900 mb-1">Campaign Brief <span className="text-xs font-normal text-emerald-600 ml-2">— AI uses this to write sales emails</span></h3>
         <p className="text-xs text-slate-400 mb-4">Fill this in before generating variants. The more detail you give, the sharper the pitch.</p>
@@ -456,8 +496,20 @@ export default function Campaign() {
                 <option value="all">All Contacts</option>
                 <option value="hot">HOT Leads</option>
                 <option value="followup">Follow-Up</option>
+                <option value="group">Specific Group</option>
               </select>
             </div>
+            {cfg.target === 'group' && (
+              <div>
+                <label className="label">Group Name</label>
+                <select className="input" value={cfg.filterVal} onChange={e=>setCfg({...cfg,filterVal:e.target.value})}>
+                  <option value="">Select a group...</option>
+                  {uniqueGroups.map(group => (
+                    <option key={group} value={group}>{group}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div><label className="label">Sender Display Name</label><input className="input" value={cfg.sender} onChange={e=>setCfg({...cfg,sender:e.target.value})} /></div>
             <div><label className="label">Reply-To Email</label><input className="input" value={cfg.replyTo} onChange={e=>setCfg({...cfg,replyTo:e.target.value})} /></div>
 
@@ -498,6 +550,61 @@ export default function Campaign() {
                   })}
                 </div>
                 <p className="text-[10px] text-slate-400 mt-1.5">Email 1 → account 1, Email 2 → account 2, and so on.</p>
+              </div>
+            )}
+
+            {/* Attachment quick-select in config (shows when files exist) */}
+            {fileAttachments.length > 0 && (
+              <div>
+                <label className="label">Email Attachments</label>
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="text-xs text-slate-600 mb-2">
+                    Select which files to attach to this campaign's emails:
+                  </div>
+                  <div className="space-y-1.5">
+                    {fileAttachments.map(att => (
+                      <label key={att.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedAttachments.includes(att.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedAttachments(prev => [...prev, att.id])
+                            } else {
+                              setSelectedAttachments(prev => prev.filter(id => id !== att.id))
+                            }
+                          }}
+                          className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span className="font-medium text-slate-700">{att.label}</span>
+                        <span className="text-slate-400">({(att.size / 1024).toFixed(1)}KB)</span>
+                        <span className="ml-auto text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">
+                          {(att.content_type || '').split('/')[1]?.toUpperCase() || 'FILE'}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="flex gap-2 mt-2 pt-2 border-t border-slate-200">
+                    <button
+                      onClick={() => setSelectedAttachments(fileAttachments.map(a => a.id))}
+                      className="text-xs text-emerald-600 hover:text-emerald-700"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      onClick={() => setSelectedAttachments([])}
+                      className="text-xs text-slate-500 hover:text-slate-700"
+                    >
+                      Clear All
+                    </button>
+                    <span className="ml-auto text-xs text-slate-500">
+                      {selectedAttachments.length} selected
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1.5">
+                  Only selected files will be attached to emails. Upload more files in the Attachments section below.
+                </p>
               </div>
             )}
           </div>
@@ -565,70 +672,267 @@ export default function Campaign() {
             </div>
           )}
 
-          {/* Attachments — stored files with tracked downloads */}
+          {/* ─── ATTACHMENTS ─────────────────────────────────────────────── */}
           <div className="mt-4 border-t pt-4">
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                <Paperclip size={11}/> Attachments
-                {selectedAttIds.size > 0 && (
-                  <span className="bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{selectedAttIds.size}</span>
-                )}
-              </label>
-              <div className="flex items-center gap-1">
-                <input
-                  ref={attFileRef} type="file" multiple className="hidden"
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.zip,.txt,.csv"
-                  onChange={e => { Array.from(e.target.files).forEach(f => uploadAndSelectFile(f)); e.target.value='' }}
-                />
-                <button
-                  onClick={() => attFileRef.current?.click()}
-                  disabled={attUploading}
-                  className="flex items-center gap-1 text-[10px] text-emerald-600 hover:text-emerald-700 px-2 py-1 rounded hover:bg-emerald-50"
-                  title="Upload new file"
-                >
-                  <Upload size={11}/>{attUploading ? 'Uploading...' : 'Upload'}
-                </button>
-                <button onClick={loadStoredAttachments} disabled={attLoading} className="text-slate-400 hover:text-slate-600 p-1 rounded" title="Refresh">
-                  <RefreshCw size={11} className={attLoading ? 'animate-spin' : ''}/>
-                </button>
-              </div>
+            <div className="flex items-center justify-between mb-4">
+              <label className="text-sm font-bold text-slate-900">Email Attachments</label>
+              <span className="text-xs text-slate-500">Manage files and links to include in emails</span>
             </div>
 
-            {attLoading ? (
-              <p className="text-[11px] text-slate-400">Loading files...</p>
-            ) : storedAttachments.length === 0 ? (
-              <div className="text-center py-3 border border-dashed border-slate-200 rounded-lg">
-                <p className="text-[11px] text-slate-400">No stored files yet.</p>
-                <button onClick={() => attFileRef.current?.click()} className="text-[11px] text-emerald-600 hover:underline mt-0.5">Upload your first file</button>
+            {/* ── File Attachments (Recommended) ─────────────────────────── */}
+            <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-emerald-800">📎 File Attachments (Recommended)</h4>
+                  <p className="text-xs text-emerald-600">Upload files once, attach to all emails automatically</p>
+                </div>
+                <div className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-1 rounded">
+                  {fileAttachments.length} files stored
+                </div>
               </div>
-            ) : (
-              <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
-                {storedAttachments.map(a => {
-                  const sel = selectedAttIds.has(a.id)
-                  return (
-                    <label key={a.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${sel ? 'bg-emerald-50 border border-emerald-200' : 'hover:bg-slate-50 border border-transparent'}`}>
-                      <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${sel ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'}`}>
-                        {sel && <Check size={10} className="text-white" strokeWidth={3}/>}
-                      </div>
-                      <input type="checkbox" className="hidden" checked={sel} onChange={() => {
-                        const s = new Set(selectedAttIds)
-                        sel ? s.delete(a.id) : s.add(a.id)
-                        setSelectedAttIds(s)
-                      }}/>
-                      <span className="text-[11px] font-medium text-slate-700 flex-1 truncate">{a.original_name}</span>
-                      <span className="text-[10px] text-slate-400 flex-shrink-0">
-                        {a.size < 1024*1024 ? `${(a.size/1024).toFixed(0)}KB` : `${(a.size/1024/1024).toFixed(1)}MB`}
-                      </span>
-                    </label>
-                  )
-                })}
-              </div>
-            )}
 
-            {selectedAttIds.size > 0 && (
-              <p className="text-[10px] text-emerald-600 mt-2">
-                ✓ {selectedAttIds.size} file{selectedAttIds.size>1?'s':''} will be included as tracked download links in every email.
-              </p>
+              {/* Upload Interface */}
+              <div className="bg-white p-3 rounded border border-emerald-200 mb-3">
+                <div className="text-xs text-slate-600 mb-2">
+                  <strong>💡 Tip:</strong> Supports Google Drive, Dropbox, OneDrive sharing links, or direct download URLs
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <input
+                    className="input text-sm"
+                    placeholder="File label (e.g., Product Brochure)"
+                    id="file-attachment-label"
+                  />
+                  <input
+                    className="input text-sm"
+                    placeholder="https://drive.google.com/file/d/... or direct URL"
+                    id="file-attachment-url"
+                  />
+                  <button
+                    onClick={() => {
+                      const label = document.getElementById('file-attachment-label').value.trim()
+                      const url = document.getElementById('file-attachment-url').value.trim()
+                      if (label && url) {
+                        uploadAttachmentFromUrl(url, label)
+                        document.getElementById('file-attachment-label').value = ''
+                        document.getElementById('file-attachment-url').value = ''
+                      } else {
+                        toast('Please enter both label and URL', 'error')
+                      }
+                    }}
+                    disabled={attachmentLoading}
+                    className="px-4 py-2 bg-emerald-600 text-white text-sm rounded hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {attachmentLoading ? (
+                      <>
+                        <RefreshCw size={14} className="animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Plus size={14} />
+                        Upload File
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Quick Test Buttons */}
+                <div className="mt-3 pt-3 border-t border-emerald-100">
+                  <div className="text-xs text-slate-600 mb-2">🧪 <strong>Quick Test:</strong></div>
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      onClick={() => {
+                        document.getElementById('file-attachment-label').value = 'Sample PDF'
+                        document.getElementById('file-attachment-url').value = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf'
+                      }}
+                      className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded hover:bg-blue-200"
+                    >
+                      📄 Sample PDF
+                    </button>
+                    <button
+                      onClick={() => {
+                        document.getElementById('file-attachment-label').value = 'Sample Image'
+                        document.getElementById('file-attachment-url').value = 'https://file-examples.com/storage/fe68c8a7c69bd447d7770f6/2017/10/file_example_JPG_100kB.jpg'
+                      }}
+                      className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded hover:bg-purple-200"
+                    >
+                      🖼️ Sample Image
+                    </button>
+                    <button
+                      onClick={loadFileAttachments}
+                      className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200"
+                    >
+                      🔄 Refresh List
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Attachment Selection */}
+              {fileAttachments.length > 0 && (
+                <div className="bg-white p-3 rounded border border-emerald-200 mb-3">
+                  <div className="text-sm font-medium text-emerald-800 mb-2">
+                    📋 Select Attachments for This Campaign
+                  </div>
+                  <div className="text-xs text-emerald-600 mb-3">
+                    Choose which files to include in this specific campaign
+                  </div>
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-slate-700">Available Files:</div>
+                    {fileAttachments.map(att => (
+                      <label key={att.id} className="flex items-center gap-3 p-2 bg-slate-50 rounded border cursor-pointer hover:bg-slate-100">
+                        <input
+                          type="checkbox"
+                          checked={selectedAttachments.includes(att.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedAttachments(prev => [...prev, att.id])
+                            } else {
+                              setSelectedAttachments(prev => prev.filter(id => id !== att.id))
+                            }
+                          }}
+                          className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium text-slate-800 text-sm">{att.label}</div>
+                          <div className="text-slate-500 text-xs">
+                            {att.original_name} • {(att.size / 1024).toFixed(1)}KB
+                          </div>
+                        </div>
+                        <div className="text-xs text-slate-400">
+                          {selectedAttachments.includes(att.id) ? '✅ Selected' : '⬜ Not selected'}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="flex gap-2 mt-3 pt-3 border-t border-emerald-100">
+                    <button
+                      onClick={() => setSelectedAttachments(fileAttachments.map(a => a.id))}
+                      className="px-3 py-1 bg-emerald-100 text-emerald-700 text-xs rounded hover:bg-emerald-200"
+                    >
+                      ✅ Select All
+                    </button>
+                    <button
+                      onClick={() => setSelectedAttachments([])}
+                      className="px-3 py-1 bg-slate-100 text-slate-700 text-xs rounded hover:bg-slate-200"
+                    >
+                      ❌ Clear All
+                    </button>
+                    <div className="ml-auto text-xs text-emerald-700 font-medium">
+                      {selectedAttachments.length} of {fileAttachments.length} selected
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Stored File List */}
+              {fileAttachments.length > 0 ? (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-slate-700 mb-2">Stored Files:</div>
+                  {fileAttachments.map(att => (
+                    <div key={att.id} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg">
+                      <div className="flex-1">
+                        <div className="font-medium text-slate-800 text-sm">{att.label}</div>
+                        <div className="text-slate-500 text-xs mt-1">
+                          📄 {att.original_name} • {(att.size / 1024).toFixed(1)}KB • {att.content_type}
+                        </div>
+                        <div className="text-slate-400 text-xs">
+                          Uploaded: {new Date(parseInt(att.uploaded_at)).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <div className="flex gap-2 ml-4">
+                        <a
+                          href={`/api/attachments?type=download&id=${att.id}`}
+                          className="px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 flex items-center gap-1"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="View/Download file"
+                        >
+                          👁️ View
+                        </a>
+                        <button
+                          onClick={() => deleteFileAttachment(att.id)}
+                          className="px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600 flex items-center gap-1"
+                          title="Delete file"
+                        >
+                          🗑️ Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-6 text-slate-500">
+                  <div className="text-2xl mb-2">📎</div>
+                  <div className="text-sm">No files uploaded yet</div>
+                  <div className="text-xs">Upload files to attach them to all campaign emails</div>
+                </div>
+              )}
+            </div>
+
+            {/* ── Link Attachments (Legacy) ───────────────────────────────── */}
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-amber-800">🔗 Link Attachments (Legacy)</h4>
+                  <p className="text-xs text-amber-600">Links will appear in email body (not recommended)</p>
+                </div>
+                <button
+                  onClick={() => setAttachments([...attachments, { type:'link', label:'', url:'' }])}
+                  className="px-3 py-1 bg-amber-600 text-white text-xs rounded hover:bg-amber-700 flex items-center gap-1"
+                >
+                  <Plus size={12}/>
+                  Add Link
+                </button>
+              </div>
+
+              {attachments.length > 0 ? (
+                <div className="space-y-2">
+                  {attachments.map((a, i) => (
+                    <div key={i} className="flex gap-2 p-2 bg-white border border-amber-200 rounded">
+                      <input
+                        className="input text-xs flex-1"
+                        placeholder="Link label"
+                        value={a.label}
+                        onChange={e => { const n=[...attachments]; n[i]={...n[i],label:e.target.value}; setAttachments(n) }}
+                      />
+                      <input
+                        className="input text-xs flex-1"
+                        placeholder="https://..."
+                        value={a.url}
+                        onChange={e => { const n=[...attachments]; n[i]={...n[i],url:e.target.value}; setAttachments(n) }}
+                      />
+                      <button
+                        onClick={() => setAttachments(attachments.filter((_,j) => j !== i))}
+                        className="px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
+                        title="Remove link"
+                      >
+                        <X size={12}/>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-amber-600 text-sm">
+                  No link attachments added
+                </div>
+              )}
+            </div>
+
+            {/* Summary */}
+            {(selectedAttachments.length > 0 || attachments.some(a => a.url && a.label)) && (
+              <div className="mt-4 p-3 bg-slate-100 border border-slate-200 rounded-lg">
+                <div className="text-xs font-medium text-slate-700 mb-1">📋 Campaign Summary:</div>
+                <div className="text-xs text-slate-600">
+                  • {selectedAttachments.length} file(s) will be attached to emails<br/>
+                  • {attachments.filter(a => a.url && a.label).length} link(s) will appear in email body
+                </div>
+                {selectedAttachments.length > 0 && (
+                  <div className="text-xs text-emerald-700 mt-2">
+                    <strong>Selected files:</strong> {fileAttachments.filter(a => selectedAttachments.includes(a.id)).map(a => a.label).join(', ')}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </Card>
