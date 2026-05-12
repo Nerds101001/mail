@@ -297,29 +297,28 @@ async function getTrackingEvents(leadId, campaignId = null, limit = 100) {
   }
 }
 
-// 66.249.x.x = Google delivery pre-fetch (Googlebot/Image Proxy at delivery time)
-// Always fires within 1-5s of send — always a false open, always block.
-function isDeliveryPrefetchIp(ip) {
-  if (!ip || ip === 'unknown') return false;
-  return /^66\.249\./.test(ip);
-}
-
-// Other Google infrastructure IPs (74.125, 64.233, 209.85 etc.) are used when
-// the user actually opens in Gmail — bypass timing guard, count as real open.
-// Apple MPP (17.x) and Microsoft SafeLinks (40.94, 40.107, 52.100) are also
-// user-triggered, so bypass the timing guard too.
+// ── IP classification ─────────────────────────────────────────────────────────
+// These IPs are KNOWN to only fire on real user interaction (never at delivery).
+// They bypass the 5-second timing guard entirely — no need to wait.
+//
+// Ranges covered:
+//   74.125, 64.233, 209.85, 216.58, 216.239, 142.250, 108.177 — Google infra (Gmail proxy user opens)
+//   17.x                                                        — Apple MPP (Mail Privacy Protection)
+//   40.94, 40.107, 52.100                                       — Microsoft SafeLinks
+//
+// NOTE: 66.249.x.x (Google delivery scanner) is NOT listed here because it fires
+// at BOTH delivery time (false open, within 5s) AND real user opens (after 5s).
+// It is handled correctly by the 5-second timing guard below.
 function isUserProxyIp(ip) {
   if (!ip || ip === 'unknown') return false;
   return /^74\.125\./.test(ip)  || /^64\.233\./.test(ip)  ||
          /^209\.85\./.test(ip)  || /^216\.58\./.test(ip)  ||
          /^216\.239\./.test(ip) || /^142\.250\./.test(ip) ||
-         /^108\.177\./.test(ip) ||                          // Google infra
-         /^17\./.test(ip)       ||                          // Apple MPP
+         /^108\.177\./.test(ip) ||
+         /^17\./.test(ip)       ||
          /^40\.94\./.test(ip)   || /^40\.107\./.test(ip)  ||
-         /^52\.100\./.test(ip);                             // Microsoft
+         /^52\.100\./.test(ip);
 }
-
-function isScannerIp(ip) { return isDeliveryPrefetchIp(ip); }
 
 // Deduplicated tracking for opens (only count unique opens within 1 hour window)
 async function trackOpen(leadId, ip, userAgent, campaignId = null) {
