@@ -16,6 +16,10 @@ export default function Settings() {
 
   const crmToken = () => localStorage.getItem('crm_token') || ''
 
+  // Admin check — same logic as server-side getUserIdFromToken
+  const token = localStorage.getItem('crm_token') || ''
+  const isAdmin = !token || (/^sess_\d+_[a-z0-9]+$/.test(token) && token.length < 40)
+
   const loadGmailAccounts = async () => {
     setGmailLoading(true)
     try {
@@ -262,15 +266,17 @@ export default function Settings() {
           )}
         </Card>
 
-        {/* Data Management */}
-        <Card className="p-5">
-          <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2"><Download size={16} className="text-slate-500" /> Data Management</h3>
-          <div className="flex gap-3 flex-wrap">
-            <Btn variant="secondary" onClick={exportCSV}><Download size={13} /> Export Leads CSV</Btn>
-            <Btn variant="secondary" onClick={exportJSON}><Download size={13} /> Export JSON</Btn>
-            <Btn variant="danger" onClick={clearAll}><AlertTriangle size={13} /> Clear All Data</Btn>
-          </div>
-        </Card>
+        {/* Data Management — admin only */}
+        {isAdmin && (
+          <Card className="p-5">
+            <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2"><Download size={16} className="text-slate-500" /> Data Management</h3>
+            <div className="flex gap-3 flex-wrap">
+              <Btn variant="secondary" onClick={exportCSV}><Download size={13} /> Export Leads CSV</Btn>
+              <Btn variant="secondary" onClick={exportJSON}><Download size={13} /> Export JSON</Btn>
+              <Btn variant="danger" onClick={clearAll}><AlertTriangle size={13} /> Clear All Data</Btn>
+            </div>
+          </Card>
+        )}
 
         {/* Deployment Info */}
         <Card className="p-5">

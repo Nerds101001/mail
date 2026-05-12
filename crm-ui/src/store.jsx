@@ -119,7 +119,7 @@ export function CRMProvider({ children }) {
       if (mergedLeads.length) setLeads(mergedLeads)
       if (data.clients?.length)  setClients(data.clients)
       if (data.deals?.length)    setDeals(data.deals)
-      if (data.profiles?.length) setProfiles(data.profiles)
+      setProfiles(data.profiles || [])  // always overwrite — profiles are per-user, stale localStorage must not bleed through
       if (Object.keys(data.settings||{}).length) {
         // Preserve openaiKey from localStorage — it's never saved to Redis for security
         const localKey = load('crm_settings', {}).openaiKey
