@@ -48,7 +48,7 @@ module.exports = async (req, res) => {
 
   // ── LOAD ALL ─────────────────────────────────────────────────────────
   if (type === "load" && req.method === "GET") {
-    const [leads, settings, activity, clients, deals, apikey] = await Promise.all([
+    const [leadsRaw, settings, activity, clients, deals, apikey] = await Promise.all([
       safeGet(ns("crm:leads", userId), []),
       safeGet("crm:settings", {}),           // settings are global
       safeGet(ns("crm:activity", userId), []),
@@ -59,6 +59,50 @@ module.exports = async (req, res) => {
     // Profiles are shared (global)
     const profiles = await safeGet("crm:profiles", []);
     const mergedSettings = apikey ? { ...settings, openaiKey: apikey } : settings;
+
+    // ── Auto-sync pipeline stages from tracking data ───────────────────
+    // Reads opens/clicks from simple_tracking and upgrades stages:
+    //   COLD → CONTACTED (done client-side on send)
+    //   CONTACTED → OPENED  (first open recorded)
+    //   OPENED/CONTACTED → HOT (2+ opens OR 1+ clicks)
+    // Never downgrades — terminal stages (WON/LOST/DEMO/QUOTED/UNSUBSCRIBED) are never touched.
+    let leads = leadsRaw;
+    try {
+      const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+      const tracking = await sql`SELECT lead_id, opens, clicks FROM simple_tracking WHERE opens > 0 OR clicks > 0`;
+      if (tracking.length > 0) {
+        const STAGE_ORDER = { COLD:0, CONTACTED:1, OPENED:2, HOT:3 };
+        const TERMINAL = new Set(['WON','LOST','UNSUBSCRIBED','DEMO','QUOTED','REPLIED']);
+        const trackMap = {};
+        tracking.forEach(t => { trackMap[t.lead_id] = { opens: parseInt(t.opens)||0, clicks: parseInt(t.clicks)||0 }; });
+
+        let changed = 0;
+        leads = leadsRaw.map(l => {
+          const t = trackMap[l.id];
+          if (!t) return l;
+          const cur = l.pipelineStage || 'COLD';
+          if (TERMINAL.has(cur)) return l; // never touch terminal stages
+
+          // Determine what stage tracking data implies
+          let implied;
+          if (t.opens >= 2 || t.clicks >= 1) implied = 'HOT';
+          else if (t.opens === 1) implied = 'OPENED';
+          else return l;
+
+          // Only upgrade, never downgrade
+          if ((STAGE_ORDER[implied] || 0) > (STAGE_ORDER[cur] || 0)) {
+            changed++;
+            return { ...l, pipelineStage: implied };
+          }
+          return l;
+        });
+        if (changed > 0) console.log(`✅ [CRM LOAD] Auto-upgraded ${changed} lead pipeline stages from tracking`);
+      }
+    } catch(e) {
+      console.warn('⚠ [CRM LOAD] Pipeline sync skipped:', e.message);
+      leads = leadsRaw; // fallback to raw if tracking query fails
+    }
+
     return res.json({ leads, profiles, settings: mergedSettings, activity, clients, deals });
   }
 

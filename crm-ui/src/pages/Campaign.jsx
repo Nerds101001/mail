@@ -330,7 +330,7 @@ export default function Campaign() {
         processed++
         localStorage.setItem(capKey, String(sentToday + 1))
         const idx = updatedLeads.findIndex(x => x.id === l.id)
-        if (idx !== -1) updatedLeads[idx] = { ...updatedLeads[idx], status:'SENT', lastSent:new Date().toISOString() }
+        if (idx !== -1) updatedLeads[idx] = { ...updatedLeads[idx], status:'SENT', lastSent:new Date().toISOString(), pipelineStage: (updatedLeads[idx].pipelineStage === 'COLD' || !updatedLeads[idx].pipelineStage) ? 'CONTACTED' : updatedLeads[idx].pipelineStage }
         campaignDataLeads.push({ id:l.id, name:l.name, email:l.email, company:l.company, status:'SENT', subject, body, variantIndex: varIdx })
       } else if (result.bounced) {
         addLog(`⚡ BOUNCED: ${l.name} <${l.email}>`, 'warn')
