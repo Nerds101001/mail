@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useCRM } from '../store'
 import { Btn, Empty, PageHeader, Spinner, toast } from '../components/ui'
 import { RefreshCw, Mail, CheckSquare } from 'lucide-react'
 
@@ -9,16 +10,18 @@ const PRIORITY_STYLES = {
 }
 
 export default function Tasks() {
+  const { viewAs } = useCRM()
   const [tasks, setTasks]     = useState([])
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
 
   const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
+  const vaParam    = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
 
   async function load() {
     setLoading(true)
     try {
-      const res = await fetch('/api/ops?type=tasks', { headers: authHeader() })
+      const res = await fetch(`/api/ops?type=tasks${vaParam()}`, { headers: authHeader() })
       const data = await res.json()
       setTasks(data.tasks || [])
     } catch(e) { toast('Could not load tasks', 'error') }
@@ -28,7 +31,7 @@ export default function Tasks() {
   async function sendDigest() {
     setSending(true)
     try {
-      const res = await fetch('/api/ops?type=reminder', { headers: authHeader() })
+      const res = await fetch(`/api/ops?type=reminder${vaParam()}`, { headers: authHeader() })
       const data = await res.json()
       if (data.ok) toast('Daily digest sent ✓', 'success')
       else toast('Could not send: ' + (data.reason || data.error), 'error')
@@ -36,7 +39,7 @@ export default function Tasks() {
     setSending(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [viewAs])
 
   const high   = tasks.filter(t => t.priority === 'HIGH')
   const medium = tasks.filter(t => t.priority === 'MEDIUM')

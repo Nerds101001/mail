@@ -7,14 +7,14 @@ export default function AttachmentManager() {
   const [loading, setLoading] = useState(false)
   const [uploadLoading, setUploadLoading] = useState(false)
 
-  useEffect(() => {
-    loadAttachments()
-  }, [])
+  const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
+
+  useEffect(() => { loadAttachments() }, [])
 
   async function loadAttachments() {
     setLoading(true)
     try {
-      const res = await fetch('/api/attachments?type=list')
+      const res = await fetch('/api/attachments?type=list', { headers: authHeader() })
       const data = await res.json()
       setAttachments(data.attachments || [])
     } catch (error) {
@@ -34,7 +34,7 @@ export default function AttachmentManager() {
     try {
       const res = await fetch('/api/attachments?type=upload-url', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ url, label })
       })
 
@@ -56,7 +56,8 @@ export default function AttachmentManager() {
 
     try {
       const res = await fetch(`/api/attachments?id=${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: authHeader()
       })
 
       if (!res.ok) throw new Error('Delete failed')
@@ -235,7 +236,7 @@ export default function AttachmentManager() {
           <button
             onClick={async () => {
               try {
-                const res = await fetch('/api/attachments?type=list')
+                const res = await fetch('/api/attachments?type=list', { headers: authHeader() })
                 const data = await res.json()
                 console.log('API Response:', data)
                 toast(`API working! Found ${data.attachments?.length || 0} attachments`, 'success')

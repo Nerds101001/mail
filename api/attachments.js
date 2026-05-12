@@ -1,24 +1,35 @@
 // api/attachments.js — File attachment storage + tracked downloads
 //
 // Files are stored as base64 TEXT in Neon Postgres (no extra deps needed).
-// When an email is sent, tracked download links are embedded in the body.
-// Every time a recipient downloads the file, it records a "click" event in
-// tracking_events — exactly like link click tracking, tagged as attachment:filename.
+// Each attachment is owned by the user who uploaded it (user_id column).
+// Admin can see and delete all attachments; regular users only see their own.
 //
 // Endpoints:
-//   GET  ?type=list                                    → list all files (no binary data)
+//   GET  ?type=list                                    → list files for calling user
 //   POST ?type=upload  body:{name,contentType,size,data}  → store file, return id
-//   DELETE ?id=xxx                                     → delete file
+//   DELETE ?id=xxx                                     → delete own file (admin: any)
 //   GET  ?type=download&id=xxx&leadId=xxx&cid=xxx      → track + serve file
 
 const { neon } = require("@neondatabase/serverless");
 const { trackClick } = require("./_redis");
+
+// ── Auth helper (same pattern as crm.js / ops.js) ─────────────────────────────
+async function getUserIdFromToken(token) {
+  if (!token) return "admin";
+  if (/^sess_\d+_[a-z0-9]+$/.test(token) && token.length < 40) return "admin";
+  try {
+    const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+    const rows = await sql`SELECT user_id FROM sessions WHERE token = ${token} AND expires_at > ${Date.now()} LIMIT 1`;
+    return rows[0]?.user_id || "admin";
+  } catch { return "admin"; }
+}
 
 async function getDb() {
   const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
   await sql`
     CREATE TABLE IF NOT EXISTS attachments (
       id            TEXT PRIMARY KEY,
+      user_id       TEXT NOT NULL DEFAULT 'admin',
       label         TEXT NOT NULL,
       original_name TEXT NOT NULL,
       content_type  TEXT NOT NULL DEFAULT 'application/octet-stream',
@@ -28,6 +39,8 @@ async function getDb() {
       download_count INT DEFAULT 0
     )
   `.catch(() => {});
+  // Backfill column for existing tables that predate the user_id column
+  await sql`ALTER TABLE attachments ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT 'admin'`.catch(() => {});
   return sql;
 }
 
@@ -36,15 +49,18 @@ module.exports = async (req, res) => {
 
   const { type, id } = req.query;
 
+  // Resolve calling user
+  const token  = req.headers.authorization?.replace("Bearer ", "") || req.query.token;
+  const userId = await getUserIdFromToken(token);
+
   // ── LIST ─────────────────────────────────────────────────────────────────────
+  // Admin sees all attachments; regular users see only their own
   if (type === "list" && req.method === "GET") {
     try {
       const sql = await getDb();
-      const rows = await sql`
-        SELECT id, label, original_name, content_type, size, uploaded_at, download_count
-        FROM attachments
-        ORDER BY uploaded_at DESC
-      `;
+      const rows = userId === "admin"
+        ? await sql`SELECT id, user_id, label, original_name, content_type, size, uploaded_at, download_count FROM attachments ORDER BY uploaded_at DESC`
+        : await sql`SELECT id, user_id, label, original_name, content_type, size, uploaded_at, download_count FROM attachments WHERE user_id = ${userId} ORDER BY uploaded_at DESC`;
       return res.json({ attachments: rows });
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -62,9 +78,10 @@ module.exports = async (req, res) => {
       const attId = `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
       await sql`
-        INSERT INTO attachments (id, label, original_name, content_type, size, data, uploaded_at)
+        INSERT INTO attachments (id, user_id, label, original_name, content_type, size, data, uploaded_at)
         VALUES (
           ${attId},
+          ${userId},
           ${name},
           ${name},
           ${contentType || "application/octet-stream"},
@@ -74,7 +91,7 @@ module.exports = async (req, res) => {
         )
       `;
 
-      console.log(`✅ [ATTACHMENT] Stored: ${name} (${Math.round((size || 0) / 1024)}KB) id=${attId}`);
+      console.log(`✅ [ATTACHMENT] Stored: ${name} (${Math.round((size || 0) / 1024)}KB) id=${attId} user=${userId}`);
       return res.json({ ok: true, id: attId, name });
     } catch (e) {
       console.error("❌ [ATTACHMENT UPLOAD]", e.message);
@@ -83,11 +100,14 @@ module.exports = async (req, res) => {
   }
 
   // ── DELETE ───────────────────────────────────────────────────────────────────
+  // Users can only delete their own attachments; admin can delete any
   if (req.method === "DELETE" && id) {
     try {
       const sql = await getDb();
-      await sql`DELETE FROM attachments WHERE id = ${id}`;
-      console.log(`🗑️  [ATTACHMENT] Deleted: ${id}`);
+      const result = userId === "admin"
+        ? await sql`DELETE FROM attachments WHERE id = ${id}`
+        : await sql`DELETE FROM attachments WHERE id = ${id} AND user_id = ${userId}`;
+      console.log(`🗑️  [ATTACHMENT] Deleted: ${id} by ${userId}`);
       return res.json({ ok: true });
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -186,9 +206,9 @@ module.exports = async (req, res) => {
 
       const sql = await getDb();
       await sql`
-        INSERT INTO attachments (id, label, original_name, content_type, size, data, uploaded_at)
+        INSERT INTO attachments (id, user_id, label, original_name, content_type, size, data, uploaded_at)
         VALUES (
-          ${attId}, ${label}, ${originalName}, ${contentType},
+          ${attId}, ${userId}, ${label}, ${originalName}, ${contentType},
           ${buffer.byteLength}, ${b64data}, ${Date.now()}
         )
       `;

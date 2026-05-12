@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useCRM } from '../store'
 import { PageHeader, Empty, Btn, Card, toast } from '../components/ui'
 import { fmtDate } from '../utils'
 import { History, ChevronDown, ChevronRight, Send, Eye, MousePointer, AlertCircle, Trash2 } from 'lucide-react'
@@ -23,6 +24,7 @@ function parseBrowser(ua) {
 }
 
 export default function CampaignHistory() {
+  const { viewAs } = useCRM()
   const [campaigns, setCampaigns] = useState([])
   const [loading, setLoading]     = useState(true)
   const [expanded, setExpanded]   = useState(null)
@@ -33,12 +35,15 @@ export default function CampaignHistory() {
   const [modalEventsLoading, setModalEventsLoading] = useState(false)
   const [modalTab, setModalTab]           = useState('body') // 'body' | 'events'
 
-  useEffect(() => { load() }, [])
+  const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
+  const vaParam    = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
+
+  useEffect(() => { load() }, [viewAs])
 
   async function load() {
     setLoading(true)
     try {
-      const res = await fetch('/api/campaigns')
+      const res = await fetch(`/api/crm?type=campaigns${vaParam()}`, { headers: authHeader() })
       if (res.ok) setCampaigns(await res.json())
     } catch(e) { toast('Could not load history', 'error') }
     setLoading(false)
@@ -48,7 +53,7 @@ export default function CampaignHistory() {
     if (expanded === id) { setExpanded(null); setDetail(null); setTrackingData({}); return }
     setExpanded(id)
     try {
-      const res = await fetch(`/api/campaigns?id=${id}`)
+      const res = await fetch(`/api/crm?type=campaigns&id=${id}${vaParam()}`, { headers: authHeader() })
       if (res.ok) {
         const campaignDetail = await res.json()
         setDetail(campaignDetail)
@@ -97,7 +102,7 @@ export default function CampaignHistory() {
     e.stopPropagation()
     if (!confirm(`Delete "${c.name}"?\n\nThis removes the campaign and all its send history from the database. Tracking data (opens/clicks) is also deleted. This cannot be undone.`)) return
     try {
-      const res = await fetch(`/api/crm?type=campaigns&id=${c.id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/crm?type=campaigns&id=${c.id}`, { method: 'DELETE', headers: authHeader() })
       if (!res.ok) throw new Error('Delete failed')
       setCampaigns(prev => prev.filter(x => x.id !== c.id))
       if (expanded === c.id) { setExpanded(null); setDetail(null) }

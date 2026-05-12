@@ -43,7 +43,12 @@ module.exports = async (req, res) => {
 
   // Resolve calling user from Authorization header or token query param
   const token = req.headers.authorization?.replace("Bearer ", "") || req.query.token;
-  const userId = await getUserIdFromToken(token);
+  let userId = await getUserIdFromToken(token);
+
+  // Admin can view any user's data by passing ?viewAs=userId
+  if (userId === "admin" && req.query.viewAs && req.query.viewAs !== "admin") {
+    userId = req.query.viewAs;
+  }
 
   // ── TRACKING STATS ─────────────────────────────────────────────────────
   // With campaignId: per-campaign counts from tracking_events (accurate)

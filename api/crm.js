@@ -59,7 +59,7 @@ module.exports = async (req, res) => {
       safeGet(ns("crm:activity", userId), []),
       safeGet(ns("crm:clients", userId), []),
       safeGet(ns("crm:deals", userId), []),
-      get("crm:apikey").catch(() => null),
+      safeGet("crm:apikey", null),
     ]);
     // Profiles are per-user (each user has their own email credentials)
     const profiles = await safeGet(ns("crm:profiles", userId), []);
@@ -247,9 +247,18 @@ module.exports = async (req, res) => {
   if (type === "lead-tracking" && req.method === "GET") {
     try {
       const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+
+      // Only return tracking for leads that belong to the calling user.
+      // We load the user's lead list from Redis to get their lead IDs — this
+      // ensures a user never receives tracking data for another user's leads.
+      const userLeads = await safeGet(ns("crm:leads", userId), []);
+      const userLeadIds = userLeads.map(l => l.id).filter(Boolean);
+
+      if (userLeadIds.length === 0) return res.json({});
+
       const [tracking, lastEmails] = await Promise.all([
-        sql`SELECT lead_id, opens, clicks FROM simple_tracking`.catch(() => []),
-        sql`SELECT DISTINCT ON (lead_id) lead_id, subject, body, sent_at, status FROM campaign_leads ORDER BY lead_id, sent_at DESC`.catch(() => []),
+        sql`SELECT lead_id, opens, clicks FROM simple_tracking WHERE lead_id = ANY(${userLeadIds})`.catch(() => []),
+        sql`SELECT DISTINCT ON (lead_id) lead_id, subject, body, sent_at, status FROM campaign_leads WHERE lead_id = ANY(${userLeadIds}) ORDER BY lead_id, sent_at DESC`.catch(() => []),
       ]);
       const map = {};
       tracking.forEach(t => {

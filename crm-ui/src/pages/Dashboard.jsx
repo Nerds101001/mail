@@ -6,7 +6,7 @@ import { daysDiff, daysSince, fmtCurrency } from '../utils'
 import { Users, UserCheck, Flame, CheckSquare, Send, MessageSquare, RefreshCw, RotateCcw, TrendingUp, Mail } from 'lucide-react'
 
 export default function Dashboard() {
-  const { leads, clients, deals, activity, logActivity } = useCRM()
+  const { leads, clients, deals, activity, logActivity, viewAs } = useCRM()
   const [tasks, setTasks] = useState([])
   const [loadingTasks, setLoadingTasks] = useState(true)
   const navigate = useNavigate()
@@ -19,16 +19,17 @@ export default function Dashboard() {
   const revenue = clients.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0)
 
   const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
+  const vaParam    = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
 
   useEffect(() => {
-    fetch('/api/ops?type=tasks', { headers: authHeader() })
+    fetch(`/api/ops?type=tasks${vaParam()}`, { headers: authHeader() })
       .then(r => r.json())
       .then(d => { setTasks(d.tasks || []); setLoadingTasks(false) })
       .catch(() => setLoadingTasks(false))
-  }, [])
+  }, [viewAs])
 
   async function sendDigest() {
-    const res = await fetch('/api/ops?type=reminder', { headers: authHeader() })
+    const res = await fetch(`/api/ops?type=reminder${vaParam()}`, { headers: authHeader() })
     const d = await res.json()
     if (d.ok) alert('Daily digest sent ✓')
     else alert('Could not send: ' + (d.reason || d.error))

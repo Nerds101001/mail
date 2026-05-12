@@ -47,6 +47,8 @@ export default function Campaign() {
   const [usePersonalization, setUsePersonalization]   = useState(false)
   const bodyRef = useRef(null)
 
+  const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
+
   // Load file attachments on component mount
   useEffect(() => {
     loadFileAttachments()
@@ -54,7 +56,7 @@ export default function Campaign() {
 
   async function loadFileAttachments() {
     try {
-      const res = await fetch('/api/attachments?type=list')
+      const res = await fetch('/api/attachments?type=list', { headers: authHeader() })
       const data = await res.json()
       setFileAttachments(data.attachments || [])
     } catch (error) {
@@ -72,7 +74,7 @@ export default function Campaign() {
     try {
       const res = await fetch('/api/attachments?type=upload-url', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ url, label })
       })
 
@@ -93,7 +95,8 @@ export default function Campaign() {
 
     try {
       const res = await fetch(`/api/attachments?id=${attachmentId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: authHeader()
       })
 
       if (!res.ok) throw new Error('Delete failed')

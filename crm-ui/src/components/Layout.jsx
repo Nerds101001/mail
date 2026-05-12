@@ -58,9 +58,10 @@ export default function Layout({ children, taskCount = 0 }) {
   }
 
   function handleViewAs(e) {
-    setViewAs(e.target.value)
-    // Reload data for the selected user immediately
-    setTimeout(() => loadFromRedis(), 50)
+    const val = e.target.value
+    setViewAs(val)
+    // Pass the value directly — avoids the async state-update lag of viewAsRef
+    loadFromRedis(val)
   }
 
   return (

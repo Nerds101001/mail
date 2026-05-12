@@ -20,7 +20,7 @@ const TAB_META = {
 }
 
 export default function Pipeline() {
-  const { leads, setLeads, saveLeads } = useCRM()
+  const { leads, setLeads, saveLeads, viewAs } = useCRM()
 
   const [activeTab,      setActiveTab]      = useState('ALL')
   const [search,         setSearch]         = useState('')
@@ -33,24 +33,25 @@ export default function Pipeline() {
   const [loadingTrack,   setLoadingTrack]   = useState(false)
   const [expandedBody,   setExpandedBody]   = useState(null)
 
-  const token = () => localStorage.getItem('crm_token') || ''
+  const token  = () => localStorage.getItem('crm_token') || ''
+  const vaParam = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
 
   // ── Fetch tracking (opens/clicks/last email) ──────────────────────────
   const fetchTracking = useCallback(async () => {
     setLoadingTrack(true)
     try {
-      const res = await fetch('/api/crm?type=lead-tracking', {
+      const res = await fetch(`/api/crm?type=lead-tracking${vaParam()}`, {
         headers: { Authorization: `Bearer ${token()}` }
       })
       if (res.ok) setTrackMap(await res.json())
     } catch(e) { console.warn('tracking fetch failed', e) }
     setLoadingTrack(false)
-  }, [])
+  }, [viewAs])
 
   // ── Fetch campaigns list for dropdown ────────────────────────────────
   const fetchCampaigns = useCallback(async () => {
     try {
-      const res = await fetch('/api/crm?type=campaigns', {
+      const res = await fetch(`/api/crm?type=campaigns${vaParam()}`, {
         headers: { Authorization: `Bearer ${token()}` }
       })
       if (res.ok) {
@@ -58,7 +59,7 @@ export default function Pipeline() {
         if (Array.isArray(data)) setCampaigns(data)
       }
     } catch(e) { console.warn('campaigns fetch failed', e) }
-  }, [])
+  }, [viewAs])
 
   useEffect(() => {
     fetchTracking()
@@ -69,7 +70,7 @@ export default function Pipeline() {
   useEffect(() => {
     if (!campF) { setCampLeadIds(null); return }
     setCampLoading(true)
-    fetch(`/api/crm?type=campaigns&id=${campF}`, {
+    fetch(`/api/crm?type=campaigns&id=${campF}${vaParam()}`, {
       headers: { Authorization: `Bearer ${token()}` }
     })
       .then(r => r.json())

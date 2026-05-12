@@ -5,7 +5,8 @@ import { Plus, Trash2, Zap, Mail, Download, AlertTriangle, RefreshCw } from 'luc
 
 export default function Settings() {
   const { settings, setSettings, profiles, setProfiles, leads, clients, deals, pushToRedis, gmailStatus } = useCRM()
-  const [apiKey, setApiKey]   = useState(settings.openaiKey || '')
+  const [apiKey,    setApiKey]    = useState('')        // blank = no change; filled = update
+  const [keyDirty,  setKeyDirty]  = useState(false)    // true once admin has typed a new key
   const [smtpOpen, setSmtpOpen] = useState(false)
   const [smtp, setSmtp]       = useState({ name:'', host:'', port:'465', user:'', pass:'', secure:true, dailyCap:50 })
   const [testing, setTesting] = useState(false)
@@ -36,6 +37,10 @@ export default function Settings() {
 
   useEffect(() => { loadGmailAccounts() }, [])
 
+  // Sync key presence indicator whenever settings arrive from server
+  // We never pre-fill the input — just track whether a key is already saved
+  const keyAlreadySaved = !!(settings.openaiKey)
+
   async function disconnectGmail(email) {
     if (!confirm(`Disconnect ${email} from sending?`)) return
     try {
@@ -62,9 +67,12 @@ export default function Settings() {
   const gmailConnectUrl = `/api/gmail?type=auth&token=${encodeURIComponent(crmToken())}`
 
   function saveKey() {
+    if (!apiKey.trim()) { toast('Paste a key first', 'error'); return }
     setSettings({ ...settings, openaiKey: apiKey.trim() })
     pushToRedis()
-    toast('API key saved', 'success')
+    setApiKey('')       // clear field — key is now in DB, no need to show it
+    setKeyDirty(false)
+    toast('API key saved to database ✓', 'success')
   }
 
   function addSmtp() {
@@ -187,31 +195,75 @@ export default function Settings() {
           <p className="text-xs text-slate-400 mt-3">Active accounts participate in round-robin sending. You can connect as many Gmail accounts as you need.</p>
         </Card>
 
-        {/* NVIDIA AI */}
-        <Card className="p-5">
-          <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2"><Zap size={16} className="text-emerald-500" /> NVIDIA NIM AI</h3>
-          <div className="flex gap-3">
-            <input className="input flex-1" type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="nvapi-..." />
-            <Btn variant="primary" onClick={saveKey}>Save Key</Btn>
-            <Btn variant="secondary" disabled={testing || !apiKey} onClick={async () => {
-              setTesting(true)
-              try {
-                const res = await fetch('/api/ops?type=test-nvidia', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ apiKey })
-                })
-                const data = await res.json()
-                if (data.ok) toast(`✅ NVIDIA key is valid! Reply: "${data.reply}"`, 'success')
-                else toast(`❌ Key failed: ${data.error}`, 'error')
-              } catch(e) { toast('Test failed: ' + e.message, 'error') }
-              setTesting(false)
-            }}>
-              {testing ? '...' : '🧪 Test Key'}
-            </Btn>
-          </div>
-          <p className="text-xs text-slate-400 mt-2">AI email personalization via NVIDIA NIM (Llama 3.3 70B) · Get key at <a href="https://build.nvidia.com" target="_blank" rel="noreferrer" className="text-emerald-600 underline">build.nvidia.com</a></p>
-        </Card>
+        {/* NVIDIA AI — admin only */}
+        {isAdmin && (
+          <Card className="p-5">
+            <h3 className="text-sm font-bold text-slate-900 mb-1 flex items-center gap-2">
+              <Zap size={16} className="text-emerald-500" /> NVIDIA NIM AI
+              <span className="text-xs font-normal text-slate-400 ml-1">shared across all users</span>
+            </h3>
+
+            {/* Key status banner */}
+            {keyAlreadySaved && !keyDirty && (
+              <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700">
+                <span className="w-2 h-2 bg-emerald-500 rounded-full flex-shrink-0" />
+                API key is configured and active — all users can generate AI emails.
+                <button
+                  className="ml-auto text-emerald-600 underline underline-offset-2 hover:text-emerald-800"
+                  onClick={() => setKeyDirty(true)}
+                >
+                  Update key
+                </button>
+              </div>
+            )}
+
+            {/* Input only shown when no key exists OR admin clicks "Update key" */}
+            {(!keyAlreadySaved || keyDirty) && (
+              <div className="space-y-3">
+                <div className="flex gap-3">
+                  <input
+                    className="input flex-1"
+                    type="password"
+                    value={apiKey}
+                    onChange={e => setApiKey(e.target.value)}
+                    placeholder={keyAlreadySaved ? 'Paste new key to replace the current one' : 'nvapi-...'}
+                    autoFocus={keyDirty}
+                  />
+                  <Btn variant="primary" onClick={saveKey} disabled={!apiKey.trim()}>Save Key</Btn>
+                  {keyDirty && (
+                    <Btn variant="secondary" onClick={() => { setApiKey(''); setKeyDirty(false) }}>Cancel</Btn>
+                  )}
+                </div>
+                <p className="text-xs text-slate-400">
+                  NVIDIA NIM (Llama 3.3 70B) · Key stored once in the database, shared with all users ·{' '}
+                  <a href="https://build.nvidia.com" target="_blank" rel="noreferrer" className="text-emerald-600 underline">build.nvidia.com</a>
+                </p>
+              </div>
+            )}
+
+            {/* Test button — always visible to admin when a key exists */}
+            {keyAlreadySaved && (
+              <div className="mt-3">
+                <Btn variant="secondary" size="sm" disabled={testing} onClick={async () => {
+                  setTesting(true)
+                  try {
+                    const res = await fetch('/api/ops?type=test-nvidia', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ apiKey: settings.openaiKey })
+                    })
+                    const data = await res.json()
+                    if (data.ok) toast(`✅ NVIDIA key valid — reply: "${data.reply}"`, 'success')
+                    else toast(`❌ Key failed: ${data.error}`, 'error')
+                  } catch(e) { toast('Test failed: ' + e.message, 'error') }
+                  setTesting(false)
+                }}>
+                  {testing ? '...' : '🧪 Test Key'}
+                </Btn>
+              </div>
+            )}
+          </Card>
+        )}
 
         {/* Sender Profiles */}
         <Card className="p-5">

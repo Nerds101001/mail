@@ -113,10 +113,11 @@ export function CRMProvider({ children }) {
     setActivity(prev => [...prev, { time: Date.now(), msg }].slice(-200))
   }, [])
 
-  const loadFromRedis = useCallback(async () => {
+  const loadFromRedis = useCallback(async (overrideViewAs) => {
     try {
       const token = localStorage.getItem('crm_token') || ''
-      const va    = viewAsRef.current  // admin "view as" — empty string means own data
+      // overrideViewAs lets callers pass the value directly (avoids async state lag)
+      const va    = overrideViewAs !== undefined ? overrideViewAs : viewAsRef.current
       const url   = va ? `/api/crm?type=load&viewAs=${encodeURIComponent(va)}` : '/api/crm?type=load'
       const res   = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } })
       if (!res.ok) return
@@ -129,9 +130,11 @@ export function CRMProvider({ children }) {
       setDeals(data.deals    || [])
       setProfiles(data.profiles || [])
       if (Object.keys(data.settings || {}).length) {
-        // Preserve openaiKey from localStorage — never saved to Redis for security
+        // Server returns the shared key from crm:apikey — use it.
+        // Only fall back to localStorage if the server didn't return one (e.g. first-run).
         const localKey = load('crm_settings', {}).openaiKey
-        setSettings({ ...data.settings, ...(localKey ? { openaiKey: localKey } : {}) })
+        const key = data.settings.openaiKey || localKey
+        setSettings({ ...data.settings, ...(key ? { openaiKey: key } : {}) })
       }
       if (data.activity?.length) setActivity(data.activity)
 
