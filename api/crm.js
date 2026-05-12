@@ -238,6 +238,27 @@ module.exports = async (req, res) => {
     }
   }
 
+  // ── LEAD TRACKING SUMMARY (for pipeline table) ───────────────────────
+  if (type === "lead-tracking" && req.method === "GET") {
+    try {
+      const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+      const [tracking, lastEmails] = await Promise.all([
+        sql`SELECT lead_id, opens, clicks FROM simple_tracking`.catch(() => []),
+        sql`SELECT DISTINCT ON (lead_id) lead_id, subject, body, sent_at, status FROM campaign_leads ORDER BY lead_id, sent_at DESC`.catch(() => []),
+      ]);
+      const map = {};
+      tracking.forEach(t => {
+        map[t.lead_id] = { opens: parseInt(t.opens)||0, clicks: parseInt(t.clicks)||0 };
+      });
+      lastEmails.forEach(e => {
+        map[e.lead_id] = { ...(map[e.lead_id]||{}), subject: e.subject, body: e.body, sentAt: e.sent_at, emailStatus: e.status };
+      });
+      return res.json(map);
+    } catch(err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   // ── MARK REPLIED (feedback loop) ─────────────────────────────────────
   if (type === "mark-replied" && req.method === "POST") {
     try {
