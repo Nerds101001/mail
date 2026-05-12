@@ -1,8 +1,9 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useCRM } from '../store'
+import { useEffect, useState } from 'react'
 import {
   LayoutDashboard, CheckSquare, Users, GitBranch, Send,
-  UserCheck, FileText, BarChart2, Settings, LogOut, Zap, Mail, UserX, History, Paperclip
+  UserCheck, FileText, BarChart2, Settings, LogOut, Zap, Mail, UserX, History, Paperclip, Eye
 } from 'lucide-react'
 
 const NAV = [
@@ -32,15 +33,34 @@ const NAV = [
 ]
 
 export default function Layout({ children, taskCount = 0 }) {
-  const { leads, clients, gmailStatus } = useCRM()
-  const navigate = useNavigate()
-  const hot = leads.filter(l => (l.opens >= 2 || l.clicks >= 1) && !['WON','LOST','UNSUBSCRIBED'].includes(l.pipelineStage)).length
+  const { leads, clients, gmailStatus, viewAs, setViewAs, loadFromRedis } = useCRM()
+  const navigate   = useNavigate()
+  const isAdmin    = localStorage.getItem('crm_role') === 'admin'
+  const hot        = leads.filter(l => l.pipelineStage === 'HOT' && !['WON','LOST','UNSUBSCRIBED'].includes(l.pipelineStage)).length
+  const [userList, setUserList] = useState([])
+
+  // Load user list for admin view-as switcher
+  useEffect(() => {
+    if (!isAdmin) return
+    const token = localStorage.getItem('crm_token') || ''
+    fetch(`/api/auth?type=users&token=${token}`)
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d)) setUserList(d) })
+      .catch(() => {})
+  }, [isAdmin])
 
   function doLogout() {
     const token = localStorage.getItem('crm_token')
     if (token) fetch(`/api/auth?token=${token}`, { method: 'DELETE' }).catch(() => {})
-    localStorage.removeItem('crm_token')
+    // Clear ALL CRM data from localStorage — critical for user isolation
+    Object.keys(localStorage).filter(k => k.startsWith('crm_')).forEach(k => localStorage.removeItem(k))
     navigate('/login')
+  }
+
+  function handleViewAs(e) {
+    setViewAs(e.target.value)
+    // Reload data for the selected user immediately
+    setTimeout(() => loadFromRedis(), 50)
   }
 
   return (
@@ -95,6 +115,30 @@ export default function Layout({ children, taskCount = 0 }) {
             <span className="font-semibold text-slate-700">{localStorage.getItem('crm_userName') || 'Admin'}</span>
             <span className="ml-1 text-slate-400">({localStorage.getItem('crm_role') || 'admin'})</span>
           </div>
+
+          {/* Admin: view-as user switcher */}
+          {isAdmin && userList.length > 0 && (
+            <div className={`mx-1 px-2 py-2 rounded-lg text-xs border ${viewAs ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+              <div className="flex items-center gap-1 mb-1 text-slate-500">
+                <Eye size={11} />
+                <span className="font-semibold uppercase tracking-wide text-[10px]">Viewing as</span>
+              </div>
+              <select
+                className="w-full text-xs bg-white border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                value={viewAs || ''}
+                onChange={handleViewAs}
+              >
+                <option value="">👑 Admin (own data)</option>
+                {userList.map(u => (
+                  <option key={u.id} value={u.id}>{u.name || u.username}</option>
+                ))}
+              </select>
+              {viewAs && (
+                <p className="text-[10px] text-amber-600 mt-1">Viewing {userList.find(u=>u.id===viewAs)?.name || viewAs}'s data</p>
+              )}
+            </div>
+          )}
+
           <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${gmailStatus.connected ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-500'}`}>
             <Mail size={13} />
             <span className="truncate">{gmailStatus.connected ? gmailStatus.email : 'Gmail not connected'}</span>

@@ -25,10 +25,14 @@ export default function Login() {
       })
       const data = await res.json()
       if (data.ok) {
-        localStorage.setItem('crm_token', data.token)
-        localStorage.setItem('crm_userId', data.userId || 'admin')
-        localStorage.setItem('crm_role', data.role || 'admin')
-        localStorage.setItem('crm_userName', data.name || 'Admin')
+        // Clear ALL stale data from any previous user before storing new session
+        const keysToKeep = new Set(['crm_token','crm_userId','crm_role','crm_userName','crm_viewAs'])
+        Object.keys(localStorage).filter(k => k.startsWith('crm_') && !keysToKeep.has(k)).forEach(k => localStorage.removeItem(k))
+        localStorage.removeItem('crm_viewAs') // always reset viewAs on fresh login
+        localStorage.setItem('crm_token',    data.token)
+        localStorage.setItem('crm_userId',   data.userId || 'admin')
+        localStorage.setItem('crm_role',     data.role   || 'admin')
+        localStorage.setItem('crm_userName', data.name   || 'Admin')
         navigate('/')
       } else {
         setError(data.error || 'Invalid credentials')

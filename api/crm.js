@@ -44,7 +44,12 @@ module.exports = async (req, res) => {
 
   // Get userId from Authorization header or query param
   const token = req.headers.authorization?.replace("Bearer ", "") || req.query.token;
-  const userId = await getUserIdFromToken(token);
+  let userId = await getUserIdFromToken(token);
+
+  // Admin can view any user's data by passing ?viewAs=userId
+  if (userId === "admin" && req.query.viewAs && req.query.viewAs !== "admin") {
+    userId = req.query.viewAs;
+  }
 
   // ── LOAD ALL ─────────────────────────────────────────────────────────
   if (type === "load" && req.method === "GET") {

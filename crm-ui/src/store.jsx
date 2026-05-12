@@ -17,6 +17,16 @@ export function CRMProvider({ children }) {
   const [gmailStatus,setGmailStatus]= useState({ connected: false, email: null })
   const saveTimerRef = useRef(null)
 
+  // Admin "view as user" — stored in localStorage, never touches another user's localStorage cache
+  const viewAsRef = useRef(localStorage.getItem('crm_viewAs') || '')
+  const [viewAs,   setViewAsState]  = useState(viewAsRef.current)
+  const setViewAs = useCallback((userId) => {
+    viewAsRef.current = userId
+    setViewAsState(userId)
+    if (userId) localStorage.setItem('crm_viewAs', userId)
+    else localStorage.removeItem('crm_viewAs')
+  }, [])
+
   // Refs so push/save callbacks always read the LATEST state (avoids stale closure bug)
   const leadsRef    = useRef(leads)
   const clientsRef  = useRef(clients)
@@ -106,28 +116,26 @@ export function CRMProvider({ children }) {
   const loadFromRedis = useCallback(async () => {
     try {
       const token = localStorage.getItem('crm_token') || ''
-      const res = await fetch('/api/crm?type=load', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
+      const va    = viewAsRef.current  // admin "view as" — empty string means own data
+      const url   = va ? `/api/crm?type=load&viewAs=${encodeURIComponent(va)}` : '/api/crm?type=load'
+      const res   = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } })
       if (!res.ok) return
       const data = await res.json()
-      
-      // Merge with localStorage - keep newer data
-      const localLeads = load('crm_leads', [])
-      const mergedLeads = data.leads?.length ? data.leads : localLeads
-      
-      if (mergedLeads.length) setLeads(mergedLeads)
-      if (data.clients?.length)  setClients(data.clients)
-      if (data.deals?.length)    setDeals(data.deals)
-      setProfiles(data.profiles || [])  // always overwrite — profiles are per-user, stale localStorage must not bleed through
-      if (Object.keys(data.settings||{}).length) {
-        // Preserve openaiKey from localStorage — it's never saved to Redis for security
+
+      // Always overwrite from server — never fall back to localStorage.
+      // localStorage is only the initial render cache; server is always authoritative.
+      setLeads(data.leads    || [])
+      setClients(data.clients || [])
+      setDeals(data.deals    || [])
+      setProfiles(data.profiles || [])
+      if (Object.keys(data.settings || {}).length) {
+        // Preserve openaiKey from localStorage — never saved to Redis for security
         const localKey = load('crm_settings', {}).openaiKey
         setSettings({ ...data.settings, ...(localKey ? { openaiKey: localKey } : {}) })
       }
       if (data.activity?.length) setActivity(data.activity)
-      
-      console.log('✅ Data loaded from database:', { leads: mergedLeads.length, clients: data.clients?.length || 0, deals: data.deals?.length || 0 })
+
+      console.log('✅ Data loaded from database:', { leads: data.leads?.length || 0, clients: data.clients?.length || 0, deals: data.deals?.length || 0, viewAs: va || 'self' })
     } catch(e) { console.warn('❌ Database load failed:', e) }
   }, [])
 
@@ -142,7 +150,8 @@ export function CRMProvider({ children }) {
     <CRMContext.Provider value={{
       leads, setLeads, clients, setClients, deals, setDeals,
       profiles, setProfiles, settings, setSettings, activity, setActivity,
-      gmailStatus, setGmailStatus, logActivity, pushToRedis, saveNow, saveLeads, loadFromRedis, checkGmailStatus
+      gmailStatus, setGmailStatus, logActivity, pushToRedis, saveNow, saveLeads, loadFromRedis, checkGmailStatus,
+      viewAs, setViewAs,
     }}>
       {children}
     </CRMContext.Provider>
