@@ -92,8 +92,24 @@ export default function Settings() {
           <div className="flex gap-3">
             <input className="input flex-1" type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="nvapi-..." />
             <Btn variant="primary" onClick={saveKey}>Save Key</Btn>
+            <Btn variant="secondary" disabled={testing || !apiKey} onClick={async () => {
+              setTesting(true)
+              try {
+                const res = await fetch('/api/ops?type=test-nvidia', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ apiKey })
+                })
+                const data = await res.json()
+                if (data.ok) toast(`✅ NVIDIA key is valid! Reply: "${data.reply}"`, 'success')
+                else toast(`❌ Key failed: ${data.error}`, 'error')
+              } catch(e) { toast('Test failed: ' + e.message, 'error') }
+              setTesting(false)
+            }}>
+              {testing ? '...' : '🧪 Test Key'}
+            </Btn>
           </div>
-          <p className="text-xs text-slate-400 mt-2">AI email personalization via NVIDIA NIM (Llama 3.1 70B)</p>
+          <p className="text-xs text-slate-400 mt-2">AI email personalization via NVIDIA NIM (Llama 3.3 70B) · Get key at <a href="https://build.nvidia.com" target="_blank" rel="noreferrer" className="text-emerald-600 underline">build.nvidia.com</a></p>
         </Card>
 
         {/* Sender Profiles */}

@@ -207,9 +207,14 @@ export default function Campaign() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'AI generation failed')
       const v = data.variants || [{ subject: data.subject, body: data.body }]
+      const real = v.filter(x => !x.fallback)
       setVariants(v)
       setVariantIdx(0)
-      toast(`Generated ${v.length} variants ✓`, 'success')
+      if (data.failedCount > 0) {
+        toast(`⚠ ${data.failedCount}/${v.length} variants failed AI — using templates. Error: ${data.firstError || 'unknown'}`, 'error')
+      } else {
+        toast(`Generated ${real.length} AI variants ✓`, 'success')
+      }
     } catch(e) {
       toast('Generation failed: ' + e.message, 'error')
     }

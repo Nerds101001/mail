@@ -337,28 +337,28 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
           return result;
 
         } catch (err) {
-          console.error(`❌ Variant ${i+1} fallback:`, err.message);
-          const prob = brief.problems  || 'operational inefficiencies';
-          const sol  = brief.solutions || 'smart automation';
-          const prod = brief.product   || 'our solution';
-          const fallbacks = [
-            { subject:`Is ${company||'[Company]'} losing time to ${prob.split(',')[0].trim().toLowerCase()}?`,
-              body:`Hi ${name||'[Name]'},\n\nMost ${category||'businesses'} we talk to lose 10–20 hours a week to ${prob.split(',')[0].trim().toLowerCase()}.\n\nWe built ${prod} to fix exactly this — ${sol.split(',')[0].trim().toLowerCase()}. Clients typically see results in under 60 days.\n\nWould a quick 15-min call make sense this week?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution` },
-            { subject:`Quick ROI question for ${company||'[Company]'}`,
-              body:`Hi ${name||'[Name]'},\n\nIf I could show you how ${company||'[Company]'} could reduce ${prob.split(',')[0].trim().toLowerCase()} by 30%, would that be worth 15 minutes?\n\nWe've helped similar companies do this using ${sol.split(',').slice(0,2).join(' and ').toLowerCase()}.\n\nDoes Thursday or Friday work for a quick call?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution` },
-            { subject:`What top ${category||'companies'} are doing differently`,
-              body:`Hi ${name||'[Name]'},\n\nThe fastest-growing ${category||'businesses'} have one thing in common: they've stopped tolerating ${prob.split(',')[0].trim().toLowerCase()}.\n\nWe help companies like ${company||'[Company]'} make that shift with ${prod}.\n\nWorth a 15-min look?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution` },
-          ];
-          return { ...fallbacks[i % fallbacks.length], approach: approach.name, fallback: true };
+          console.error(`❌ Variant ${i+1} failed:`, err.message);
+          return { subject: null, body: null, approach: approach.name, fallback: true, error: err.message };
         }
       }
 
-      // Fire all variant requests in parallel — stays within Vercel's timeout
-      const variantPromises = Array.from({ length: variantCount }, (_, i) => fetchVariant(i));
-      const variants = await Promise.all(variantPromises);
+      // Fire in batches of 3 to avoid Vercel 10s timeout and NVIDIA rate limits
+      const BATCH = 3;
+      const variants = [];
+      for (let b = 0; b < variantCount; b += BATCH) {
+        const batch = Array.from({ length: Math.min(BATCH, variantCount - b) }, (_, k) => fetchVariant(b + k));
+        const results = await Promise.all(batch);
+        variants.push(...results);
+      }
 
-      console.log(`✅ [AI] Done — ${variants.length} variants ready`);
-      return res.json({ variants, count: variants.length });
+      const failedCount = variants.filter(v => v.fallback).length;
+      const firstError  = variants.find(v => v.error)?.error;
+
+      if (failedCount > 0) {
+        console.error(`⚠️ [AI] ${failedCount}/${variantCount} variants failed. First error: ${firstError}`);
+      }
+      console.log(`✅ [AI] Done — ${variants.length - failedCount} AI + ${failedCount} fallback`);
+      return res.json({ variants: variants.filter(v => !v.fallback || v.subject), count: variants.length, failedCount, firstError: firstError || null });
 
     } catch (error) {
       console.error('❌ AI Generation fatal error:', error.message);
@@ -504,6 +504,31 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       return res.json(scores);
     } catch(e) {
       return res.status(500).json({ error: e.message });
+    }
+  }
+
+  // ── TEST NVIDIA API KEY ───────────────────────────────────────────────
+  if (type === "test-nvidia" && req.method === "POST") {
+    const { apiKey } = req.body || {};
+    if (!apiKey) return res.status(400).json({ ok: false, error: "No API key provided" });
+    try {
+      const r = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "meta/llama-3.3-70b-instruct",
+          messages: [{ role: "user", content: "Reply with just the word OK" }],
+          max_tokens: 5,
+          temperature: 0,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) return res.json({ ok: false, error: data.detail || data.message || `HTTP ${r.status}` });
+      const reply = data.choices?.[0]?.message?.content || "";
+      console.log(`✅ [NVIDIA TEST] Key valid — reply: ${reply.trim()}`);
+      return res.json({ ok: true, reply: reply.trim() });
+    } catch (e) {
+      return res.json({ ok: false, error: e.message });
     }
   }
 
