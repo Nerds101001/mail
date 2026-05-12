@@ -5,24 +5,28 @@ import { Modal, Btn, Input, Select, Textarea, Badge, Empty, PageHeader, toast } 
 import { Plus, Upload, CheckCircle, Zap, Trash2, UserCheck, Search, Filter, Flame, Users } from 'lucide-react'
 
 export default function Leads() {
-  const { leads, setLeads, profiles, settings, logActivity, pushToRedis, saveNow } = useCRM()
+  const { leads, setLeads, profiles, settings, logActivity, pushToRedis, saveLeads } = useCRM()
   const [search, setSearch]   = useState('')
   const [stageF, setStageF]   = useState('')
   const [statusF, setStatusF] = useState('')
   const [priF, setPriF]       = useState('')
+  const [groupF, setGroupF]   = useState('')
   const [selected, setSelected] = useState(new Set())
   const [addOpen, setAddOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editLead, setEditLead] = useState(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [groupName, setGroupName] = useState('')
   const [emailOpen, setEmailOpen] = useState(false)
   const [emailLead, setEmailLead] = useState(null)
-  const [form, setForm] = useState({ name:'', email:'', company:'', phone:'', role:'GENERAL', category:'General', tags:'', notes:'', pipelineStage:'COLD' })
+  const [form, setForm] = useState({ name:'', email:'', company:'', phone:'', role:'GENERAL', category:'General', tags:'', notes:'', pipelineStage:'COLD', group:'' })
   const [csvText, setCsvText] = useState('')
   const [emailBody, setEmailBody] = useState('')
   const [emailSubject, setEmailSubject] = useState('')
   const [genLoading, setGenLoading] = useState(false)
   const [sendLoading, setSendLoading] = useState(false)
   const [verifying, setVerifying] = useState(false)
-  const [scores, setScores] = useState({}) // leadId → { score, label }
+  const [scores, setScores] = useState({})
   const [researchingId, setResearchingId] = useState(null)
 
   // Auto-load engagement scores on mount
@@ -30,15 +34,30 @@ export default function Leads() {
     if (leads.length > 0) fetchScores(leads)
   }, []) // eslint-disable-line
 
+  // Get unique groups for filter
+  const uniqueGroups = [...new Set(leads.map(l => l.group).filter(Boolean))].sort()
+
+  // Calculate group statistics
+  const groupStats = uniqueGroups.map(group => ({
+    name: group,
+    count: leads.filter(l => l.group === group).length,
+    validCount: leads.filter(l => l.group === group && l.status === 'VALID').length
+  }))
+  const defaultGroupCount = leads.filter(l => !l.group || l.group === 'Default').length
+
   const filtered = leads.filter(l => {
     const s = search.toLowerCase()
     return (!s || [l.name||'',l.email||'',l.company||''].join(' ').toLowerCase().includes(s))
       && (!stageF  || l.pipelineStage === stageF)
       && (!statusF || l.status === statusF)
       && (!priF    || l.priority === priF)
+      && (!groupF  || l.group === groupF)
   })
 
-  function save(newLeads) { setLeads(newLeads); saveNow() }
+  function save(newLeads) {
+    setLeads(newLeads)
+    saveLeads(newLeads)
+  }
 
   async function fetchScores(leadList) {
     try {
@@ -67,12 +86,53 @@ export default function Leads() {
     logActivity(`Added lead: ${form.name} <${form.email}>`)
     toast(`${form.name} added${status === 'INVALID' ? ' (invalid email flagged)' : ''}`, status === 'INVALID' ? 'warn' : 'success')
     setAddOpen(false)
-    setForm({ name:'', email:'', company:'', phone:'', role:'GENERAL', category:'General', tags:'', notes:'', pipelineStage:'COLD' })
+    setForm({ name:'', email:'', company:'', phone:'', role:'GENERAL', category:'General', tags:'', notes:'', pipelineStage:'COLD', group:'' })
 
     // Auto-suggest AI research note if company is provided and API key exists
     if (form.company && settings?.openaiKey && !form.notes) {
       researchLead({ id: l.id, name: form.name, company: form.company, category: form.category, role: form.role }, [...leads, l])
     }
+  }
+
+  function openEditLead(lead) {
+    setEditLead(lead)
+    setForm({
+      name: lead.name || '',
+      email: lead.email || '',
+      company: lead.company || '',
+      phone: lead.phone || '',
+      role: lead.role || 'GENERAL',
+      category: lead.category || 'General',
+      tags: (lead.tags || []).join(', '),
+      notes: lead.notes || '',
+      pipelineStage: lead.pipelineStage || 'COLD',
+      group: lead.group || ''
+    })
+    setEditOpen(true)
+  }
+
+  function updateLead() {
+    if (!form.name || !form.email) { toast('Name and email required', 'error'); return }
+    if (!isValidEmail(form.email)) { toast('Invalid email', 'error'); return }
+
+    const existingLead = leads.find(l => l.email.toLowerCase() === form.email.toLowerCase() && l.id !== editLead.id)
+    if (existingLead) { toast('Email already exists', 'error'); return }
+
+    const updatedLead = {
+      ...editLead,
+      ...form,
+      email: form.email.toLowerCase(),
+      tags: form.tags.split(',').map(t=>t.trim()).filter(Boolean),
+      updatedAt: new Date().toISOString()
+    }
+
+    const newLeads = leads.map(l => l.id === editLead.id ? updatedLead : l)
+    save(newLeads)
+    logActivity(`Updated lead: ${form.name} <${form.email}>`)
+    toast(`${form.name} updated`, 'success')
+    setEditOpen(false)
+    setEditLead(null)
+    setForm({ name:'', email:'', company:'', phone:'', role:'GENERAL', category:'General', tags:'', notes:'', pipelineStage:'COLD', group:'' })
   }
 
   function deleteLead(id) {
@@ -103,27 +163,51 @@ export default function Leads() {
     if (ei < 0) { toast('CSV must have Email column', 'error'); return }
 
     const fresh = []
+    let skippedStats = { invalidEmail: 0, duplicateEmail: 0, emptyEmail: 0, processed: 0 }
+
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
       const email = cols[ei] || ''
-      if (!email || !isValidEmail(email)) continue
-      if (leads.find(l => l.email.toLowerCase() === email.toLowerCase())) continue
-      const ci = headers.indexOf('company'), phi = headers.indexOf('phone')
-      const cati = headers.indexOf('category'), tagi = headers.indexOf('tags'), ni2 = headers.indexOf('notes')
-      const name     = ni >= 0   ? (cols[ni]   || email.split('@')[0]) : email.split('@')[0]
-      const company  = ci >= 0   ? (cols[ci]   || '') : ''
-      const phone    = phi >= 0  ? (cols[phi]  || '') : ''
-      const category = cati >= 0 ? (cols[cati] || 'General') : 'General'
-      const tags     = tagi >= 0 ? cols[tagi].split(';').map(t=>t.trim()).filter(Boolean) : []
-      const notes    = ni2 >= 0  ? (cols[ni2]  || '') : ''
-      fresh.push(enrichLead({ id:'lead_'+(Date.now()+i), name, email:email.toLowerCase(), company, phone, role:'', category, tags, notes, status:'VALID', pipelineStage:'COLD', stage:'', opens:0, clicks:0, score:40, lastSent:'', domain:'', priority:'LOW', createdAt:new Date().toISOString() }))
+
+      if (!email) { skippedStats.emptyEmail++; continue }
+
+      // Handle comma-separated emails — split and create multiple leads
+      const emails = email.split(';').map(e => e.trim()).filter(Boolean)
+
+      for (const singleEmail of emails) {
+        if (!isValidEmail(singleEmail)) { skippedStats.invalidEmail++; continue }
+        if (leads.find(l => l.email.toLowerCase() === singleEmail.toLowerCase())) { skippedStats.duplicateEmail++; continue }
+
+        skippedStats.processed++
+        const ci = headers.indexOf('company'), phi = headers.indexOf('phone')
+        const cati = headers.indexOf('category'), tagi = headers.indexOf('tags'), ni2 = headers.indexOf('notes')
+        const name     = ni >= 0   ? (cols[ni]   || '') : ''
+        const company  = ci >= 0   ? (cols[ci]   || '') : ''
+        const phone    = phi >= 0  ? (cols[phi]  || '') : ''
+        const category = cati >= 0 ? (cols[cati] || 'General') : 'General'
+        const tags     = tagi >= 0 ? cols[tagi].split(';').map(t=>t.trim()).filter(Boolean) : []
+        const notes    = ni2 >= 0  ? (cols[ni2]  || '') : ''
+        const group    = groupName || 'Default'
+
+        fresh.push(enrichLead({
+          id:'lead_'+(Date.now()+i+fresh.length),
+          name, email: singleEmail.toLowerCase(), company, phone, role:'',
+          category, tags, notes, group,
+          status:'VALID', pipelineStage:'COLD', stage:'',
+          opens:0, clicks:0, score:40, lastSent:'', domain:'', priority:'LOW',
+          createdAt:new Date().toISOString()
+        }))
+      }
     }
 
-    if (!fresh.length) { toast('No new valid leads found', 'warn'); return }
+    if (!fresh.length) {
+      const totalSkipped = skippedStats.invalidEmail + skippedStats.duplicateEmail + skippedStats.emptyEmail
+      toast(`No new leads imported. Skipped: ${totalSkipped} (${skippedStats.duplicateEmail} duplicates, ${skippedStats.invalidEmail} invalid, ${skippedStats.emptyEmail} empty)`, 'warn')
+      return
+    }
 
     toast(`Verifying ${fresh.length} emails...`, 'info')
 
-    // Auto bulk-verify all imported emails
     try {
       const vr = await fetch('/api/ops?type=verify-bulk', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ emails: fresh.map(l => l.email) }) })
       const { results } = await vr.json()
@@ -133,15 +217,17 @@ export default function Leads() {
       })
       const newLeads = [...leads, ...fresh]
       save(newLeads)
-      logActivity(`CSV import: ${fresh.length} leads (${invalid} invalid)`)
-      toast(`Imported ${fresh.length} leads — ${invalid} flagged invalid`, invalid > 0 ? 'warn' : 'success')
+      const totalRows = lines.length - 1
+      const totalSkipped = skippedStats.invalidEmail + skippedStats.duplicateEmail + skippedStats.emptyEmail
+      logActivity(`CSV import: ${fresh.length} leads (${invalid} invalid) added to group "${groupName || 'Default'}" — ${totalSkipped} skipped`)
+      toast(`✅ Imported ${fresh.length}/${totalRows} to "${groupName || 'Default'}" | Skipped: ${totalSkipped} (${skippedStats.duplicateEmail} dupes, ${skippedStats.invalidEmail} invalid, ${skippedStats.emptyEmail} empty) | ${invalid} flagged`, fresh.length > 0 ? 'success' : 'warn')
     } catch {
-      // If verify fails, still import without verification
       save([...leads, ...fresh])
-      toast(`Imported ${fresh.length} leads (verification skipped)`, 'success')
+      const totalSkipped = skippedStats.invalidEmail + skippedStats.duplicateEmail + skippedStats.emptyEmail
+      toast(`✅ Imported ${fresh.length} to "${groupName || 'Default'}" | Skipped: ${totalSkipped} (verification skipped)`, 'success')
     }
 
-    setImportOpen(false); setCsvText('')
+    setImportOpen(false); setCsvText(''); setGroupName('')
   }
 
   async function researchLead(lead, currentLeads) {
@@ -164,7 +250,6 @@ export default function Leads() {
       })
       const data = await res.json()
       const raw = data.variants?.[0]?.body || data.body || ''
-      // Extract just the note — strip any email-like content
       const note = raw.replace(/^(hi|dear|hello).*/im, '').replace(/best,[\s\S]*/i, '').trim().slice(0, 200)
       if (note) {
         const updated = (currentLeads || leads).map(l => l.id === lead.id ? { ...l, notes: note } : l)
@@ -242,6 +327,38 @@ export default function Leads() {
         <Btn variant="primary" onClick={() => setAddOpen(true)}><Plus size={14} /> Add Lead</Btn>
       </PageHeader>
 
+      {/* Group Statistics */}
+      {(groupStats.length > 0 || defaultGroupCount > 0) && (
+        <div className="mb-6">
+          <h3 className="text-sm font-bold text-slate-900 mb-3">📊 Group Statistics</h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+            {defaultGroupCount > 0 && (
+              <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                <div className="text-xs text-slate-500 mb-1">Default</div>
+                <div className="text-lg font-bold text-slate-900">{defaultGroupCount}</div>
+                <div className="text-xs text-slate-500">{leads.filter(l => (!l.group || l.group === 'Default') && l.status === 'VALID').length} valid</div>
+              </div>
+            )}
+            {groupStats.map(stat => (
+              <div
+                key={stat.name}
+                className="bg-blue-50 rounded-lg p-3 border border-blue-200 cursor-pointer hover:bg-blue-100 transition-colors"
+                onClick={() => setGroupF(groupF === stat.name ? '' : stat.name)}
+              >
+                <div className="text-xs text-blue-600 mb-1 font-medium truncate">{stat.name}</div>
+                <div className="text-lg font-bold text-blue-900">{stat.count}</div>
+                <div className="text-xs text-blue-600">{stat.validCount} valid</div>
+              </div>
+            ))}
+          </div>
+          {groupF && (
+            <div className="mt-2">
+              <button onClick={() => setGroupF('')} className="text-xs text-blue-600 hover:underline">✕ Clear group filter: "{groupF}"</button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex gap-3 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
@@ -260,6 +377,10 @@ export default function Leads() {
           <option value="">All Priority</option>
           <option>HIGH</option><option>MEDIUM</option><option>LOW</option>
         </select>
+        <select className="input w-36" value={groupF} onChange={e => setGroupF(e.target.value)}>
+          <option value="">All Groups</option>
+          {uniqueGroups.map(g => <option key={g} value={g}>{g}</option>)}
+        </select>
         {selected.size > 0 && (
           <Btn variant="danger" size="sm" onClick={bulkDelete}><Trash2 size={13} /> Delete {selected.size}</Btn>
         )}
@@ -274,6 +395,7 @@ export default function Leads() {
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Name</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Email</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Company</th>
+              <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Group</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Stage</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Status</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Score</th>
@@ -284,7 +406,7 @@ export default function Leads() {
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={10}><Empty icon={Users} title="No leads found" sub="Try adjusting your filters" /></td></tr>
+              <tr><td colSpan={11}><Empty icon={Users} title="No leads found" sub="Try adjusting your filters" /></td></tr>
             ) : filtered.map(l => {
               const sc = STAGE_COLORS[l.pipelineStage] || STAGE_COLORS.COLD
               const stc = STATUS_COLORS[l.status] || 'bg-slate-100 text-slate-600'
@@ -295,14 +417,17 @@ export default function Leads() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <div className="w-7 h-7 rounded-full bg-emerald-100 flex items-center justify-center text-xs font-bold text-emerald-700 flex-shrink-0">
-                        {(l.name||'?')[0].toUpperCase()}
+                        {l.name ? l.name[0].toUpperCase() : 'N/A'}
                       </div>
-                      <span className="font-semibold text-slate-900">{l.name}</span>
+                      <span className="font-semibold text-slate-900">{l.name || 'N/A'}</span>
                       {isHot && <Flame size={13} className="text-red-500" />}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-slate-500 font-mono text-xs">{l.email}</td>
                   <td className="px-4 py-3 text-slate-600">{l.company || '—'}</td>
+                  <td className="px-4 py-3">
+                    <span className="badge text-[11px] bg-blue-100 text-blue-700">{l.group || 'Default'}</span>
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`badge text-[11px] ${sc.bg} ${sc.text}`}>{l.pipelineStage || 'COLD'}</span>
                   </td>
@@ -328,6 +453,9 @@ export default function Leads() {
                     <div className="flex items-center gap-1">
                       <button className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors" title="Send Email" onClick={() => { setEmailLead(l); setEmailBody(''); setEmailSubject(''); setEmailOpen(true) }}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                      </button>
+                      <button className="p-1.5 rounded-lg hover:bg-green-50 text-green-500 transition-colors" title="Edit Lead" onClick={() => openEditLead(l)}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                       </button>
                       <button
                         className="p-1.5 rounded-lg hover:bg-purple-50 text-purple-400 transition-colors disabled:opacity-40"
@@ -355,7 +483,7 @@ export default function Leads() {
           </tbody>
         </table>
         <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
-          Showing {filtered.length} of {leads.length} leads
+          Showing {filtered.length} of {leads.length} leads{groupF ? ` in group "${groupF}"` : ''}
         </div>
       </div>
 
@@ -382,10 +510,49 @@ export default function Leads() {
             <Input label="Category" value={form.category} onChange={e => setForm({...form, category:e.target.value})} placeholder="SaaS, E-commerce..." />
             <Input label="Tags (comma separated)" value={form.tags} onChange={e => setForm({...form, tags:e.target.value})} placeholder="VIP, Hot..." />
           </div>
+          <Input label="Group" value={form.group} onChange={e => setForm({...form, group:e.target.value})} placeholder="Rubber Industries, Tech Startups..." />
           <Textarea label="Notes" value={form.notes} onChange={e => setForm({...form, notes:e.target.value})} placeholder="Any notes..." />
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="secondary" onClick={() => setAddOpen(false)}>Cancel</Btn>
             <Btn variant="primary" onClick={addLead}><Plus size={14} /> Add Lead</Btn>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Lead Modal */}
+      <Modal open={editOpen} onClose={() => { setEditOpen(false); setEditLead(null); setForm({ name:'', email:'', company:'', phone:'', role:'GENERAL', category:'General', tags:'', notes:'', pipelineStage:'COLD', group:'' }) }} title={`Edit Lead — ${editLead?.name}`}>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Full Name *" value={form.name} onChange={e => setForm({...form, name:e.target.value})} placeholder="John Doe" />
+            <Input label="Email *" type="email" value={form.email} onChange={e => setForm({...form, email:e.target.value})} placeholder="john@company.com" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Company" value={form.company} onChange={e => setForm({...form, company:e.target.value})} placeholder="Acme Corp" />
+            <Input label="Phone" value={form.phone} onChange={e => setForm({...form, phone:e.target.value})} placeholder="+91 98765 43210" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Select label="Role" value={form.role} onChange={e => setForm({...form, role:e.target.value})}>
+              {['GENERAL','FOUNDER','SALES','HR','CTO','CFO'].map(r => <option key={r}>{r}</option>)}
+            </Select>
+            <Select label="Pipeline Stage" value={form.pipelineStage} onChange={e => setForm({...form, pipelineStage:e.target.value})}>
+              {PIPELINE_STAGES.slice(0,6).map(s => <option key={s}>{s}</option>)}
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Category" value={form.category} onChange={e => setForm({...form, category:e.target.value})} placeholder="SaaS, E-commerce..." />
+            <Input label="Tags (comma separated)" value={form.tags} onChange={e => setForm({...form, tags:e.target.value})} placeholder="VIP, Hot..." />
+          </div>
+          <Input label="Group" value={form.group} onChange={e => setForm({...form, group:e.target.value})} placeholder="Rubber Industries, Tech Startups..." />
+          <Textarea label="Notes" value={form.notes} onChange={e => setForm({...form, notes:e.target.value})} placeholder="Any notes..." />
+          <div className="flex justify-end gap-2 pt-2">
+            <Btn variant="secondary" onClick={() => { setEditOpen(false); setEditLead(null) }}>Cancel</Btn>
+            <Btn variant="primary" onClick={updateLead}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+              Update Lead
+            </Btn>
           </div>
         </div>
       </Modal>
@@ -411,6 +578,7 @@ export default function Leads() {
             />
           </div>
           <p className="text-xs text-slate-400 text-center">— or paste CSV below —</p>
+          <Input label="Group Name" value={groupName} onChange={e => setGroupName(e.target.value)} placeholder="e.g. Rubber Industries, Tech Startups..." />
           <Textarea label="" value={csvText} onChange={e => setCsvText(e.target.value)} placeholder={"Name,Email,Company,Phone,Category\nJohn Doe,john@acme.com,Acme Corp,,SaaS"} style={{ minHeight: 120 }} />
           <div className="flex justify-end gap-2">
             <Btn variant="secondary" onClick={() => setImportOpen(false)}>Cancel</Btn>
