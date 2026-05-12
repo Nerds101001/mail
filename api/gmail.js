@@ -78,6 +78,27 @@ module.exports = async (req, res) => {
         set("gmail:email", profile.email),
       ]);
 
+      // ── Add Gmail account to crm:profiles so it shows in Campaign sender list ──
+      try {
+        const profilesRaw = await get('crm:profiles');
+        const crmProfiles = profilesRaw ? JSON.parse(profilesRaw) : [];
+        const existingIdx = crmProfiles.findIndex(p => p.type === 'gmail' && p.user === profile.email);
+        const gmailProfile = {
+          id:       existingIdx >= 0 ? crmProfiles[existingIdx].id : `gmail_${Date.now()}`,
+          type:     'gmail',
+          name:     profile.name || profile.email,
+          user:     profile.email,
+          email:    profile.email,
+          active:   true,
+          dailyCap: 500,
+        };
+        if (existingIdx >= 0) crmProfiles[existingIdx] = gmailProfile;
+        else crmProfiles.push(gmailProfile);
+        await set('crm:profiles', JSON.stringify(crmProfiles));
+      } catch(profileErr) {
+        console.warn('⚠ Could not update crm:profiles with Gmail account:', profileErr.message);
+      }
+
       console.log(`✅ Gmail connected: ${profile.email}`);
       res.redirect(`${appUrl}/?gmail=connected&account=${encodeURIComponent(profile.email)}`);
     } catch (err) {
@@ -87,20 +108,58 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // ── GMAIL STATUS ──────────────────────────────────────────────────────
+  // ── GMAIL STATUS (returns all connected accounts) ─────────────────────
   if (type === "status") {
     try {
-      const email = await get("gmail:email");
-      const expiresAt = parseInt(await get("gmail:expires_at") || "0");
-      return res.json({ 
-        connected: !!email, 
-        email: email || null, 
-        tokenExpired: expiresAt > 0 && Date.now() > expiresAt 
+      const profilesRaw = await get('crm:profiles');
+      const crmProfiles = profilesRaw ? JSON.parse(profilesRaw) : [];
+      const gmailAccounts = crmProfiles.filter(p => p.type === 'gmail');
+
+      // Fallback: if no profiles yet, check the legacy single-account key
+      if (gmailAccounts.length === 0) {
+        const email = await get("gmail:email");
+        const expiresAt = parseInt(await get("gmail:expires_at") || "0");
+        return res.json({
+          connected: !!email,
+          email: email || null,
+          tokenExpired: expiresAt > 0 && Date.now() > expiresAt,
+          accounts: email ? [{ id: 'gmail_legacy', email, user: email, name: email, active: true, type: 'gmail', dailyCap: 500 }] : [],
+        });
+      }
+
+      return res.json({
+        connected: gmailAccounts.length > 0,
+        email: gmailAccounts[0]?.email || null,
+        accounts: gmailAccounts,
       });
-    } catch(e) { 
-      return res.json({ connected: false, email: null }); 
+    } catch(e) {
+      return res.json({ connected: false, email: null, accounts: [] });
     }
   }
 
-  res.status(400).json({ error: "Invalid type parameter. Use ?type=auth, ?type=callback, or ?type=status" });
+  // ── GMAIL DISCONNECT ───────────────────────────────────────────────────
+  if (type === "disconnect" && req.method === "POST") {
+    try {
+      const { email } = req.body || {};
+      if (email) {
+        const suffix = `:${email.replace(/[^a-z0-9]/gi, '_')}`;
+        await Promise.all([
+          set(`gmail:access_token${suffix}`, ''),
+          set(`gmail:refresh_token${suffix}`, ''),
+          set(`gmail:expires_at${suffix}`, '0'),
+        ]);
+        // Remove from crm:profiles
+        const profilesRaw = await get('crm:profiles');
+        const crmProfiles = profilesRaw ? JSON.parse(profilesRaw) : [];
+        const updated = crmProfiles.filter(p => !(p.type === 'gmail' && p.user === email));
+        await set('crm:profiles', JSON.stringify(updated));
+        console.log(`✅ Gmail disconnected: ${email}`);
+      }
+      return res.json({ ok: true });
+    } catch(e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  res.status(400).json({ error: "Invalid type parameter. Use ?type=auth, ?type=callback, ?type=status, or ?type=disconnect" });
 };

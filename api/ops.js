@@ -138,10 +138,17 @@ module.exports = async (req, res) => {
   // ── GMAIL STATUS ──────────────────────────────────────────────────────
   if (type === "gmail-status") {
     try {
+      const profilesRaw = await get('crm:profiles');
+      const crmProfiles = profilesRaw ? JSON.parse(profilesRaw) : [];
+      const gmailAccounts = crmProfiles.filter(p => p.type === 'gmail');
+      if (gmailAccounts.length > 0) {
+        return res.json({ connected: true, email: gmailAccounts[0].email, accounts: gmailAccounts });
+      }
+      // Legacy fallback
       const email = await get("gmail:email");
       const expiresAt = parseInt(await get("gmail:expires_at")||"0");
-      return res.json({ connected: !!email, email: email||null, tokenExpired: expiresAt>0&&Date.now()>expiresAt });
-    } catch(e) { return res.json({ connected: false, email: null }); }
+      return res.json({ connected: !!email, email: email||null, tokenExpired: expiresAt>0&&Date.now()>expiresAt, accounts: email ? [{ email, user: email, active: true }] : [] });
+    } catch(e) { return res.json({ connected: false, email: null, accounts: [] }); }
   }
 
   // ── DAILY TASKS ───────────────────────────────────────────────────────
