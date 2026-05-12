@@ -12,10 +12,11 @@ import Clients  from './pages/Clients'
 import Deals    from './pages/Deals'
 import Tracking from './pages/Tracking'
 import Tasks    from './pages/Tasks'
-import CampaignHistory from './pages/CampaignHistory'
-import Settings       from './pages/Settings'
-import Unsubscribes   from './pages/Unsubscribes'
-import UsersPage      from './pages/Users'
+import CampaignHistory    from './pages/CampaignHistory'
+import Settings           from './pages/Settings'
+import Unsubscribes       from './pages/Unsubscribes'
+import UsersPage          from './pages/Users'
+import AttachmentManager  from './pages/AttachmentManager'
 
 function ProtectedApp() {
   const { loadFromRedis, checkGmailStatus, setProfiles, profiles, logActivity } = useCRM()
@@ -67,6 +68,7 @@ function ProtectedApp() {
         <Route path="/unsubscribes"  element={<Unsubscribes />} />
         <Route path="/settings"      element={<Settings />} />
         <Route path="/users"         element={<UsersPage />} />
+        <Route path="/attachments"   element={<AttachmentManager />} />
       </Routes>
     </Layout>
   )

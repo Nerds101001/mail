@@ -133,7 +133,8 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl })
 }
 
 // ─── HTML body builder (improved deliverability) ─────────────────────────────────
-function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
+// attachments: [{id, name}] — each gets a tracked download link at the bottom
+function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, attachments = []) {
   // Query-param tracking URLs — reliable across all Vercel rewrite configs.
   // Path-based URLs (/api/track/open/id/cid) lost the path after Vercel rewrite;
   // query params are passed through intact.
@@ -162,6 +163,19 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
   const trackingPixel = `<img src="${trackingPixelUrl}" width="1" height="1" alt="" style="display:none;border:0;">`;
   const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`;
 
+  // Build tracked attachment download section
+  const attachmentHtml = attachments && attachments.length > 0
+    ? `<div style="margin-top:20px;padding:12px 16px;background:#f8f9fa;border-radius:6px;border:1px solid #e9ecef;">
+        <p style="margin:0 0 8px 0;font-size:12px;font-weight:bold;color:#495057;">📎 Attachments</p>
+        ${attachments.map(a => {
+          const dlParams = campaignId
+            ? `id=${a.id}&leadId=${leadId}&cid=${campaignId}`
+            : `id=${a.id}&leadId=${leadId}`;
+          return `<a href="${appUrl}/api/attachments?type=download&${dlParams}" style="display:block;color:#1a73e8;font-size:13px;padding:3px 0;text-decoration:none;">📄 ${a.name}</a>`;
+        }).join('')}
+      </div>`
+    : '';
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -172,6 +186,7 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
 <body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#000000;background:#ffffff;">
   <div style="padding:12px 16px;">
     ${paragraphs}
+    ${attachmentHtml}
     <p style="margin:24px 0 0 0;font-size:11px;color:#aaaaaa;">
       <a href="${unsubUrl}" style="color:#aaaaaa;text-decoration:underline;">Unsubscribe</a>
     </p>
@@ -186,7 +201,7 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { leadId, to, subject, body, senderName, replyTo, gmailUser, campaignId } = req.body;
+  const { leadId, to, subject, body, senderName, replyTo, gmailUser, campaignId, attachments } = req.body;
   const appUrl = process.env.APP_URL || "https://enginerdsmail.vercel.app";
 
   if (!leadId || !to || !subject || !body)
@@ -203,7 +218,7 @@ module.exports = async (req, res) => {
     if (!gmailAccount) throw new Error("Gmail not connected — please reconnect in Settings");
     const from       = `${senderName || "Enginerds Tech"} <${gmailAccount}>`;
     const unsubUrl   = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}`;
-    const htmlBody   = buildHtmlBody(body, leadId, to, appUrl, campaignId);
+    const htmlBody   = buildHtmlBody(body, leadId, to, appUrl, campaignId, attachments || []);
     const raw        = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, unsubscribeUrl: unsubUrl });
 
     // Write scanner-guard BEFORE sending — Gmail delivers nearly instantly after

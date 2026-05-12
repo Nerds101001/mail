@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useCRM } from '../store'
 import {
   LayoutDashboard, CheckSquare, Users, GitBranch, Send,
-  UserCheck, FileText, BarChart2, Settings, LogOut, Zap, Mail, UserX, History
+  UserCheck, FileText, BarChart2, Settings, LogOut, Zap, Mail, UserX, History, Paperclip
 } from 'lucide-react'
 
 const NAV = [
@@ -11,10 +11,11 @@ const NAV = [
     { to: '/tasks',    icon: CheckSquare,     label: "Today's Tasks", badge: 'tasks' },
   ]},
   { label: 'Sales', items: [
-    { to: '/leads',    icon: Users,           label: 'Leads' },
-    { to: '/pipeline', icon: GitBranch,       label: 'Pipeline' },
-    { to: '/campaign', icon: Send,            label: 'Campaign' },
-    { to: '/history',  icon: History,         label: 'Cam. History' },
+    { to: '/leads',       icon: Users,       label: 'Leads' },
+    { to: '/pipeline',    icon: GitBranch,   label: 'Pipeline' },
+    { to: '/campaign',    icon: Send,        label: 'Campaign' },
+    { to: '/history',     icon: History,     label: 'Cam. History' },
+    { to: '/attachments', icon: Paperclip,   label: 'Attachments' },
   ]},
   { label: 'Business', items: [
     { to: '/clients',  icon: UserCheck,       label: 'Clients' },

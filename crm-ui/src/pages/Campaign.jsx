@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useCRM } from '../store'
 import { Btn, Card, PageHeader, toast } from '../components/ui'
 import RichEditor, { htmlToPlain } from '../components/RichEditor'
-import { Play, Zap, RefreshCw, ChevronLeft, ChevronRight, Plus, X, Calendar } from 'lucide-react'
+import { Play, Zap, RefreshCw, ChevronLeft, ChevronRight, Plus, X, Calendar, Paperclip, Upload, Check } from 'lucide-react'
 
 export default function Campaign() {
   const { leads, setLeads, profiles, settings, logActivity } = useCRM()
@@ -24,7 +24,12 @@ export default function Campaign() {
   const [variantIdx, setVariantIdx]     = useState(0)
   const [customSubj, setCustomSubj]     = useState('')
   const [customBody, setCustomBody]     = useState('')
-  const [attachments, setAttachments]   = useState([{ type:'link', label:'', url:'' }])
+  // Stored-attachment picker
+  const [storedAttachments, setStoredAttachments] = useState([])   // all files on server
+  const [selectedAttIds, setSelectedAttIds]       = useState(new Set()) // selected IDs
+  const [attLoading, setAttLoading]               = useState(false)
+  const [attUploading, setAttUploading]           = useState(false)
+  const attFileRef = useRef(null)
   const [running, setRunning]           = useState(false)
   const [progress, setProgress]         = useState(0)
   const [status, setStatus]             = useState('Ready to launch')
@@ -35,6 +40,41 @@ export default function Campaign() {
   const [campaignName, setCampaignName]               = useState(`Campaign ${new Date().toLocaleDateString('en-GB')}`)
   const [usePersonalization, setUsePersonalization]   = useState(false)
   const bodyRef = useRef(null)
+
+  // Load stored attachments on mount
+  useEffect(() => { loadStoredAttachments() }, [])
+
+  async function loadStoredAttachments() {
+    setAttLoading(true)
+    try {
+      const res = await fetch('/api/attachments?type=list')
+      if (res.ok) { const d = await res.json(); setStoredAttachments(d.attachments || []) }
+    } catch(e) {}
+    setAttLoading(false)
+  }
+
+  async function uploadAndSelectFile(file) {
+    if (file.size > 4 * 1024 * 1024) { toast(`${file.name}: max 4 MB`, 'error'); return }
+    setAttUploading(true)
+    try {
+      const data = await new Promise((resolve, reject) => {
+        const r = new FileReader()
+        r.onload  = () => resolve(r.result.split(',')[1])
+        r.onerror = reject
+        r.readAsDataURL(file)
+      })
+      const res = await fetch('/api/attachments?type=upload', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: file.name, contentType: file.type, size: file.size, data })
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Upload failed')
+      const { id } = await res.json()
+      await loadStoredAttachments()
+      setSelectedAttIds(prev => new Set([...prev, id]))
+      toast(`${file.name} uploaded & selected ✓`, 'success')
+    } catch(e) { toast(`Upload failed: ${e.message}`, 'error') }
+    setAttUploading(false)
+  }
 
   // Follow-up mode — detect ?followup=campId in URL
   const [followupIds, setFollowupIds] = useState(null) // Set of lead IDs to target
@@ -78,12 +118,6 @@ export default function Campaign() {
     return []
   }
 
-  function buildAttachmentText() {
-    const valid = attachments.filter(a => a.url && a.label)
-    if (!valid.length) return ''
-    return '\n\n' + valid.map(a => `📎 ${a.label}: ${a.url}`).join('\n')
-  }
-
   async function getContent(lead, variantPool, index = 0) {
     const sub = (s) => (s || '')
       .replace(/\[Name\]/gi,    lead.name    || '')
@@ -106,15 +140,15 @@ export default function Campaign() {
     }
 
     if (mode === 'custom') {
-      return { subject: sub(customSubj), body: injectNotes(sub(customBody), lead) + buildAttachmentText() }
+      return { subject: sub(customSubj), body: injectNotes(sub(customBody), lead) }
     }
     if (variantPool && variantPool.length > 0) {
       const v = variantPool[index % variantPool.length]
-      return { subject: sub(v.subject), body: injectNotes(sub(v.body), lead) + buildAttachmentText() }
+      return { subject: sub(v.subject), body: injectNotes(sub(v.body), lead) }
     }
     return {
       subject: `Question for ${lead.company || 'your business'}`,
-      body: injectNotes(`Hi ${lead.name},\n\nI noticed ${lead.company||'your business'} and thought we could help with your tech operations.\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`, lead) + buildAttachmentText()
+      body: injectNotes(`Hi ${lead.name},\n\nI noticed ${lead.company||'your business'} and thought we could help with your tech operations.\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`, lead)
     }
   }
 
@@ -169,7 +203,11 @@ export default function Campaign() {
   async function sendOne(lead, subject, body, profile, campaignId) {
     try {
       const endpoint = profile.type === 'gmail' ? '/api/send-email' : '/api/send-smtp'
-      const payload = { leadId:lead.id, to:lead.email, subject, body, senderName:cfg.sender, replyTo:cfg.replyTo, campaignId }
+      // Build attachment metadata list for selected attachments
+      const selectedAtts = storedAttachments
+        .filter(a => selectedAttIds.has(a.id))
+        .map(a => ({ id: a.id, name: a.original_name }))
+      const payload = { leadId:lead.id, to:lead.email, subject, body, senderName:cfg.sender, replyTo:cfg.replyTo, campaignId, attachments: selectedAtts }
       if (profile.type === 'smtp') payload.smtpConfig = profile
       if (profile.type === 'gmail') payload.gmailUser = profile.user
       const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
@@ -527,21 +565,71 @@ export default function Campaign() {
             </div>
           )}
 
-          {/* Attachments */}
+          {/* Attachments — stored files with tracked downloads */}
           <div className="mt-4 border-t pt-4">
             <div className="flex items-center justify-between mb-2">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Link Attachments</label>
-              <button onClick={()=>setAttachments([...attachments,{type:'link',label:'',url:''}])} className="text-emerald-600 hover:text-emerald-700">
-                <Plus size={13}/>
-              </button>
-            </div>
-            {attachments.map((a,i)=>(
-              <div key={i} className="flex gap-2 mb-2">
-                <input className="input text-xs flex-1" placeholder="Label" value={a.label} onChange={e=>{const n=[...attachments];n[i]={...n[i],label:e.target.value};setAttachments(n)}} />
-                <input className="input text-xs flex-1" placeholder="https://..." value={a.url} onChange={e=>{const n=[...attachments];n[i]={...n[i],url:e.target.value};setAttachments(n)}} />
-                <button onClick={()=>setAttachments(attachments.filter((_,j)=>j!==i))} className="text-red-400 hover:text-red-600"><X size={13}/></button>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                <Paperclip size={11}/> Attachments
+                {selectedAttIds.size > 0 && (
+                  <span className="bg-emerald-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{selectedAttIds.size}</span>
+                )}
+              </label>
+              <div className="flex items-center gap-1">
+                <input
+                  ref={attFileRef} type="file" multiple className="hidden"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.zip,.txt,.csv"
+                  onChange={e => { Array.from(e.target.files).forEach(f => uploadAndSelectFile(f)); e.target.value='' }}
+                />
+                <button
+                  onClick={() => attFileRef.current?.click()}
+                  disabled={attUploading}
+                  className="flex items-center gap-1 text-[10px] text-emerald-600 hover:text-emerald-700 px-2 py-1 rounded hover:bg-emerald-50"
+                  title="Upload new file"
+                >
+                  <Upload size={11}/>{attUploading ? 'Uploading...' : 'Upload'}
+                </button>
+                <button onClick={loadStoredAttachments} disabled={attLoading} className="text-slate-400 hover:text-slate-600 p-1 rounded" title="Refresh">
+                  <RefreshCw size={11} className={attLoading ? 'animate-spin' : ''}/>
+                </button>
               </div>
-            ))}
+            </div>
+
+            {attLoading ? (
+              <p className="text-[11px] text-slate-400">Loading files...</p>
+            ) : storedAttachments.length === 0 ? (
+              <div className="text-center py-3 border border-dashed border-slate-200 rounded-lg">
+                <p className="text-[11px] text-slate-400">No stored files yet.</p>
+                <button onClick={() => attFileRef.current?.click()} className="text-[11px] text-emerald-600 hover:underline mt-0.5">Upload your first file</button>
+              </div>
+            ) : (
+              <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                {storedAttachments.map(a => {
+                  const sel = selectedAttIds.has(a.id)
+                  return (
+                    <label key={a.id} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${sel ? 'bg-emerald-50 border border-emerald-200' : 'hover:bg-slate-50 border border-transparent'}`}>
+                      <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${sel ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'}`}>
+                        {sel && <Check size={10} className="text-white" strokeWidth={3}/>}
+                      </div>
+                      <input type="checkbox" className="hidden" checked={sel} onChange={() => {
+                        const s = new Set(selectedAttIds)
+                        sel ? s.delete(a.id) : s.add(a.id)
+                        setSelectedAttIds(s)
+                      }}/>
+                      <span className="text-[11px] font-medium text-slate-700 flex-1 truncate">{a.original_name}</span>
+                      <span className="text-[10px] text-slate-400 flex-shrink-0">
+                        {a.size < 1024*1024 ? `${(a.size/1024).toFixed(0)}KB` : `${(a.size/1024/1024).toFixed(1)}MB`}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            )}
+
+            {selectedAttIds.size > 0 && (
+              <p className="text-[10px] text-emerald-600 mt-2">
+                ✓ {selectedAttIds.size} file{selectedAttIds.size>1?'s':''} will be included as tracked download links in every email.
+              </p>
+            )}
           </div>
         </Card>
       </div>
