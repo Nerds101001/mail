@@ -328,20 +328,15 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
     const sql = getDb();
 
     const now = Date.now();
-    const oneHourAgo = now - (60 * 60 * 1000);
 
-    // ── Block delivery pre-fetch (66.249.x.x) outright ───────────────────────
-    // This IP range is Google's delivery-time scanner — fires within 1-5s of
-    // send and is always a false open. Block it completely.
-    if (isDeliveryPrefetchIp(ip)) {
-      console.log(`🛡️ [GUARD] Delivery pre-fetch blocked for lead ${leadId}: ${ip}`);
-      return { counted: false, reason: 'delivery pre-fetch IP', count: 0 };
-    }
-
-    // ── Timing guard — unknown IPs only ──────────────────────────────────────
-    // User proxy IPs (74.125.x.x, Apple MPP, Microsoft etc.) bypass the guard —
-    // they only fire when the user actually opens, so count them directly.
-    // Unknown IPs get a 50s guard to catch any other scanners.
+    // ── Timing guard (ALL IPs including 66.249.x.x) ──────────────────────────
+    // Gmail delivery scanner fires within 1-5s of send from 66.249.x.x.
+    // Real user opens also come from Google IPs (66.249, 74.125, etc.) but
+    // always AFTER the user taps/clicks — never within 5s of delivery.
+    // Blocking 66.249.x.x outright would also block real user opens from that range.
+    // Instead: block ALL IPs only within the first 5s window after send.
+    // Known user-proxy IPs (74.125, Apple MPP, Microsoft) bypass even this guard
+    // because they ONLY fire on real user interaction — never at delivery.
     if (!isUserProxyIp(ip)) {
       const guardRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
@@ -350,7 +345,7 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       if (guardRaw.length > 0) {
         const sentAt = parseInt(guardRaw[0].value) || 0;
         if (now - sentAt < 5000) {
-          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} (${Math.round((now-sentAt)/1000)}s after send)`);
+          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} IP:${ip} (${Math.round((now-sentAt)/1000)}s after send)`);
           return { counted: false, reason: 'scanner guard (5s)', count: 0 };
         }
       }
@@ -409,12 +404,6 @@ async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
   try {
     await ensureTable();
     const sql = getDb();
-
-    // Block known scanner IPs (same as trackOpen)
-    if (isScannerIp(ip)) {
-      console.log(`🛡️ [GUARD] Known scanner IP blocked click for lead ${leadId}: ${ip}`);
-      return { counted: false, reason: 'scanner IP', count: 0 };
-    }
 
     const now = Date.now();
     const fiveMinutesAgo = now - (5 * 60 * 1000); // 5 minute window
