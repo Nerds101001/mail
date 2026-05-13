@@ -108,6 +108,26 @@ module.exports = async (req, res) => {
       leads = leadsRaw; // fallback to raw if tracking query fails
     }
 
+    // ── One-time name cleanup ─────────────────────────────────────────────
+    // Strip placeholder names (NA, N/A, none, null, -, unknown, etc.) that
+    // were stored before the enrichLead guard was added. Runs on every load
+    // but only writes back when dirty — zero cost once all leads are clean.
+    const BLANK_NAMES = new Set(['na','n/a','n.a','n.a.','none','null','nil','unknown','-','--','---','?','name']);
+    let namesDirty = false;
+    const cleanedLeads = leads.map(l => {
+      const trimmed = (l.name || '').trim();
+      if (trimmed && (BLANK_NAMES.has(trimmed.toLowerCase()) || trimmed.length < 2)) {
+        namesDirty = true;
+        return { ...l, name: '' };
+      }
+      return l;
+    });
+    if (namesDirty) {
+      leads = cleanedLeads;
+      await safeSet(ns("crm:leads", userId), leads);
+      console.log(`✅ [CRM LOAD] Cleaned placeholder names for user ${userId}`);
+    }
+
     return res.json({ leads, profiles, settings: mergedSettings, activity, clients, deals });
   }
 
