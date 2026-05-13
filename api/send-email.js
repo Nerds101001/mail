@@ -65,11 +65,25 @@ async function getValidAccessToken(accountEmail = null) {
   return accessToken;
 }
 
+// ─── Fetch real file data from Postgres for MIME attachments ────────────────
+async function fetchAttachmentData(attachments) {
+  if (!attachments || !attachments.length) return [];
+  try {
+    const { neon } = require("@neondatabase/serverless");
+    const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+    const ids = attachments.map(a => a.id);
+    const rows = await sql`SELECT id, original_name, content_type, data FROM attachments WHERE id = ANY(${ids})`;
+    return rows;
+  } catch (e) {
+    console.error("❌ [GMAIL] Failed to fetch attachment data:", e.message);
+    return [];
+  }
+}
+
 // ─── RFC 2822 builder with proper MIME multipart structure ─────────────────
-function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl }) {
+function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, attachmentData = [] }) {
   const msgId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@enginerds.in>`;
-  const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  
+
   // Extract plain text from HTML for text/plain version
   const plainText = htmlBody
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -81,60 +95,95 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl })
     .replace(/&gt;/g, '>')
     .replace(/\n\s*\n\s*\n/g, '\n\n')
     .trim();
-  
-  // Use 8bit encoding with proper line wrapping to prevent quoted-printable
-  // Wrap HTML at safe points (after >) to keep lines under 998 chars (RFC 5322 limit)
+
+  // Wrap HTML at safe points (after >) to keep lines under 998 chars (RFC 5322)
   const htmlLines = [];
   let currentLine = '';
-  
   for (let i = 0; i < htmlBody.length; i++) {
     currentLine += htmlBody[i];
-    
-    // Break after > if line is getting long (keep under 900 chars for safety)
     if (currentLine.length >= 900 && htmlBody[i] === '>') {
       htmlLines.push(currentLine);
       currentLine = '';
     }
   }
   if (currentLine) htmlLines.push(currentLine);
-  
   const wrappedHtml = htmlLines.join('\r\n');
-  
+
+  const hasAttachments = attachmentData.length > 0;
+
+  if (!hasAttachments) {
+    // No attachments — original multipart/alternative structure
+    const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const lines = [
+      `From: ${from}`, `Reply-To: ${replyTo}`, `To: ${to}`,
+      `Subject: ${subject}`, `Date: ${new Date().toUTCString()}`,
+      `Message-ID: ${msgId}`, `MIME-Version: 1.0`,
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      `List-Unsubscribe: <${unsubscribeUrl}>`,
+      `List-Unsubscribe-Post: List-Unsubscribe=One-Click`,
+      ``,
+      `--${boundary}`,
+      `Content-Type: text/plain; charset="UTF-8"`,
+      `Content-Transfer-Encoding: 7bit`,
+      ``, plainText, ``,
+      `--${boundary}`,
+      `Content-Type: text/html; charset="UTF-8"`,
+      `Content-Transfer-Encoding: 8bit`,
+      ``, wrappedHtml, ``,
+      `--${boundary}--`,
+    ].join('\r\n');
+    return Buffer.from(lines, 'utf-8').toString('base64')
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  // With attachments — multipart/mixed outer, multipart/alternative inner
+  const mixedBoundary = `----=_Mixed_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const altBoundary   = `----=_Alt_${Date.now() + 1}_${Math.random().toString(36).slice(2)}`;
+
   const lines = [
-    `From: ${from}`,
-    `Reply-To: ${replyTo}`,
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    `Date: ${new Date().toUTCString()}`,
-    `Message-ID: ${msgId}`,
-    `MIME-Version: 1.0`,
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    `From: ${from}`, `Reply-To: ${replyTo}`, `To: ${to}`,
+    `Subject: ${subject}`, `Date: ${new Date().toUTCString()}`,
+    `Message-ID: ${msgId}`, `MIME-Version: 1.0`,
+    `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`,
     `List-Unsubscribe: <${unsubscribeUrl}>`,
     `List-Unsubscribe-Post: List-Unsubscribe=One-Click`,
     ``,
-    `--${boundary}`,
+    `--${mixedBoundary}`,
+    `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+    ``,
+    `--${altBoundary}`,
     `Content-Type: text/plain; charset="UTF-8"`,
     `Content-Transfer-Encoding: 7bit`,
-    ``,
-    plainText,
-    ``,
-    `--${boundary}`,
+    ``, plainText, ``,
+    `--${altBoundary}`,
     `Content-Type: text/html; charset="UTF-8"`,
     `Content-Transfer-Encoding: 8bit`,
-    ``,
-    wrappedHtml,
-    ``,
-    `--${boundary}--`
-  ].join("\r\n");
+    ``, wrappedHtml, ``,
+    `--${altBoundary}--`,
+  ];
 
-  // Gmail API requires the entire message to be base64url encoded
-  return Buffer.from(lines, 'utf-8').toString("base64")
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  // Append each file as a real MIME attachment part (base64, 76-char lines per RFC 2045)
+  for (const att of attachmentData) {
+    const b64 = att.data.replace(/\s/g, '');
+    const chunks = b64.match(/.{1,76}/g) || [b64];
+    lines.push('');
+    lines.push(`--${mixedBoundary}`);
+    lines.push(`Content-Type: ${att.content_type}; name="${att.original_name}"`);
+    lines.push(`Content-Disposition: attachment; filename="${att.original_name}"`);
+    lines.push(`Content-Transfer-Encoding: base64`);
+    lines.push('');
+    lines.push(...chunks);
+  }
+
+  lines.push('', `--${mixedBoundary}--`);
+
+  return Buffer.from(lines.join('\r\n'), 'utf-8').toString('base64')
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 // ─── HTML body builder (improved deliverability) ─────────────────────────────────
-// attachments: [{id, name}] — each gets a tracked download link at the bottom
-function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, attachments = []) {
+// Files are now sent as real MIME attachments — no link section in the body.
+function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
   // Query-param tracking URLs — reliable across all Vercel rewrite configs.
   // Path-based URLs (/api/track/open/id/cid) lost the path after Vercel rewrite;
   // query params are passed through intact.
@@ -163,19 +212,6 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, atta
   const trackingPixel = `<img src="${trackingPixelUrl}" width="1" height="1" alt="" style="display:none;border:0;">`;
   const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`;
 
-  // Build tracked attachment download section
-  const attachmentHtml = attachments && attachments.length > 0
-    ? `<div style="margin-top:20px;padding:12px 16px;background:#f8f9fa;border-radius:6px;border:1px solid #e9ecef;">
-        <p style="margin:0 0 8px 0;font-size:12px;font-weight:bold;color:#495057;">📎 Attachments</p>
-        ${attachments.map(a => {
-          const dlParams = campaignId
-            ? `id=${a.id}&leadId=${leadId}&cid=${campaignId}`
-            : `id=${a.id}&leadId=${leadId}`;
-          return `<a href="${appUrl}/api/attachments?type=download&${dlParams}" style="display:block;color:#1a73e8;font-size:13px;padding:3px 0;text-decoration:none;">📄 ${a.name}</a>`;
-        }).join('')}
-      </div>`
-    : '';
-
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -186,7 +222,6 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, atta
 <body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#000000;background:#ffffff;">
   <div style="padding:12px 16px;">
     ${paragraphs}
-    ${attachmentHtml}
     <p style="margin:24px 0 0 0;font-size:11px;color:#aaaaaa;">
       <a href="${unsubUrl}" style="color:#aaaaaa;text-decoration:underline;">Unsubscribe</a>
     </p>
@@ -218,8 +253,9 @@ module.exports = async (req, res) => {
     if (!gmailAccount) throw new Error("Gmail not connected — please reconnect in Settings");
     const from       = `${senderName || "Enginerds Tech"} <${gmailAccount}>`;
     const unsubUrl   = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}`;
-    const htmlBody   = buildHtmlBody(body, leadId, to, appUrl, campaignId, attachments || []);
-    const raw        = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, unsubscribeUrl: unsubUrl });
+    const htmlBody      = buildHtmlBody(body, leadId, to, appUrl, campaignId);
+    const attachmentData = await fetchAttachmentData(attachments || []);
+    const raw           = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, unsubscribeUrl: unsubUrl, attachmentData });
 
     // Write scanner-guard BEFORE sending — Gmail delivers nearly instantly after
     // the API call returns, and the Image Proxy fires within milliseconds of

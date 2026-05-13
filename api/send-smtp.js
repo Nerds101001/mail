@@ -2,9 +2,24 @@
 const nodemailer = require("nodemailer");
 const { get, set } = require("./_redis");
 
+// ─── Fetch real file data from Postgres for MIME attachments ────────────────
+async function fetchAttachmentData(attachments) {
+  if (!attachments || !attachments.length) return [];
+  try {
+    const { neon } = require("@neondatabase/serverless");
+    const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+    const ids = attachments.map(a => a.id);
+    const rows = await sql`SELECT id, original_name, content_type, data FROM attachments WHERE id = ANY(${ids})`;
+    return rows;
+  } catch (e) {
+    console.error("❌ [SMTP] Failed to fetch attachment data:", e.message);
+    return [];
+  }
+}
+
 // ─── HTML body builder ────────────────────────────────────────────────────────
-// attachments: [{id, name}] — each gets a tracked download link at the bottom
-function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, attachments = []) {
+// Files are now sent as real MIME attachments — no link section in the body.
+function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
   // Query-param tracking URLs — reliable across all Vercel rewrite configs.
   const pixelParams = campaignId
     ? `id=${leadId}&cid=${campaignId}`
@@ -30,18 +45,6 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, atta
   const trackingPixel = `<img src="${appUrl}/api/track-open?${pixelParams}" width="1" height="1" alt="" style="display:none;border:0;"/>`
   const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`
 
-  const attachmentHtml = attachments && attachments.length > 0
-    ? `<div style="margin-top:20px;padding:12px 16px;background:#f8f9fa;border-radius:6px;border:1px solid #e9ecef;">
-        <p style="margin:0 0 8px 0;font-size:12px;font-weight:bold;color:#495057;">📎 Attachments</p>
-        ${attachments.map(a => {
-          const dlParams = campaignId
-            ? `id=${a.id}&leadId=${leadId}&cid=${campaignId}`
-            : `id=${a.id}&leadId=${leadId}`;
-          return `<a href="${appUrl}/api/attachments?type=download&${dlParams}" style="display:block;color:#1a73e8;font-size:13px;padding:3px 0;text-decoration:none;">📄 ${a.name}</a>`;
-        }).join('')}
-      </div>`
-    : '';
-
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -52,7 +55,6 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, atta
 <body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#000000;background:#ffffff;">
   <div style="padding:12px 16px;">
     ${paragraphs}
-    ${attachmentHtml}
     <p style="margin:24px 0 0 0;font-size:11px;color:#aaaaaa;">
       <a href="${unsubUrl}" style="color:#aaaaaa;text-decoration:underline;">Unsubscribe</a>
     </p>
@@ -94,7 +96,8 @@ module.exports = async (req, res) => {
       greetingTimeout:   10000,
     });
 
-    const htmlBody = buildHtmlBody(body, leadId, to, appUrl, campaignId || null, attachments || []);
+    const htmlBody       = buildHtmlBody(body, leadId, to, appUrl, campaignId || null);
+    const attachmentData = await fetchAttachmentData(attachments || []);
 
     // Write scanner-guard BEFORE sending — SMTP delivers immediately after
     // sendMail resolves, and scanner proxies fire within milliseconds.
@@ -117,6 +120,12 @@ module.exports = async (req, res) => {
         "List-Unsubscribe":        `<${unsubUrl}>`,
         "List-Unsubscribe-Post":   "List-Unsubscribe=One-Click",
       },
+      // Real file attachments — shown as native attachment in email clients
+      attachments: attachmentData.map(att => ({
+        filename:    att.original_name,
+        content:     Buffer.from(att.data, 'base64'),
+        contentType: att.content_type,
+      })),
     });
 
     res.json({ success: true, messageId: info.messageId });
