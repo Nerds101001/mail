@@ -156,23 +156,27 @@ export default function Pipeline() {
   const [dealLead,       setDealLead]       = useState(null) // lead pending deal modal
   const [dealSaving,     setDealSaving]     = useState(false)
 
-  const token  = () => localStorage.getItem('crm_token') || ''
-  const vaParam = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
+  const token    = () => localStorage.getItem('crm_token') || ''
+  const vaParam  = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
 
-  // ── Fetch tracking (opens/clicks/last email) ──────────────────────────
-  const fetchTracking = useCallback(async (campId) => {
+  // Keep a ref so fetchTracking always reads the latest campF without
+  // needing it as a dependency (avoids the overwrite race condition).
+  const campFRef = useRef('')
+  campFRef.current = campF
+
+  // ── Fetch tracking — always uses current campF via ref ───────────────
+  const fetchTracking = useCallback(async () => {
     setLoadingTrack(true)
     try {
-      // When a campaign filter is active, pass campId so the API returns
-      // per-campaign opens/clicks instead of the aggregate across all campaigns.
-      const campParam = campId ? `&campId=${encodeURIComponent(campId)}` : ''
+      const cid = campFRef.current
+      const campParam = cid ? `&campId=${encodeURIComponent(cid)}` : ''
       const res = await fetch(`/api/crm?type=lead-tracking${vaParam()}${campParam}`, {
         headers: { Authorization: `Bearer ${token()}` }
       })
       if (res.ok) setTrackMap(await res.json())
     } catch(e) { console.warn('tracking fetch failed', e) }
     setLoadingTrack(false)
-  }, [viewAs])
+  }, [viewAs]) // eslint-disable-line
 
   // ── Fetch campaigns list for dropdown ────────────────────────────────
   const fetchCampaigns = useCallback(async () => {
@@ -185,20 +189,19 @@ export default function Pipeline() {
         if (Array.isArray(data)) setCampaigns(data)
       }
     } catch(e) { console.warn('campaigns fetch failed', e) }
-  }, [viewAs])
+  }, [viewAs]) // eslint-disable-line
 
+  // On mount and whenever viewAs changes — fetch both (campFRef always current)
   useEffect(() => {
     fetchTracking()
     fetchCampaigns()
   }, [fetchTracking, fetchCampaigns])
 
   // ── When campaign filter changes: fetch lead IDs + re-fetch tracking ────
-  // Re-fetching tracking with campId gives per-campaign opens/clicks instead
-  // of the aggregate across all campaigns for that lead.
   useEffect(() => {
     if (!campF) {
       setCampLeadIds(null)
-      fetchTracking()   // back to aggregate mode
+      fetchTracking()
       return
     }
     setCampLoading(true)
@@ -212,8 +215,8 @@ export default function Pipeline() {
       })
       .catch(() => setCampLeadIds(null))
       .finally(() => setCampLoading(false))
-    fetchTracking(campF)  // per-campaign mode
-  }, [campF, fetchTracking])
+    fetchTracking()  // campFRef.current is already updated to campF
+  }, [campF]) // eslint-disable-line
 
   // ── Unique groups from leads ──────────────────────────────────────────
   const uniqueGroups = useMemo(() => {
@@ -334,7 +337,7 @@ export default function Pipeline() {
         title="Lead Pipeline"
         subtitle={`${leads.length} total leads across all stages`}
         action={
-          <Btn variant="secondary" onClick={() => fetchTracking(campF || undefined)} disabled={loadingTrack}>
+          <Btn variant="secondary" onClick={fetchTracking} disabled={loadingTrack}>
             <RefreshCw size={13} className={loadingTrack ? 'animate-spin' : ''} />
             {loadingTrack ? 'Syncing...' : 'Sync Tracking'}
           </Btn>

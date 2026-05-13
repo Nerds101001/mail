@@ -306,8 +306,10 @@ module.exports = async (req, res) => {
       let tracking, lastEmails;
 
       if (campId) {
-        // ── Per-campaign mode: query tracking_events filtered by campaign_id ──
-        // This gives opens/clicks specific to this one campaign, not aggregate.
+        // ── Per-campaign mode ─────────────────────────────────────────────────
+        // Opens/clicks come from tracking_events (has campaign_id per event).
+        // Last email comes from campaign_leads for THIS campaign, so subject
+        // and sent date always show even for leads that haven't opened yet.
         [tracking, lastEmails] = await Promise.all([
           sql`
             SELECT lead_id,
@@ -325,7 +327,7 @@ module.exports = async (req, res) => {
           `.catch(() => []),
         ]);
       } else {
-        // ── Aggregate mode: cumulative opens/clicks across all campaigns ──
+        // ── Aggregate mode: cumulative opens/clicks across all campaigns ──────
         [tracking, lastEmails] = await Promise.all([
           sql`SELECT lead_id, opens, clicks FROM simple_tracking WHERE lead_id = ANY(${userLeadIds})`.catch(() => []),
           sql`SELECT DISTINCT ON (lead_id) lead_id, subject, body, sent_at, status FROM campaign_leads WHERE lead_id = ANY(${userLeadIds}) ORDER BY lead_id, sent_at DESC`.catch(() => []),
