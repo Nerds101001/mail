@@ -99,11 +99,14 @@ module.exports = async (req, res) => {
     const htmlBody       = buildHtmlBody(body, leadId, to, appUrl, campaignId || null);
     const attachmentData = await fetchAttachmentData(attachments || []);
 
-    // Write scanner-guard BEFORE sending — SMTP delivers immediately after
-    // sendMail resolves, and scanner proxies fire within milliseconds.
-    // Writing AFTER send races against the proxy hitting the pixel before
-    // the guard key is persisted, causing every send to show 1 false open.
-    await set(`email:guard:${leadId}`, String(Date.now()), 30).catch(() => {});
+    // Write scanner-guard BEFORE sending.
+    // With attachments the mail scanner downloads the file before firing the pixel
+    // — takes 10-30s, bypassing the normal 5s window. Shift the guard timestamp
+    // 30s forward so _redis.js treats the first ~35s as "within 5s" and blocks it.
+    const hasAttachments = attachmentData.length > 0;
+    const guardValue = hasAttachments ? String(Date.now() + 30000) : String(Date.now());
+    const guardTtl   = hasAttachments ? 90 : 30;
+    await set(`email:guard:${leadId}`, guardValue, guardTtl).catch(() => {});
 
     const info = await transporter.sendMail({
       from:    `"${senderName}" <${user}>`,

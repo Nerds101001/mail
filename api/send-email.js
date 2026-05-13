@@ -257,11 +257,17 @@ module.exports = async (req, res) => {
     const attachmentData = await fetchAttachmentData(attachments || []);
     const raw           = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, unsubscribeUrl: unsubUrl, attachmentData });
 
-    // Write scanner-guard BEFORE sending — Gmail delivers nearly instantly after
-    // the API call returns, and the Image Proxy fires within milliseconds of
-    // delivery. Writing AFTER send creates a race where the proxy hits the pixel
-    // before the guard key exists in DB, causing every send to show 1 false open.
-    await set(`email:guard:${leadId}`, String(Date.now()), 30).catch(() => {});
+    // Write scanner-guard BEFORE sending.
+    // For emails with attachments Gmail downloads + scans the file before firing
+    // the pixel — this takes 10-30s, slipping past the normal 5s scanner window.
+    // Fix: shift the guard timestamp 30s into the future so _redis.js sees any
+    // event within the first ~35s as "within 5s of send" and blocks it.
+    // TTL is extended to 90s to cover the full attachment-scan window.
+    // Normal emails (no attachments) keep the original 5s window and 30s TTL.
+    const hasAttachments = attachmentData.length > 0;
+    const guardValue = hasAttachments ? String(Date.now() + 30000) : String(Date.now());
+    const guardTtl   = hasAttachments ? 90 : 30;
+    await set(`email:guard:${leadId}`, guardValue, guardTtl).catch(() => {});
 
     const sendRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
       method: "POST",
