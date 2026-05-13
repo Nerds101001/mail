@@ -19,7 +19,18 @@ export const enrichLead = (l) => {
   // Only block truly invalid emails — personal and role-based are sendable
   if (!['SENT','REPLIED','FOLLOW-UP','INVALID','DUPLICATE','DISPOSABLE','TYPO','INVALID-LENGTH','UNSUBSCRIBED'].includes(l.status)) l.status = 'VALID'
 
-  if (!l.company && domain) l.company = (domain.split('.')[0] || '').toUpperCase()
+  // Only auto-fill company from domain for real business domains.
+  // Never derive a company name from free/personal providers (gmail, yahoo, etc.)
+  const FREE_DOMAINS = new Set([
+    'gmail.com','yahoo.com','yahoo.in','yahoo.co.in','outlook.com','hotmail.com',
+    'icloud.com','aol.com','live.com','protonmail.com','proton.me','zoho.com',
+    'ymail.com','rediffmail.com','mail.com','gmx.com','tutanota.com','fastmail.com',
+  ])
+  if (!l.company && domain && !FREE_DOMAINS.has(domain)) {
+    // Capitalise first letter only — "acmecorp" → "Acmecorp", not "ACMECORP"
+    const raw = domain.split('.')[0] || ''
+    l.company = raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase()
+  }
   if (!l.role) {
     if (e.includes('ceo') || e.includes('founder') || e.includes('owner')) l.role = 'FOUNDER'
     else if (e.includes('sales')) l.role = 'SALES'
