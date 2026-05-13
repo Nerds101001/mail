@@ -5,7 +5,8 @@ import RichEditor, { htmlToPlain } from '../components/RichEditor'
 import { Play, Zap, RefreshCw, ChevronLeft, ChevronRight, Plus, X, Calendar } from 'lucide-react'
 
 export default function Campaign() {
-  const { leads, setLeads, profiles, settings, logActivity } = useCRM()
+  const { leads, setLeads, profiles, settings, logActivity, viewAs } = useCRM()
+  const vaParam = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
   const [mode, setMode]       = useState('ai')
   const [cfg, setCfg]         = useState({ batch:30, rate:2, target:'valid', filterVal:'', sender:'Pawan Kumar - Enginerds Tech Solution', replyTo:'contact@enginerds.in' })
 
@@ -49,14 +50,11 @@ export default function Campaign() {
 
   const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
 
-  // Load file attachments on component mount
-  useEffect(() => {
-    loadFileAttachments()
-  }, [])
+  useEffect(() => { loadFileAttachments() }, [viewAs]) // eslint-disable-line
 
   async function loadFileAttachments() {
     try {
-      const res = await fetch('/api/attachments?type=list', { headers: authHeader() })
+      const res = await fetch(`/api/attachments?type=list${vaParam()}`, { headers: authHeader() })
       const data = await res.json()
       setFileAttachments(data.attachments || [])
     } catch (error) {

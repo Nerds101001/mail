@@ -47,20 +47,22 @@ async function getDb() {
 module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  const { type, id } = req.query;
+  const { type, id, viewAs } = req.query;
 
   // Resolve calling user
   const token  = req.headers.authorization?.replace("Bearer ", "") || req.query.token;
   const userId = await getUserIdFromToken(token);
 
   // ── LIST ─────────────────────────────────────────────────────────────────────
-  // Admin sees all attachments; regular users see only their own
+  // Admin sees all attachments; regular users see only their own.
+  // Admin can pass ?viewAs=userId to see a specific user's attachments.
   if (type === "list" && req.method === "GET") {
     try {
       const sql = await getDb();
-      const rows = userId === "admin"
+      const effectiveId = (userId === "admin" && viewAs) ? viewAs : userId;
+      const rows = (userId === "admin" && !viewAs)
         ? await sql`SELECT id, user_id, label, original_name, content_type, size, uploaded_at, download_count FROM attachments ORDER BY uploaded_at DESC`
-        : await sql`SELECT id, user_id, label, original_name, content_type, size, uploaded_at, download_count FROM attachments WHERE user_id = ${userId} ORDER BY uploaded_at DESC`;
+        : await sql`SELECT id, user_id, label, original_name, content_type, size, uploaded_at, download_count FROM attachments WHERE user_id = ${effectiveId} ORDER BY uploaded_at DESC`;
       return res.json({ attachments: rows });
     } catch (e) {
       return res.status(500).json({ error: e.message });

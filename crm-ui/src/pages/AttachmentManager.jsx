@@ -1,20 +1,23 @@
 import { useState, useEffect } from 'react'
+import { useCRM } from '../store'
 import { Card, PageHeader, toast } from '../components/ui'
 import { RefreshCw, Download, Trash2, Upload } from 'lucide-react'
 
 export default function AttachmentManager() {
+  const { viewAs } = useCRM()
   const [attachments, setAttachments] = useState([])
   const [loading, setLoading] = useState(false)
   const [uploadLoading, setUploadLoading] = useState(false)
 
   const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
+  const vaParam = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
 
-  useEffect(() => { loadAttachments() }, [])
+  useEffect(() => { loadAttachments() }, [viewAs]) // eslint-disable-line
 
   async function loadAttachments() {
     setLoading(true)
     try {
-      const res = await fetch('/api/attachments?type=list', { headers: authHeader() })
+      const res = await fetch(`/api/attachments?type=list${vaParam()}`, { headers: authHeader() })
       const data = await res.json()
       setAttachments(data.attachments || [])
     } catch (error) {
@@ -236,7 +239,7 @@ export default function AttachmentManager() {
           <button
             onClick={async () => {
               try {
-                const res = await fetch('/api/attachments?type=list', { headers: authHeader() })
+                const res = await fetch(`/api/attachments?type=list${vaParam()}`, { headers: authHeader() })
                 const data = await res.json()
                 console.log('API Response:', data)
                 toast(`API working! Found ${data.attachments?.length || 0} attachments`, 'success')
