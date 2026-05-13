@@ -17,9 +17,8 @@ export default function Settings() {
 
   const crmToken = () => localStorage.getItem('crm_token') || ''
 
-  // Admin check — same logic as server-side getUserIdFromToken
-  const token = localStorage.getItem('crm_token') || ''
-  const isAdmin = !token || (/^sess_\d+_[a-z0-9]+$/.test(token) && token.length < 40)
+  // Admin check — read the role stored at login (same as Layout.jsx)
+  const isAdmin = localStorage.getItem('crm_role') === 'admin'
 
   const loadGmailAccounts = async () => {
     setGmailLoading(true)
