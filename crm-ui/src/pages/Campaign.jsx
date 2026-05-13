@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useCRM } from '../store'
 import { Btn, Card, PageHeader, toast } from '../components/ui'
 import RichEditor, { htmlToPlain } from '../components/RichEditor'
-import { Play, Zap, RefreshCw, ChevronLeft, ChevronRight, Plus, X, Calendar } from 'lucide-react'
+import { Play, Zap, RefreshCw, ChevronLeft, ChevronRight, Plus, X, Calendar, Pencil, Check } from 'lucide-react'
 
 export default function Campaign() {
   const { leads, setLeads, profiles, settings, logActivity, viewAs } = useCRM()
@@ -26,6 +26,7 @@ export default function Campaign() {
   const [variantCount, setVariantCount] = useState(5)
   const [variants, setVariants]         = useState([])
   const [variantIdx, setVariantIdx]     = useState(0)
+  const [editingVariant, setEditingVariant] = useState(false)
   const [customSubj, setCustomSubj]     = useState('')
   const [customBody, setCustomBody]     = useState('')
 
@@ -213,6 +214,7 @@ export default function Campaign() {
       const real = v.filter(x => !x.fallback)
       setVariants(v)
       setVariantIdx(0)
+      setEditingVariant(false)
       if (data.failedCount > 0) {
         toast(`⚠ ${data.failedCount}/${v.length} variants failed AI — using templates. Error: ${data.firstError || 'unknown'}`, 'error')
       } else {
@@ -660,23 +662,72 @@ export default function Campaign() {
             </div>
           )}
 
-          {/* Preview */}
+          {/* Preview / Edit */}
           {(variants.length > 0 || mode === 'custom') && (
             <div className="mt-4 border-t pt-4">
               <div className="flex items-center justify-between mb-2">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Preview</label>
-                {variants.length > 1 && (
-                  <div className="flex gap-1 items-center">
-                    <button onClick={()=>setVariantIdx(i=>Math.max(0,i-1))} className="p-1 hover:bg-slate-100 rounded"><ChevronLeft size={14}/></button>
-                    <span className="text-[10px] py-1 text-slate-500">Variant {variantIdx+1}/{variants.length}</span>
-                    <button onClick={()=>setVariantIdx(i=>Math.min(variants.length-1,i+1))} className="p-1 hover:bg-slate-100 rounded"><ChevronRight size={14}/></button>
-                  </div>
-                )}
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  {editingVariant && mode === 'ai' ? 'Editing Variant' : 'Preview'}
+                </label>
+                <div className="flex gap-1 items-center">
+                  {variants.length > 1 && (
+                    <>
+                      <button
+                        onClick={() => { setVariantIdx(i => Math.max(0, i-1)); setEditingVariant(false) }}
+                        className="p-1 hover:bg-slate-100 rounded"
+                      ><ChevronLeft size={14}/></button>
+                      <span className="text-[10px] py-1 text-slate-500">Variant {variantIdx+1}/{variants.length}</span>
+                      <button
+                        onClick={() => { setVariantIdx(i => Math.min(variants.length-1, i+1)); setEditingVariant(false) }}
+                        className="p-1 hover:bg-slate-100 rounded"
+                      ><ChevronRight size={14}/></button>
+                    </>
+                  )}
+                  {mode === 'ai' && variants.length > 0 && (
+                    <button
+                      onClick={() => setEditingVariant(v => !v)}
+                      title={editingVariant ? 'Done editing' : 'Edit this variant'}
+                      className={`flex items-center gap-1 ml-1 px-2 py-1 rounded-lg text-[10px] font-semibold transition-colors ${
+                        editingVariant
+                          ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                          : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                      }`}
+                    >
+                      {editingVariant ? <><Check size={11}/> Done</> : <><Pencil size={11}/> Edit</>}
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="bg-slate-50 rounded-lg p-3 text-sm border border-slate-200 max-h-64 overflow-y-auto">
-                <p className="font-bold text-slate-900 border-b pb-1 mb-2 text-xs">Subject: {mode==='custom'?customSubj:currentVariant.subject}</p>
-                <p className="whitespace-pre-wrap text-slate-600 leading-relaxed text-xs">{mode==='custom'?customBody:currentVariant.body}</p>
-              </div>
+
+              {editingVariant && mode === 'ai' ? (
+                // Editable mode — changes update the variants array directly
+                <div className="space-y-2">
+                  <input
+                    className="w-full text-xs font-semibold border border-blue-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/30"
+                    value={currentVariant.subject}
+                    onChange={e => setVariants(vs => vs.map((v, i) => i === variantIdx ? { ...v, subject: e.target.value } : v))}
+                    placeholder="Subject line..."
+                  />
+                  <textarea
+                    rows={10}
+                    className="w-full text-xs border border-blue-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/30 resize-y leading-relaxed font-mono"
+                    value={currentVariant.body}
+                    onChange={e => setVariants(vs => vs.map((v, i) => i === variantIdx ? { ...v, body: e.target.value } : v))}
+                    placeholder="Email body..."
+                  />
+                  <p className="text-[10px] text-slate-400">Changes are saved automatically — this is what will be sent.</p>
+                </div>
+              ) : (
+                // Read-only preview
+                <div className="bg-slate-50 rounded-lg p-3 text-sm border border-slate-200 max-h-64 overflow-y-auto">
+                  <p className="font-bold text-slate-900 border-b pb-1 mb-2 text-xs">
+                    Subject: {mode === 'custom' ? customSubj : currentVariant.subject}
+                  </p>
+                  <p className="whitespace-pre-wrap text-slate-600 leading-relaxed text-xs">
+                    {mode === 'custom' ? customBody : currentVariant.body}
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
