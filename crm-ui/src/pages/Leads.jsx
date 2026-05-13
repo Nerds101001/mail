@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react'
 import { useCRM } from '../store'
 import { enrichLead, isValidEmail, PIPELINE_STAGES, STAGE_COLORS, STATUS_COLORS, fmtDate } from '../utils'
 import { Modal, Btn, Input, Select, Textarea, Badge, Empty, PageHeader, toast } from '../components/ui'
-import { Plus, Upload, CheckCircle, Zap, Trash2, UserCheck, Search, Filter, Flame, Users } from 'lucide-react'
+import { Plus, Upload, CheckCircle, Zap, Trash2, UserCheck, Search, Filter, Flame, Users, Download } from 'lucide-react'
 
 export default function Leads() {
   const { leads, setLeads, profiles, settings, logActivity, pushToRedis, saveLeads } = useCRM()
+  const isAdmin = localStorage.getItem('crm_role') === 'admin'
   const [search, setSearch]   = useState('')
   const [stageF, setStageF]   = useState('')
   const [statusF, setStatusF] = useState('')
@@ -278,6 +279,34 @@ export default function Leads() {
     setVerifying(false)
   }
 
+  function exportCSV() {
+    const rows = filtered.length > 0 ? filtered : leads
+    const headers = ['Name','Email','Company','Phone','Role','Category','Group','Pipeline Stage','Status','Priority','Score','Opens','Clicks','Last Sent','Tags','Notes','Created At']
+    const escape = (v) => {
+      const s = String(v == null ? '' : v)
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const csvRows = [
+      headers.join(','),
+      ...rows.map(l => [
+        l.name, l.email, l.company, l.phone, l.role, l.category,
+        l.group || 'Default', l.pipelineStage || 'COLD', l.status,
+        l.priority, l.score, l.opens || 0, l.clicks || 0,
+        l.lastSent ? new Date(l.lastSent).toLocaleDateString('en-IN') : '',
+        (l.tags || []).join('; '), l.notes,
+        l.createdAt ? new Date(l.createdAt).toLocaleDateString('en-IN') : '',
+      ].map(escape).join(','))
+    ]
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `leads_export_${new Date().toISOString().slice(0,10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast(`Exported ${rows.length} leads`, 'success')
+  }
+
   async function generateEmail() {
     if (!settings.openaiKey) { toast('Set NVIDIA API key in Settings', 'error'); return }
     setGenLoading(true)
@@ -323,6 +352,11 @@ export default function Leads() {
     <div>
       <PageHeader title="Lead Management" subtitle={`${leads.length} total leads`}>
         <Btn variant="secondary" size="sm" onClick={() => setImportOpen(true)}><Upload size={14} /> Import CSV</Btn>
+        {isAdmin && (
+          <Btn variant="secondary" size="sm" onClick={exportCSV} title={filtered.length < leads.length ? `Export ${filtered.length} filtered leads` : `Export all ${leads.length} leads`}>
+            <Download size={14} /> Export CSV
+          </Btn>
+        )}
         <Btn variant="secondary" size="sm" onClick={verifyAllEmails} disabled={verifying}>{verifying ? 'Verifying...' : <><CheckCircle size={14}/> Re-Verify</>}</Btn>
         <Btn variant="primary" onClick={() => setAddOpen(true)}><Plus size={14} /> Add Lead</Btn>
       </PageHeader>
