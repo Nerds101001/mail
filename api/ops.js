@@ -309,7 +309,7 @@ SELLER CONTEXT (use this to make the pitch specific and credible):
 ${sellerContext || 'No brief provided — write a general outreach email for a tech company.'}
 
 RECIPIENT:
-- Name: ${name || '[Name]'}
+- Name: ${name || 'the recipient (name unknown — use "Hi there," as greeting)'}
 - Company: ${company || '[Company]'}
 - Role: ${role || 'decision maker'}
 ${notes ? `- Personalization note: ${notes}\n  USE THIS to make the email specific to this person/company.` : ''}
@@ -375,7 +375,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
           }
 
           result.subject  = (result.subject || '').replace(/^["']|["']$/g,'').trim() || `Opportunity for ${company || '[Company]'}`;
-          result.body     = (result.body    || '').replace(/^["']|["']$/g,'').trim() || `Hi ${name || '[Name]'},\n\nWould you be open to a quick 15-minute chat?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution`;
+          result.body     = (result.body    || '').replace(/^["']|["']$/g,'').trim() || `Hi ${name || 'there'},\n\nWould you be open to a quick 15-minute chat?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution`;
           result.approach = approach.name;
 
           console.log(`✅ Variant ${i+1} [${approach.name}]:`, result.subject.substring(0, 60));

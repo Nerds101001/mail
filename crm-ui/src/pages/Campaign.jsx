@@ -159,11 +159,13 @@ export default function Campaign() {
   }
 
   async function getContent(lead, variantPool, index = 0) {
+    const nameToken    = lead.name    || 'there'   // "Hi there," when name is unknown
+    const companyToken = lead.company || 'your company'
     const sub = (s) => (s || '')
-      .replace(/\[Name\]/gi,    lead.name    || '')
-      .replace(/\[Company\]/gi, lead.company || '')
+      .replace(/\[Name\]/gi,    nameToken)
+      .replace(/\[Company\]/gi, companyToken)
       .replace(/\[Role\]/gi,    lead.role    || '')
-      .replace(/their company/gi, lead.company || 'your company')
+      .replace(/their company/gi, companyToken)
 
     function injectNotes(body, lead) {
       if (!usePersonalization) return body
@@ -184,7 +186,7 @@ export default function Campaign() {
     }
     return {
       subject: `Question for ${lead.company || 'your business'}`,
-      body: injectNotes(`Hi ${lead.name},\n\nI noticed ${lead.company||'your business'} and thought we could help with your tech operations.\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`, lead) + buildAttachmentText()
+      body: injectNotes(`Hi ${lead.name || 'there'},\n\nI noticed ${lead.company||'your business'} and thought we could help with your tech operations.\n\nBest regards,\nPawan Kumar\nEnginerds Tech Solution`, lead) + buildAttachmentText()
     }
   }
 

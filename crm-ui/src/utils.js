@@ -1,7 +1,16 @@
 export const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)
 
+// Placeholder values that mean "no name" — strip them so emails never say "Hi NA,"
+const BLANK_NAMES = new Set(['na','n/a','n.a','n.a.','none','null','nil','unknown','-','--','---','?','name'])
+
 export const enrichLead = (l) => {
   if (!l.email) return l
+
+  // Sanitise name — clear any "missing data" placeholder before doing anything else
+  if (l.name && BLANK_NAMES.has(l.name.trim().toLowerCase())) l.name = ''
+  // Also clear names that are just whitespace or single characters that aren't real names
+  if (l.name && l.name.trim().length < 2) l.name = ''
+
   const e = l.email.toLowerCase().trim()
   const [user, domain] = e.split('@')
   l.domain = domain || ''
