@@ -108,24 +108,52 @@ module.exports = async (req, res) => {
       leads = leadsRaw; // fallback to raw if tracking query fails
     }
 
-    // ── One-time name cleanup ─────────────────────────────────────────────
-    // Strip placeholder names (NA, N/A, none, null, -, unknown, etc.) that
-    // were stored before the enrichLead guard was added. Runs on every load
-    // but only writes back when dirty — zero cost once all leads are clean.
-    const BLANK_NAMES = new Set(['na','n/a','n.a','n.a.','none','null','nil','unknown','-','--','---','?','name']);
-    let namesDirty = false;
-    const cleanedLeads = leads.map(l => {
-      const trimmed = (l.name || '').trim();
-      if (trimmed && (BLANK_NAMES.has(trimmed.toLowerCase()) || trimmed.length < 2)) {
-        namesDirty = true;
-        return { ...l, name: '' };
+    // ── Data cleanup (name + company) ────────────────────────────────────
+    // Fixes leads stored before the enrichLead guards were added.
+    // Runs on every load but only writes back when something is actually dirty.
+    const BLANK_NAMES = new Set([
+      'na','n/a','n.a','n.a.','none','null','nil','unknown',
+      '-','--','---','?','name','no name','noname','test','n a'
+    ]);
+    // Free email provider domain prefixes whose name was auto-uppercased into company
+    const FREE_PREFIXES = new Set([
+      'gmail','yahoo','outlook','hotmail','icloud','aol','live',
+      'protonmail','proton','zoho','ymail','rediffmail','mail',
+      'gmx','tutanota','fastmail'
+    ]);
+    const FREE_DOMAINS_SET = new Set([
+      'gmail.com','yahoo.com','yahoo.in','yahoo.co.in','outlook.com','hotmail.com',
+      'icloud.com','aol.com','live.com','protonmail.com','proton.me','zoho.com',
+      'ymail.com','rediffmail.com','mail.com','gmx.com','tutanota.com','fastmail.com'
+    ]);
+
+    let leadsDirty = false;
+    leads = leads.map(l => {
+      let { name = '', company = '', email = '' } = l;
+      let changed = false;
+
+      // Fix name: clear any placeholder value
+      const trimName = name.trim();
+      if (trimName && (BLANK_NAMES.has(trimName.toLowerCase()) || trimName.length < 2)) {
+        name = ''; changed = true;
       }
+
+      // Fix company: clear if it's just the domain prefix of a free email provider
+      if (company && email) {
+        const domain = (email.toLowerCase().split('@')[1] || '').trim();
+        const compLower = company.trim().toLowerCase();
+        if (FREE_DOMAINS_SET.has(domain) && FREE_PREFIXES.has(compLower)) {
+          company = ''; changed = true;
+        }
+      }
+
+      if (changed) { leadsDirty = true; return { ...l, name, company }; }
       return l;
     });
-    if (namesDirty) {
-      leads = cleanedLeads;
+
+    if (leadsDirty) {
       await safeSet(ns("crm:leads", userId), leads);
-      console.log(`✅ [CRM LOAD] Cleaned placeholder names for user ${userId}`);
+      console.log(`✅ [CRM LOAD] Cleaned bad names/companies for user ${userId}`);
     }
 
     return res.json({ leads, profiles, settings: mergedSettings, activity, clients, deals });
