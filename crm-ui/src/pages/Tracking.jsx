@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
+import { useCRM } from '../store'
 import { StatCard, Empty, PageHeader, Btn, toast } from '../components/ui'
 import { Send, Eye, MousePointer, MessageSquare, RefreshCw, Clock, Search, Filter, ChevronDown, ChevronUp } from 'lucide-react'
 
@@ -43,6 +44,7 @@ const STATUS_COLORS = {
 }
 
 export default function Tracking() {
+  const { viewAs } = useCRM()
   const [sends, setSends]         = useState([])
   const [campaigns, setCampaigns] = useState([])
   const [loading, setLoading]     = useState(true)
@@ -60,13 +62,16 @@ export default function Tracking() {
   // Inline accordion events: { rowKey -> { loading, events[] } }
   const [expandedRows, setExpandedRows] = useState({})
 
+  const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
+  const vaParam    = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
+
   const loadData = useCallback(async (silent = false) => {
     if (!silent) setSyncing(true)
     try {
       const url = campFilter
-        ? `/api/ops?type=all-sends&campaign=${encodeURIComponent(campFilter)}`
-        : `/api/ops?type=all-sends`
-      const res = await fetch(url)
+        ? `/api/ops?type=all-sends&campaign=${encodeURIComponent(campFilter)}${vaParam()}`
+        : `/api/ops?type=all-sends${vaParam()}`
+      const res = await fetch(url, { headers: authHeader() })
       if (!res.ok) throw new Error('API error')
       const data = await res.json()
       setSends(data.sends || [])
@@ -77,7 +82,7 @@ export default function Tracking() {
     }
     if (!silent) setSyncing(false)
     setLoading(false)
-  }, [campFilter])
+  }, [campFilter, viewAs])
 
   useEffect(() => { setLoading(true); loadData() }, [loadData])
 
@@ -101,7 +106,7 @@ export default function Tracking() {
     }
     setExpandedRows(prev => ({ ...prev, [key]: { loading: true, events: [] } }))
     try {
-      const res = await fetch(`/api/ops?type=events&leadId=${s.lead_id}&campaignId=${s.campaign_id}`)
+      const res = await fetch(`/api/ops?type=events&leadId=${s.lead_id}&campaignId=${s.campaign_id}`, { headers: authHeader() })
       const data = await res.json()
       setExpandedRows(prev => ({ ...prev, [key]: { loading: false, events: data.events || [] } }))
     } catch(e) {

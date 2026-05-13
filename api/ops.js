@@ -117,36 +117,72 @@ module.exports = async (req, res) => {
       // Opens/clicks from tracking_events joined on BOTH lead_id AND campaign_id.
       // simple_tracking was cumulative per lead — it bled old opens into every new
       // send row. tracking_events is scoped per-send so counts are accurate.
+      // Non-admin users only see their own sends; admin sees all
+      const isAdmin = userId === "admin";
+
       const [sends, campaigns] = await Promise.all([
         campFilter
-          ? sql`
-              SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
-                     cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
-                     COALESCE(c.name,'Unknown Campaign') as campaign_name,
-                     COUNT(te.id) FILTER (WHERE te.event_type = 'open')  AS opens,
-                     COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks
-              FROM campaign_leads cl
-              LEFT JOIN campaigns c ON c.id = cl.campaign_id
-              LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
-              WHERE cl.campaign_id=${campFilter}
-              GROUP BY cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
-                       cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index, c.name
-              ORDER BY cl.sent_at DESC LIMIT ${rowLimit}
-            `
-          : sql`
-              SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
-                     cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
-                     COALESCE(c.name,'Unknown Campaign') as campaign_name,
-                     COUNT(te.id) FILTER (WHERE te.event_type = 'open')  AS opens,
-                     COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks
-              FROM campaign_leads cl
-              LEFT JOIN campaigns c ON c.id = cl.campaign_id
-              LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
-              GROUP BY cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
-                       cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index, c.name
-              ORDER BY cl.sent_at DESC LIMIT ${rowLimit}
-            `,
-        sql`SELECT id, name, created_at FROM campaigns ORDER BY created_at DESC LIMIT 200`,
+          ? isAdmin
+            ? sql`
+                SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
+                       cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
+                       COALESCE(c.name,'Unknown Campaign') as campaign_name,
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'open')  AS opens,
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks
+                FROM campaign_leads cl
+                LEFT JOIN campaigns c ON c.id = cl.campaign_id
+                LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
+                WHERE cl.campaign_id=${campFilter}
+                GROUP BY cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
+                         cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index, c.name
+                ORDER BY cl.sent_at DESC LIMIT ${rowLimit}
+              `
+            : sql`
+                SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
+                       cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
+                       COALESCE(c.name,'Unknown Campaign') as campaign_name,
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'open')  AS opens,
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks
+                FROM campaign_leads cl
+                LEFT JOIN campaigns c ON c.id = cl.campaign_id
+                LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
+                WHERE cl.campaign_id=${campFilter} AND cl.user_id=${userId}
+                GROUP BY cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
+                         cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index, c.name
+                ORDER BY cl.sent_at DESC LIMIT ${rowLimit}
+              `
+          : isAdmin
+            ? sql`
+                SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
+                       cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
+                       COALESCE(c.name,'Unknown Campaign') as campaign_name,
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'open')  AS opens,
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks
+                FROM campaign_leads cl
+                LEFT JOIN campaigns c ON c.id = cl.campaign_id
+                LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
+                GROUP BY cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
+                         cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index, c.name
+                ORDER BY cl.sent_at DESC LIMIT ${rowLimit}
+              `
+            : sql`
+                SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
+                       cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
+                       COALESCE(c.name,'Unknown Campaign') as campaign_name,
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'open')  AS opens,
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks
+                FROM campaign_leads cl
+                LEFT JOIN campaigns c ON c.id = cl.campaign_id
+                LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
+                WHERE cl.user_id=${userId}
+                GROUP BY cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
+                         cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index, c.name
+                ORDER BY cl.sent_at DESC LIMIT ${rowLimit}
+              `,
+        // Campaigns dropdown — only show campaigns belonging to this user
+        isAdmin
+          ? sql`SELECT id, name, created_at FROM campaigns ORDER BY created_at DESC LIMIT 200`
+          : sql`SELECT id, name, created_at FROM campaigns WHERE user_id=${userId} ORDER BY created_at DESC LIMIT 200`,
       ]);
 
       return res.json({
