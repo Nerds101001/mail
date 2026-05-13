@@ -160,10 +160,13 @@ export default function Pipeline() {
   const vaParam = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
 
   // ── Fetch tracking (opens/clicks/last email) ──────────────────────────
-  const fetchTracking = useCallback(async () => {
+  const fetchTracking = useCallback(async (campId) => {
     setLoadingTrack(true)
     try {
-      const res = await fetch(`/api/crm?type=lead-tracking${vaParam()}`, {
+      // When a campaign filter is active, pass campId so the API returns
+      // per-campaign opens/clicks instead of the aggregate across all campaigns.
+      const campParam = campId ? `&campId=${encodeURIComponent(campId)}` : ''
+      const res = await fetch(`/api/crm?type=lead-tracking${vaParam()}${campParam}`, {
         headers: { Authorization: `Bearer ${token()}` }
       })
       if (res.ok) setTrackMap(await res.json())
@@ -189,9 +192,15 @@ export default function Pipeline() {
     fetchCampaigns()
   }, [fetchTracking, fetchCampaigns])
 
-  // ── When campaign filter changes, fetch that campaign's lead IDs ──────
+  // ── When campaign filter changes: fetch lead IDs + re-fetch tracking ────
+  // Re-fetching tracking with campId gives per-campaign opens/clicks instead
+  // of the aggregate across all campaigns for that lead.
   useEffect(() => {
-    if (!campF) { setCampLeadIds(null); return }
+    if (!campF) {
+      setCampLeadIds(null)
+      fetchTracking()   // back to aggregate mode
+      return
+    }
     setCampLoading(true)
     fetch(`/api/crm?type=campaigns&id=${campF}${vaParam()}`, {
       headers: { Authorization: `Bearer ${token()}` }
@@ -203,7 +212,8 @@ export default function Pipeline() {
       })
       .catch(() => setCampLeadIds(null))
       .finally(() => setCampLoading(false))
-  }, [campF])
+    fetchTracking(campF)  // per-campaign mode
+  }, [campF, fetchTracking])
 
   // ── Unique groups from leads ──────────────────────────────────────────
   const uniqueGroups = useMemo(() => {
@@ -324,7 +334,7 @@ export default function Pipeline() {
         title="Lead Pipeline"
         subtitle={`${leads.length} total leads across all stages`}
         action={
-          <Btn variant="secondary" onClick={fetchTracking} disabled={loadingTrack}>
+          <Btn variant="secondary" onClick={() => fetchTracking(campF || undefined)} disabled={loadingTrack}>
             <RefreshCw size={13} className={loadingTrack ? 'animate-spin' : ''} />
             {loadingTrack ? 'Syncing...' : 'Sync Tracking'}
           </Btn>

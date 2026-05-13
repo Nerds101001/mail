@@ -297,17 +297,41 @@ module.exports = async (req, res) => {
       const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
 
       // Only return tracking for leads that belong to the calling user.
-      // We load the user's lead list from Redis to get their lead IDs — this
-      // ensures a user never receives tracking data for another user's leads.
       const userLeads = await safeGet(ns("crm:leads", userId), []);
       const userLeadIds = userLeads.map(l => l.id).filter(Boolean);
-
       if (userLeadIds.length === 0) return res.json({});
 
-      const [tracking, lastEmails] = await Promise.all([
-        sql`SELECT lead_id, opens, clicks FROM simple_tracking WHERE lead_id = ANY(${userLeadIds})`.catch(() => []),
-        sql`SELECT DISTINCT ON (lead_id) lead_id, subject, body, sent_at, status FROM campaign_leads WHERE lead_id = ANY(${userLeadIds}) ORDER BY lead_id, sent_at DESC`.catch(() => []),
-      ]);
+      const campId = req.query.campId || null;
+
+      let tracking, lastEmails;
+
+      if (campId) {
+        // ── Per-campaign mode: query tracking_events filtered by campaign_id ──
+        // This gives opens/clicks specific to this one campaign, not aggregate.
+        [tracking, lastEmails] = await Promise.all([
+          sql`
+            SELECT lead_id,
+              COUNT(*) FILTER (WHERE event_type = 'open')  AS opens,
+              COUNT(*) FILTER (WHERE event_type = 'click') AS clicks
+            FROM tracking_events
+            WHERE lead_id = ANY(${userLeadIds}) AND campaign_id = ${campId}
+            GROUP BY lead_id
+          `.catch(() => []),
+          sql`
+            SELECT DISTINCT ON (lead_id) lead_id, subject, body, sent_at, status
+            FROM campaign_leads
+            WHERE lead_id = ANY(${userLeadIds}) AND campaign_id = ${campId}
+            ORDER BY lead_id, sent_at DESC
+          `.catch(() => []),
+        ]);
+      } else {
+        // ── Aggregate mode: cumulative opens/clicks across all campaigns ──
+        [tracking, lastEmails] = await Promise.all([
+          sql`SELECT lead_id, opens, clicks FROM simple_tracking WHERE lead_id = ANY(${userLeadIds})`.catch(() => []),
+          sql`SELECT DISTINCT ON (lead_id) lead_id, subject, body, sent_at, status FROM campaign_leads WHERE lead_id = ANY(${userLeadIds}) ORDER BY lead_id, sent_at DESC`.catch(() => []),
+        ]);
+      }
+
       const map = {};
       tracking.forEach(t => {
         map[t.lead_id] = { opens: parseInt(t.opens)||0, clicks: parseInt(t.clicks)||0 };
