@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useCRM } from '../store'
-import { PIPELINE_STAGES, STAGE_COLORS } from '../utils'
+import { PIPELINE_STAGES, STAGE_COLORS, fmtCurrency } from '../utils'
 import { PageHeader, Btn } from '../components/ui'
-import { Flame, Eye, MousePointer, Search, RefreshCw, Filter, X } from 'lucide-react'
+import { Flame, Eye, MousePointer, Search, RefreshCw, Filter, X, Trophy, IndianRupee } from 'lucide-react'
 
 const TABS = ['ALL', 'COLD', 'CONTACTED', 'OPENED', 'HOT', 'DEMO', 'QUOTED', 'WON', 'LOST', 'UNSUBSCRIBED']
 
@@ -19,6 +19,127 @@ const TAB_META = {
   UNSUBSCRIBED: { icon: '🚫', label: 'Unsub' },
 }
 
+// ── Deal Modal ────────────────────────────────────────────────────────────────
+function genInvoiceNo() {
+  const y = new Date().getFullYear()
+  const n = String(Date.now()).slice(-4)
+  return `INV-${y}-${n}`
+}
+
+const EMPTY_DEAL = {
+  invoiceNo:   '',
+  amount:      '',
+  service:     '',
+  closeDate:   new Date().toISOString().slice(0, 10),
+  notes:       '',
+}
+
+function DealModal({ lead, onConfirm, onSkip, saving }) {
+  const [form, setForm] = useState({ ...EMPTY_DEAL, invoiceNo: genInvoiceNo() })
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-slate-200">
+        {/* Header */}
+        <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-100">
+          <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+            <Trophy size={18} className="text-emerald-600" />
+          </div>
+          <div>
+            <p className="font-bold text-slate-900 text-base">Deal Won 🎉</p>
+            <p className="text-xs text-slate-500 mt-0.5">{lead.name || lead.email} — {lead.company || 'No company'}</p>
+          </div>
+        </div>
+
+        {/* Form */}
+        <div className="px-6 py-5 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            {/* Invoice No */}
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Invoice Number *</label>
+              <input
+                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 focus:border-emerald-400"
+                placeholder="INV-2026-0001"
+                value={form.invoiceNo}
+                onChange={e => set('invoiceNo', e.target.value)}
+              />
+            </div>
+
+            {/* Amount */}
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Deal Amount (₹) *</label>
+              <div className="relative">
+                <IndianRupee size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="number"
+                  min="0"
+                  className="w-full pl-8 text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 focus:border-emerald-400"
+                  placeholder="50000"
+                  value={form.amount}
+                  onChange={e => set('amount', e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Service */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Service / Product *</label>
+            <input
+              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 focus:border-emerald-400"
+              placeholder="e.g. SEO Package, Web Design, Annual Retainer…"
+              value={form.service}
+              onChange={e => set('service', e.target.value)}
+            />
+          </div>
+
+          {/* Close Date */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Close Date</label>
+            <input
+              type="date"
+              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 focus:border-emerald-400"
+              value={form.closeDate}
+              onChange={e => set('closeDate', e.target.value)}
+            />
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Notes <span className="font-normal text-slate-400">(optional)</span></label>
+            <textarea
+              rows={2}
+              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 focus:border-emerald-400 resize-none"
+              placeholder="Payment terms, special conditions…"
+              value={form.notes}
+              onChange={e => set('notes', e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl">
+          <button
+            onClick={onSkip}
+            disabled={saving}
+            className="text-sm text-slate-500 hover:text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-100 transition-colors"
+          >
+            Skip for now
+          </button>
+          <button
+            disabled={saving || !form.invoiceNo.trim() || !form.amount || !form.service.trim()}
+            onClick={() => onConfirm(form)}
+            className="px-5 py-2 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg transition-colors shadow-sm"
+          >
+            {saving ? 'Saving…' : 'Save Deal'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Pipeline() {
   const { leads, setLeads, saveLeads, viewAs } = useCRM()
 
@@ -32,6 +153,8 @@ export default function Pipeline() {
   const [trackMap,       setTrackMap]       = useState({})   // leadId → {opens,clicks,subject,sentAt,body}
   const [loadingTrack,   setLoadingTrack]   = useState(false)
   const [expandedBody,   setExpandedBody]   = useState(null)
+  const [dealLead,       setDealLead]       = useState(null) // lead pending deal modal
+  const [dealSaving,     setDealSaving]     = useState(false)
 
   const token  = () => localStorage.getItem('crm_token') || ''
   const vaParam = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
@@ -120,9 +243,51 @@ export default function Pipeline() {
   }), [baseFiltered, activeTab, search])
 
   function changeStage(id, stage) {
+    if (stage === 'WON') {
+      const lead = leads.find(l => l.id === id)
+      setDealLead({ ...lead, _pendingStage: 'WON' })
+      return
+    }
+    applyStage(id, stage)
+  }
+
+  function applyStage(id, stage) {
     const newLeads = leads.map(l => l.id === id ? { ...l, pipelineStage: stage } : l)
     setLeads(newLeads)
     saveLeads(newLeads)
+  }
+
+  async function handleDealConfirm(form) {
+    if (!dealLead) return
+    setDealSaving(true)
+    try {
+      const vaQ = viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
+      await fetch(`/api/crm?type=deals${vaQ}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+        body: JSON.stringify({
+          leadId:    dealLead.id,
+          leadName:  dealLead.name  || '',
+          leadEmail: dealLead.email || '',
+          company:   dealLead.company || '',
+          invoiceNo: form.invoiceNo.trim(),
+          amount:    parseFloat(form.amount) || 0,
+          service:   form.service.trim(),
+          closeDate: form.closeDate,
+          notes:     form.notes.trim(),
+          status:    'WON',
+        }),
+      })
+    } catch (e) { console.warn('deal save failed', e) }
+    applyStage(dealLead.id, 'WON')
+    setDealLead(null)
+    setDealSaving(false)
+  }
+
+  function handleDealSkip() {
+    if (!dealLead) return
+    applyStage(dealLead.id, 'WON')
+    setDealLead(null)
   }
 
   function clearFilters() {
@@ -146,6 +311,15 @@ export default function Pipeline() {
 
   return (
     <div className="space-y-4">
+      {dealLead && (
+        <DealModal
+          lead={dealLead}
+          saving={dealSaving}
+          onConfirm={handleDealConfirm}
+          onSkip={handleDealSkip}
+        />
+      )}
+
       <PageHeader
         title="Lead Pipeline"
         subtitle={`${leads.length} total leads across all stages`}
