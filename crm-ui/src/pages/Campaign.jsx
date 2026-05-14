@@ -291,7 +291,10 @@ export default function Campaign() {
         attachments: selectedAtts
       }
       if (profile.type === 'smtp') payload.smtpConfig = profile
-      if (profile.type === 'gmail') payload.gmailUser = profile.user
+      if (profile.type === 'gmail') {
+        payload.gmailUser = profile.user                    // OAuth token lookup key
+        if (profile.alias) payload.fromEmail = profile.alias // "Send mail as" alias
+      }
       const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
       const data = await res.json().catch(() => ({}))
       if (data.bounced) return { ok: false, bounced: true }

@@ -236,7 +236,7 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { leadId, to, subject, body, senderName, replyTo, gmailUser, campaignId, attachments } = req.body;
+  const { leadId, to, subject, body, senderName, replyTo, gmailUser, fromEmail, campaignId, attachments } = req.body;
   const appUrl = process.env.APP_URL || "https://enginerdsmail.vercel.app";
 
   if (!leadId || !to || !subject || !body)
@@ -251,7 +251,10 @@ module.exports = async (req, res) => {
     const accessToken  = await getValidAccessToken(gmailUser || null);
     const gmailAccount = gmailUser || await get("gmail:email");
     if (!gmailAccount) throw new Error("Gmail not connected — please reconnect in Settings");
-    const from       = `${senderName || "Enginerds Tech"} <${gmailAccount}>`;
+    // fromEmail = "Send mail as" alias (e.g. admin@enginerds.in)
+    // Falls back to the OAuth Gmail address if no alias is set
+    const effectiveFrom = fromEmail || gmailAccount;
+    const from          = `${senderName || "Enginerds Tech"} <${effectiveFrom}>`;
     const unsubUrl   = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}`;
     const htmlBody      = buildHtmlBody(body, leadId, to, appUrl, campaignId);
     const attachmentData = await fetchAttachmentData(attachments || []);
