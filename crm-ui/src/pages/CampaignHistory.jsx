@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useCRM } from '../store'
 import { PageHeader, Empty, Btn, Card, toast } from '../components/ui'
 import { fmtDate } from '../utils'
@@ -437,26 +437,27 @@ export default function CampaignHistory() {
   const [runnerState, setRunnerState]     = useState(campaignRunner.getState())
   const [resuming, setResuming]           = useState(null) // campaignId being resumed
 
+  // Refs for safe async callbacks
+  const mountedRef = useRef(true)
+  const loadRef    = useRef(null)
+  useEffect(() => () => { mountedRef.current = false }, [])
+
   const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
   const vaParam    = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
 
   useEffect(() => { load() }, [viewAs]) // eslint-disable-line
+
+  // Keep loadRef pointing at the latest load (captures current viewAs/vaParam)
+  useEffect(() => { loadRef.current = load })
 
   // Subscribe to runner for live progress
   useEffect(() => campaignRunner.subscribe(s => {
     setRunnerState(s)
     // When runner finishes, reload to get final stats from DB
     if (s.status === 'DONE' || s.status === 'PAUSED') {
-      setTimeout(() => load(), 1500)
+      setTimeout(() => loadRef.current?.(), 1500)
     }
   }), []) // eslint-disable-line
-
-  // Poll every 5s while RUNNING (in case tab was opened mid-run)
-  useEffect(() => {
-    if (runnerState.status !== 'RUNNING') return
-    const t = setInterval(() => {}, 5000)    // keep alive; runner already pushes updates
-    return () => clearInterval(t)
-  }, [runnerState.status])
 
   // Hobby plan has no per-minute cron — trigger runner client-side instead.
   useEffect(() => {
@@ -537,10 +538,12 @@ export default function CampaignHistory() {
     try {
       await campaignRunner.resume(c, localStorage.getItem('crm_token') || '')
     } catch(e) {
-      toast('Resume failed: ' + e.message, 'error')
-      setCampaigns(prev => prev.map(x => x.id === c.id ? { ...x, status: 'PAUSED' } : x))
+      if (mountedRef.current) {
+        toast('Resume failed: ' + e.message, 'error')
+        setCampaigns(prev => prev.map(x => x.id === c.id ? { ...x, status: 'PAUSED' } : x))
+      }
     }
-    setResuming(null)
+    if (mountedRef.current) setResuming(null)
   }
 
   async function cancelSchedule(c, e) {

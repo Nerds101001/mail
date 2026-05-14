@@ -302,7 +302,7 @@ module.exports = async (req, res) => {
           for (const l of campLeads) {
             await sql`
               INSERT INTO campaign_leads (campaign_id,user_id,lead_id,lead_name,lead_email,lead_company,status,subject,body,sent_at,variant_index)
-              VALUES (${campId},${userId},${l.id},${l.name||""},${l.email||""},${l.company||""},${l.status||"sent"},${l.subject||""},${l.body||""},${Date.now()},${l.variantIndex||0})
+              VALUES (${campId},${userId},${l.id},${l.name||""},${l.email||""},${l.company||""},${l.status||"sent"},${l.subject||""},${l.body||""},${l.sentAt||Date.now()},${l.variantIndex||0})
             `.catch(()=>{});
           }
           return res.json({ ok: true, id: campId });

@@ -277,21 +277,22 @@ export async function start(config) {
       localStorage.setItem(capKey, String((parseInt(localStorage.getItem(capKey) || '0')) + 1))
     }
 
+    const sentAt = Date.now()
     if (result.ok) {
       _addLog(`✓ ${l.name || l.email} → ${profile.name} (v${varIdx + 1})`, 'success')
       _state.sent++
-      doneLeads.push({ id: l.id, name: l.name || '', email: l.email, company: l.company || '', status: 'SENT',    subject: vData.subject, body: vData.body, variantIndex: varIdx })
+      doneLeads.push({ id: l.id, name: l.name || '', email: l.email, company: l.company || '', status: 'SENT',    subject: vData.subject, body: vData.body, variantIndex: varIdx, sentAt })
     } else if (result.bounced) {
       _addLog(`⚡ BOUNCED: ${l.email}`, 'warn')
       _state.failed++
-      doneLeads.push({ id: l.id, name: l.name || '', email: l.email, company: l.company || '', status: 'BOUNCED', subject: vData.subject, body: vData.body, variantIndex: varIdx })
+      doneLeads.push({ id: l.id, name: l.name || '', email: l.email, company: l.company || '', status: 'BOUNCED', subject: vData.subject, body: vData.body, variantIndex: varIdx, sentAt })
     } else if (result.skipped) {
       _state.skipped++
-      doneLeads.push({ id: l.id, name: l.name || '', email: l.email, company: l.company || '', status: 'SKIPPED', subject: vData.subject, body: vData.body, variantIndex: varIdx })
+      doneLeads.push({ id: l.id, name: l.name || '', email: l.email, company: l.company || '', status: 'SKIPPED', subject: vData.subject, body: vData.body, variantIndex: varIdx, sentAt })
     } else {
       _addLog(`✗ Failed: ${l.email}`, 'error')
       _state.failed++
-      doneLeads.push({ id: l.id, name: l.name || '', email: l.email, company: l.company || '', status: 'FAILED',  subject: vData.subject, body: vData.body, variantIndex: varIdx })
+      doneLeads.push({ id: l.id, name: l.name || '', email: l.email, company: l.company || '', status: 'FAILED',  subject: vData.subject, body: vData.body, variantIndex: varIdx, sentAt })
     }
     _notify()
 
