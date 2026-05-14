@@ -592,7 +592,7 @@ export default function Leads() {
       </Modal>
 
       {/* Import Modal */}
-      <Modal open={importOpen} onClose={() => setImportOpen(false)} title="Import CSV">
+      <Modal open={importOpen} onClose={() => { setImportOpen(false); setCsvText(''); setGroupName('') }} title="Import CSV">
         <div className="space-y-4">
           <p className="text-sm text-slate-500">Columns: <code className="bg-slate-100 px-1.5 py-0.5 rounded text-emerald-700 text-xs">Name, Email</code> required. Optional: Company, Phone, Category, Tags</p>
           <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center hover:border-emerald-300 transition-colors">
@@ -612,10 +612,45 @@ export default function Leads() {
             />
           </div>
           <p className="text-xs text-slate-400 text-center">— or paste CSV below —</p>
-          <Input label="Group Name" value={groupName} onChange={e => setGroupName(e.target.value)} placeholder="e.g. Rubber Industries, Tech Startups..." />
+
+          {/* Group selector */}
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Group Name</label>
+            {uniqueGroups.length > 0 && (
+              <div className="flex items-center gap-2">
+                <Users size={14} className="text-slate-400 flex-shrink-0" />
+                <select
+                  className="input flex-1 text-sm"
+                  value={uniqueGroups.includes(groupName) ? groupName : ''}
+                  onChange={e => setGroupName(e.target.value)}
+                >
+                  <option value="">— Select existing group —</option>
+                  {uniqueGroups.map(g => (
+                    <option key={g} value={g}>{g} ({leads.filter(l => l.group === g).length} leads)</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Plus size={14} className="text-slate-400 flex-shrink-0" />
+              <input
+                className="input flex-1 text-sm"
+                value={groupName}
+                onChange={e => setGroupName(e.target.value)}
+                placeholder={uniqueGroups.length > 0 ? 'Or type a new group name...' : 'e.g. Rubber Industries, Tech Startups...'}
+              />
+            </div>
+            {groupName && (
+              <p className="text-xs text-emerald-600 pl-5">
+                ✓ Leads will be added to: <strong>"{groupName}"</strong>
+                {uniqueGroups.includes(groupName) && <span className="text-blue-500 ml-1">(existing group — {leads.filter(l => l.group === groupName).length} leads already)</span>}
+              </p>
+            )}
+          </div>
+
           <Textarea label="" value={csvText} onChange={e => setCsvText(e.target.value)} placeholder={"Name,Email,Company,Phone,Category\nJohn Doe,john@acme.com,Acme Corp,,SaaS"} style={{ minHeight: 120 }} />
           <div className="flex justify-end gap-2">
-            <Btn variant="secondary" onClick={() => setImportOpen(false)}>Cancel</Btn>
+            <Btn variant="secondary" onClick={() => { setImportOpen(false); setCsvText(''); setGroupName('') }}>Cancel</Btn>
             <Btn variant="primary" onClick={importCSV}><Upload size={14} /> Import</Btn>
           </div>
         </div>

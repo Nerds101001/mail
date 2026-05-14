@@ -297,28 +297,28 @@ async function getTrackingEvents(leadId, campaignId = null, limit = 100) {
   }
 }
 
-// ── IP classification ─────────────────────────────────────────────────────────
-// These IPs are KNOWN to only fire on real user interaction (never at delivery).
-// They bypass the 5-second timing guard entirely — no need to wait.
-//
-// Ranges covered:
-//   74.125, 64.233, 209.85, 216.58, 216.239, 142.250, 108.177 — Google infra (Gmail proxy user opens)
-//   17.x                                                        — Apple MPP (Mail Privacy Protection)
-//   40.94, 40.107, 52.100                                       — Microsoft SafeLinks
-//
-// NOTE: 66.249.x.x (Google delivery scanner) is NOT listed here because it fires
-// at BOTH delivery time (false open, within 5s) AND real user opens (after 5s).
-// It is handled correctly by the 5-second timing guard below.
+// 66.249.x.x = Google delivery-time pre-fetch. Always within 1-5s of send. Block outright.
+function isDeliveryPrefetchIp(ip) {
+  if (!ip || ip === 'unknown') return false;
+  return /^66\.249\./.test(ip);
+}
+
+// Other Google infrastructure IPs (74.125, 64.233, 209.85 etc.) are used when
+// the user actually opens in Gmail — bypass timing guard, count as real open.
+// Apple MPP (17.x) and Microsoft SafeLinks (40.94, 40.107, 52.100) are also
+// user-triggered, so bypass the timing guard too.
 function isUserProxyIp(ip) {
   if (!ip || ip === 'unknown') return false;
   return /^74\.125\./.test(ip)  || /^64\.233\./.test(ip)  ||
          /^209\.85\./.test(ip)  || /^216\.58\./.test(ip)  ||
          /^216\.239\./.test(ip) || /^142\.250\./.test(ip) ||
-         /^108\.177\./.test(ip) ||
-         /^17\./.test(ip)       ||
+         /^108\.177\./.test(ip) ||                          // Google infra
+         /^17\./.test(ip)       ||                          // Apple MPP
          /^40\.94\./.test(ip)   || /^40\.107\./.test(ip)  ||
-         /^52\.100\./.test(ip);
+         /^52\.100\./.test(ip);                             // Microsoft
 }
+
+function isScannerIp(ip) { return isDeliveryPrefetchIp(ip); }
 
 // Deduplicated tracking for opens (only count unique opens within 1 hour window)
 async function trackOpen(leadId, ip, userAgent, campaignId = null) {
@@ -328,31 +328,18 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
 
     const now = Date.now();
 
-    // ── Attachment guard — applies to ALL IPs including user-proxy ranges ─────
-    // Gmail's attachment content scanner fires from Google infrastructure IPs
-    // (74.125.x.x etc.) that are normally whitelisted as "real user" opens.
-    // When an email had attachments we write a separate key so we can block
-    // even those IPs within the first 10s of delivery.
-    const attGuardRaw = await sql`
-      SELECT value FROM kv_store WHERE key = ${'email:att-guard:' + leadId}
-        AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
-    `.catch(() => []);
-    if (attGuardRaw.length > 0) {
-      const sentAt = parseInt(attGuardRaw[0].value) || 0;
-      if (now - sentAt < 10000) {
-        console.log(`🛡️ [ATT-GUARD] Attachment scanner blocked for lead ${leadId} IP:${ip} (${Math.round((now-sentAt)/1000)}s after send)`);
-        return { counted: false, reason: 'attachment scanner guard (10s)', count: 0 };
-      }
+    // ── Block 66.249.x.x delivery pre-fetch outright ─────────────────────────
+    // This IP range is Google's delivery-time scanner — fires within 1-5s of
+    // send and is always a false open. Block it completely.
+    if (isDeliveryPrefetchIp(ip)) {
+      console.log(`🛡️ [GUARD] Delivery pre-fetch blocked for lead ${leadId}: ${ip}`);
+      return { counted: false, reason: 'delivery pre-fetch IP', count: 0 };
     }
 
-    // ── Timing guard (ALL IPs including 66.249.x.x) ──────────────────────────
-    // Gmail delivery scanner fires within 1-5s of send from 66.249.x.x.
-    // Real user opens also come from Google IPs (66.249, 74.125, etc.) but
-    // always AFTER the user taps/clicks — never within 5s of delivery.
-    // Blocking 66.249.x.x outright would also block real user opens from that range.
-    // Instead: block ALL IPs only within the first 5s window after send.
-    // Known user-proxy IPs (74.125, Apple MPP, Microsoft) bypass even this guard
-    // because they ONLY fire on real user interaction — never at delivery.
+    // ── Timing guard — unknown IPs only ──────────────────────────────────────
+    // User proxy IPs (74.125.x.x, Apple MPP, Microsoft etc.) bypass the guard —
+    // they only fire when the user actually opens, so count them directly.
+    // Unknown IPs get a 15s guard to catch any other scanners.
     if (!isUserProxyIp(ip)) {
       const guardRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
@@ -360,9 +347,9 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       `.catch(() => []);
       if (guardRaw.length > 0) {
         const sentAt = parseInt(guardRaw[0].value) || 0;
-        if (now - sentAt < 5000) {
+        if (now - sentAt < 15000) {
           console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} IP:${ip} (${Math.round((now-sentAt)/1000)}s after send)`);
-          return { counted: false, reason: 'scanner guard (5s)', count: 0 };
+          return { counted: false, reason: 'scanner guard (15s)', count: 0 };
         }
       }
     }
@@ -393,16 +380,17 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
             last_open = ${now}
       RETURNING opens
     `;
-
-    // Log event inline — reuse existing sql connection to avoid cold-start timeout
+    
+    // Log the event — reuse existing sql connection to avoid extra connection overhead.
+    // logEvent() creates a new getDb() instance which can timeout under cold-start load.
     try {
       await sql`
         INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, created_at)
         VALUES (${leadId}, 'open', ${ip}, ${userAgent}, ${campaignId ? `campaign:${campaignId}` : null}, ${campaignId || null}, ${now})
       `;
-      console.log(`✅ [EVENT LOGGED] OPEN lead:${leadId} camp:${campaignId || '—'}`);
+      console.log(`✅ [EVENT LOGGED] open lead:${leadId} camp:${campaignId||'—'}`);
     } catch (e) {
-      console.error(`❌ [EVENT LOG FAILED] open lead:${leadId}:`, e.message);
+      console.error(`❌ [EVENT LOG FAILED] open lead:${leadId} camp:${campaignId||'—'}:`, e.message, e.stack || '');
     }
 
     const count = parseInt(rows[0].opens);
@@ -420,6 +408,12 @@ async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
   try {
     await ensureTable();
     const sql = getDb();
+
+    // Block known scanner IPs (same as trackOpen)
+    if (isScannerIp(ip)) {
+      console.log(`🛡️ [GUARD] Known scanner IP blocked click for lead ${leadId}: ${ip}`);
+      return { counted: false, reason: 'scanner IP', count: 0 };
+    }
 
     const now = Date.now();
     const fiveMinutesAgo = now - (5 * 60 * 1000); // 5 minute window
@@ -449,16 +443,16 @@ async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
             last_click = ${now}
       RETURNING clicks
     `;
-
-    // Log event inline — reuse existing sql connection to avoid cold-start timeout
+    
+    // Log the event — reuse existing sql connection (same reason as trackOpen)
     try {
       await sql`
         INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, created_at)
         VALUES (${leadId}, 'click', ${ip}, ${userAgent}, ${targetUrl}, ${campaignId || null}, ${now})
       `;
-      console.log(`✅ [EVENT LOGGED] CLICK lead:${leadId} camp:${campaignId || '—'}`);
+      console.log(`✅ [EVENT LOGGED] click lead:${leadId} camp:${campaignId||'—'}`);
     } catch (e) {
-      console.error(`❌ [EVENT LOG FAILED] click lead:${leadId}:`, e.message);
+      console.error(`❌ [EVENT LOG FAILED] click lead:${leadId} camp:${campaignId||'—'}:`, e.message, e.stack || '');
     }
 
     const count = parseInt(rows[0].clicks);
