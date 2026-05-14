@@ -4,24 +4,13 @@ import { Btn, Card, PageHeader, toast } from '../components/ui'
 import RichEditor, { htmlToPlain } from '../components/RichEditor'
 import { Play, Zap, RefreshCw, ChevronLeft, ChevronRight, Plus, X, Calendar, Pencil, Check } from 'lucide-react'
 
-// Convert plain text (with \n) to simple HTML paragraphs for RichEditor
-function plainToHtml(text) {
-  if (!text) return '<p></p>'
-  return text
-    .split(/\n{2,}/)
-    .map(para => `<p>${para.replace(/\n/g, '<br>').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>`)
-    .join('')
-}
-// Convert HTML back to plain text preserving paragraph breaks
-function htmlToVariantPlain(html) {
-  if (!html) return ''
-  return html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>\s*<p[^>]*>/gi, '\n\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
-    .replace(/&nbsp;/g,' ')
-    .trim()
+// Build a clean signature string from a "Name - Company" display name
+function buildSignature(senderDisplayName) {
+  if (!senderDisplayName) return 'Best,\nPawan Kumar\nEnginerds Tech Solution'
+  const parts = senderDisplayName.split(/\s*[-–—]\s*/)
+  const name    = parts[0]?.trim() || senderDisplayName
+  const company = parts[1]?.trim() || ''
+  return company ? `Best,\n${name}\n${company}` : `Best,\n${name}`
 }
 
 export default function Campaign() {
@@ -785,23 +774,53 @@ export default function Campaign() {
               </div>
 
               {editingVariant && mode === 'ai' ? (
-                // Editable mode — RichEditor with plain↔HTML conversion
+                // Editable mode — plain textarea keeps \n intact, no HTML conversion
                 <div className="space-y-2">
                   <div>
                     <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Subject Line</label>
                     <input
-                      className="w-full text-sm font-semibold border border-blue-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/30"
+                      className="w-full text-sm font-semibold border border-blue-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/30"
                       value={currentVariant.subject}
                       onChange={e => setVariants(vs => vs.map((v, i) => i === variantIdx ? { ...v, subject: e.target.value } : v))}
                       placeholder="Subject line..."
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Email Body</label>
-                    <RichEditor
-                      value={plainToHtml(currentVariant.body)}
-                      onChange={html => setVariants(vs => vs.map((v, i) => i === variantIdx ? { ...v, body: htmlToVariantPlain(html) } : v))}
-                      minHeight={220}
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Email Body</label>
+                      {/* Signature selector */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-slate-400">Signature:</span>
+                        <select
+                          className="text-[10px] border border-slate-200 rounded-md px-1.5 py-0.5 bg-white text-slate-600 hover:border-slate-300"
+                          defaultValue=""
+                          onChange={e => {
+                            if (!e.target.value) return
+                            const sig = e.target.value
+                            setVariants(vs => vs.map((v, i) => {
+                              if (i !== variantIdx) return v
+                              // Replace existing signature block or append
+                              const body = v.body.replace(/\n+Best,[\s\S]*$/i, '').trimEnd()
+                              return { ...v, body: body + '\n\n' + sig }
+                            }))
+                            e.target.value = ''
+                          }}
+                        >
+                          <option value="">— Insert signature —</option>
+                          <option value={buildSignature(cfg.sender)}>{cfg.sender || 'Default Sender'}</option>
+                          {activeProfiles.map(p => {
+                            const sig = buildSignature(p.name || p.user || '')
+                            return <option key={p.id} value={sig}>{p.name || p.user}</option>
+                          })}
+                        </select>
+                      </div>
+                    </div>
+                    <textarea
+                      rows={12}
+                      className="w-full text-sm border border-blue-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/30 resize-y leading-relaxed"
+                      value={currentVariant.body}
+                      onChange={e => setVariants(vs => vs.map((v, i) => i === variantIdx ? { ...v, body: e.target.value } : v))}
+                      placeholder="Email body..."
                     />
                   </div>
                   <p className="text-[10px] text-slate-400">✏️ Changes are live — this exact content will be sent.</p>
