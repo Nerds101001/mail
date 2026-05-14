@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useCRM } from '../store'
 import { fmtCurrency, fmtDate } from '../utils'
 import { Modal, Btn, Input, Select, Textarea, Empty, PageHeader, toast } from '../components/ui'
@@ -9,8 +9,10 @@ const TYPE_COLORS   = { DEMO:'bg-purple-100 text-purple-700', QUOTATION:'bg-ambe
 const TYPE_ICONS    = { DEMO: Phone, QUOTATION: FileText, ORDER: ShoppingCart }
 
 export default function Deals() {
-  const { deals, setDeals, pushToRedis, logActivity } = useCRM()
+  const { deals, setDeals, pushToRedis, logActivity, loadFromRedis, viewAs } = useCRM()
   const [search, setSearch]   = useState('')
+
+  useEffect(() => { loadFromRedis() }, [viewAs])
   const [typeF, setTypeF]     = useState('')
   const [statusF, setStatusF] = useState('')
   const [open, setOpen]       = useState(false)

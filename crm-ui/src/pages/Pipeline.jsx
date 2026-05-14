@@ -141,7 +141,7 @@ function DealModal({ lead, onConfirm, onSkip, saving }) {
 }
 
 export default function Pipeline() {
-  const { leads, setLeads, saveLeads, deals, setDeals, clients, setClients, pushToRedis, logActivity, viewAs } = useCRM()
+  const { leads, setLeads, saveLeads, deals, setDeals, clients, setClients, profiles, settings, activity, logActivity, viewAs } = useCRM()
 
   const [activeTab,      setActiveTab]      = useState('ALL')
   const [search,         setSearch]         = useState('')
@@ -295,7 +295,7 @@ export default function Pipeline() {
         }),
       })
 
-      // Add deal to local store so Deals page shows it immediately
+      // Build updated arrays explicitly — do NOT rely on refs (they update async after re-render)
       const newDeal = {
         id:         `deal_${Date.now()}`,
         type:       'ORDER',
@@ -310,9 +310,6 @@ export default function Pipeline() {
         status:     'DONE',
         createdAt:  new Date().toISOString(),
       }
-      setDeals([...deals, newDeal])
-
-      // Auto-create client so Dashboard Active Clients count updates
       const newClient = {
         id:            `client_${Date.now() + 1}`,
         createdAt:     new Date().toISOString(),
@@ -328,10 +325,21 @@ export default function Pipeline() {
         renewalDate:   '',
         notes:         form.notes.trim(),
       }
-      setClients([...clients, newClient])
+      const updatedDeals   = [...deals,   newDeal]
+      const updatedClients = [...clients, newClient]
+      const newActivity    = [...activity, { time: Date.now(), msg: `Deal won: ${dealLead.name || dealLead.email} — ₹${amount.toLocaleString()}` }].slice(-200)
 
+      // Update local state immediately
+      setDeals(updatedDeals)
+      setClients(updatedClients)
       logActivity(`Deal won: ${dealLead.name || dealLead.email} — ₹${amount.toLocaleString()}`)
-      pushToRedis()
+
+      // Persist to Redis right now (awaited) so refresh never loses data
+      await fetch('/api/crm?type=save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+        body: JSON.stringify({ leads, clients: updatedClients, deals: updatedDeals, profiles, settings, activity: newActivity }),
+      })
     } catch (e) { console.warn('deal save failed', e) }
     applyStage(dealLead.id, 'WON')
     setDealLead(null)

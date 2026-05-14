@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useCRM } from '../store'
 import { daysDiff, fmtCurrency, fmtDate, PAYMENT_COLORS } from '../utils'
 import { Modal, Btn, Input, Select, Textarea, Empty, PageHeader, toast } from '../components/ui'
@@ -7,8 +7,10 @@ import { Plus, Pencil, Trash2, Search, AlertCircle, RotateCcw } from 'lucide-rea
 const empty = { name:'', company:'', email:'', phone:'', software:'', amount:'', paymentStatus:'PENDING', renewalDate:'', notes:'' }
 
 export default function Clients() {
-  const { clients, setClients, leads, setLeads, pushToRedis, logActivity } = useCRM()
+  const { clients, setClients, leads, setLeads, pushToRedis, logActivity, loadFromRedis, viewAs } = useCRM()
   const [search, setSearch]   = useState('')
+
+  useEffect(() => { loadFromRedis() }, [viewAs])
   const [payF, setPayF]       = useState('')
   const [renF, setRenF]       = useState('')
   const [open, setOpen]       = useState(false)
