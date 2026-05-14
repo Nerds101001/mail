@@ -4,7 +4,7 @@ import { Card, Btn, Input, PageHeader, toast } from '../components/ui'
 import { Plus, Trash2, Zap, Mail, Download, AlertTriangle, RefreshCw } from 'lucide-react'
 
 export default function Settings() {
-  const { settings, setSettings, profiles, setProfiles, leads, clients, deals, pushToRedis, gmailStatus } = useCRM()
+  const { settings, setSettings, profiles, setProfiles, leads, clients, deals, activity, pushToRedis, gmailStatus } = useCRM()
   const [apiKey,    setApiKey]    = useState('')        // blank = no change; filled = update
   const [keyDirty,  setKeyDirty]  = useState(false)    // true once admin has typed a new key
   const [smtpOpen, setSmtpOpen] = useState(false)
@@ -82,12 +82,24 @@ export default function Settings() {
     toast('API key saved to database ✓', 'success')
   }
 
-  function addSmtp() {
+  async function addSmtp() {
     if (!smtp.name || !smtp.host || !smtp.user || !smtp.pass) { toast('All fields required', 'error'); return }
     const profile = { id:'profile_'+Date.now(), type:'smtp', active:true, ...smtp, dailyCap: parseInt(smtp.dailyCap) || 50 }
-    setProfiles([...profiles, profile])
-    pushToRedis()
-    toast('SMTP profile added', 'success')
+    const updatedProfiles = [...profiles, profile]
+    setProfiles(updatedProfiles)
+    // Save immediately — debounced pushToRedis() risks being overwritten by
+    // loadFromRedis() (called on Dashboard mount) before the 500ms timer fires
+    await fetch('/api/crm?type=save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${crmToken()}` },
+      body: JSON.stringify({
+        leads, clients, deals,
+        profiles: updatedProfiles,
+        settings,
+        activity: (activity || []).slice(-200),
+      }),
+    }).catch(e => console.warn('SMTP profile save failed', e))
+    toast('SMTP profile saved ✓', 'success')
     setSmtp({ name:'', host:'', port:'465', user:'', pass:'', secure:true, dailyCap:50 })
     setSmtpOpen(false)
   }

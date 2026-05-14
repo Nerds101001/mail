@@ -146,6 +146,19 @@ export default function Campaign() {
   const activeProfiles = profiles.filter(p => p.active)
   const [selectedSenders, setSelectedSenders] = useState(new Set(profiles.filter(p=>p.active).map(p=>p.user||p.email||'')))
 
+  // Keep selectedSenders in sync when profiles change (e.g. after loadFromRedis or adding new profile)
+  // Auto-adds any newly active profile so it's included in round-robin without manual re-selection
+  useEffect(() => {
+    setSelectedSenders(prev => {
+      const next = new Set(prev)
+      activeProfiles.forEach(p => {
+        const key = p.user || p.email || ''
+        if (key) next.add(key)
+      })
+      return next
+    })
+  }, [profiles]) // eslint-disable-line
+
   const currentVariant = variants[variantIdx] || { subject: 'Subject will appear here', body: 'Fill the Campaign Brief and click Generate Variants...' }
 
   function getTargets() {
