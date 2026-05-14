@@ -336,23 +336,6 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       return { counted: false, reason: 'delivery pre-fetch IP', count: 0 };
     }
 
-    // ── Attachment guard — applies to ALL IPs including user-proxy ranges ─────
-    // Gmail's attachment content scanner fires from Google infrastructure IPs
-    // (74.125.x.x etc.) which are normally whitelisted as "real user" opens.
-    // When an email had attachments we write a separate key so we can block
-    // even those IPs within the first 10s of delivery.
-    const attGuardRaw = await sql`
-      SELECT value FROM kv_store WHERE key = ${'email:att-guard:' + leadId}
-        AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
-    `.catch(() => []);
-    if (attGuardRaw.length > 0) {
-      const sentAt = parseInt(attGuardRaw[0].value) || 0;
-      if (now - sentAt < 10000) {
-        console.log(`🛡️ [ATT-GUARD] Attachment scanner blocked for lead ${leadId} IP:${ip} (${Math.round((now-sentAt)/1000)}s after send)`);
-        return { counted: false, reason: 'attachment scanner guard (10s)', count: 0 };
-      }
-    }
-
     // ── Timing guard — unknown IPs only ──────────────────────────────────────
     // User proxy IPs (74.125.x.x, Apple MPP, Microsoft etc.) bypass the guard —
     // they only fire when the user actually opens, so count them directly.
