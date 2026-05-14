@@ -698,5 +698,123 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
     }
   }
 
+  // POST /api/ops?type=run-scheduled  (also GET for external cron pings)
+  // Finds due SCHEDULED campaigns and executes them.
+  // Called client-side from CampaignHistory when scheduled_at <= now.
+  if (type === "run-scheduled" && (req.method === "POST" || req.method === "GET")) {
+    const appUrl = process.env.APP_URL || "https://enginerdsmail.vercel.app";
+    const sql2   = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+    const now2   = Date.now();
+    try {
+      const due = await sql2`
+        SELECT * FROM campaigns
+        WHERE status = 'SCHEDULED' AND scheduled_at IS NOT NULL AND scheduled_at <= ${now2}
+        ORDER BY scheduled_at ASC LIMIT 10
+      `;
+      if (!due.length) return res.json({ ok: true, ran: 0 });
+
+      let ran = 0;
+      const results = [];
+      for (const camp of due) {
+        const claimed = await sql2`
+          UPDATE campaigns SET status = 'RUNNING'
+          WHERE id = ${camp.id} AND status = 'SCHEDULED' RETURNING id
+        `;
+        if (!claimed.length) continue;
+
+        const result = { id: camp.id, name: camp.name, sent: 0, failed: 0, skipped: 0 };
+        try {
+          const cfgRaw = typeof camp.schedule_config === 'string'
+            ? JSON.parse(camp.schedule_config || '{}')
+            : (camp.schedule_config || {});
+          const { cfg = {}, variants = [], selectedSenders = [], selectedAttachments = [], usePersonalization = false } = cfgRaw;
+          const uid = camp.user_id;
+          if (!uid) throw new Error("campaign.user_id missing");
+
+          const leadsKey    = uid === 'admin' ? 'crm:leads'    : `crm:leads:${uid}`;
+          const profilesKey = uid === 'admin' ? 'crm:profiles' : `crm:profiles:${uid}`;
+          const [lRaw, pRaw] = await Promise.all([get(leadsKey), get(profilesKey)]);
+          const allLeads    = lRaw ? JSON.parse(lRaw) : [];
+          const allProfiles = pRaw ? JSON.parse(pRaw) : [];
+
+          const fv = (cfg.filterVal || '').trim().toLowerCase();
+          let targets;
+          if      (cfg.target === 'all')      targets = allLeads.slice();
+          else if (cfg.target === 'valid')    targets = allLeads.filter(l => l.status === 'VALID');
+          else if (cfg.target === 'followup') targets = allLeads.filter(l => l.status === 'FOLLOW-UP');
+          else if (cfg.target === 'hot')      targets = allLeads.filter(l => l.pipelineStage === 'HOT');
+          else if (cfg.target === 'group')    targets = allLeads.filter(l => (l.group||'').toLowerCase() === fv);
+          else                                targets = allLeads.filter(l => l.status === 'VALID');
+          targets = targets.slice(0, cfg.batch || 30);
+
+          const senders = allProfiles.filter(p =>
+            p.active && (!selectedSenders.length || selectedSenders.includes(p.user || p.email || ''))
+          );
+          if (!senders.length) throw new Error("No active sender profiles");
+
+          for (let i = 0; i < targets.length; i++) {
+            const l       = targets[i];
+            const profile = senders[i % senders.length];
+            const varIdx  = i % (variants.length || 1);
+            const nameT   = l.name || 'there';
+            const compT   = l.company || 'your company';
+            const sub     = s => (s||'').replace(/\[Name\]/gi,nameT).replace(/\[Company\]/gi,compT).replace(/\[Role\]/gi,l.role||'').replace(/their company/gi,compT);
+
+            let subject, body;
+            if (variants.length) {
+              subject = sub(variants[varIdx].subject);
+              body    = sub(variants[varIdx].body);
+              if (usePersonalization && l.notes?.trim()) {
+                const hook = `Given that ${compT} ${l.notes.trim().replace(/^(is |are |has |have )/i,''  )},`;
+                body = body.replace(/^(Hi [^\n,]+,\n\n)/i, `$1${hook} `);
+              }
+            } else {
+              subject = `Question for ${l.company||'your business'}`;
+              body    = `Hi ${nameT},\n\nI noticed ${compT} and thought we could help.\n\nBest,\nPawan Kumar\nEnginerds Tech Solution`;
+            }
+
+            const ep = profile.type === 'gmail' ? `${appUrl}/api/send-email` : `${appUrl}/api/send-smtp`;
+            const pl = { leadId:l.id, to:l.email, subject, body, senderName:cfg.sender||'Enginerds Tech', replyTo:cfg.replyTo||'', campaignId:camp.id, attachments:(selectedAttachments||[]).map(id=>({id})) };
+            if (profile.type === 'smtp')  pl.smtpConfig = profile;
+            if (profile.type === 'gmail') pl.gmailUser  = profile.user;
+
+            let sendStatus = 'FAILED';
+            try {
+              const r    = await fetch(ep, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(pl) });
+              const data = await r.json().catch(()=>({}));
+              if      (data.skipped)       { sendStatus = 'SKIPPED'; result.skipped++; }
+              else if (data.bounced)       { sendStatus = 'BOUNCED'; result.failed++;  }
+              else if (r.ok && !data.error){ sendStatus = 'SENT';    result.sent++;    }
+              else                         { result.failed++; }
+            } catch { result.failed++; }
+
+            await sql2`
+              INSERT INTO campaign_leads (campaign_id,user_id,lead_id,lead_name,lead_email,lead_company,status,subject,body,sent_at,variant_index)
+              VALUES (${camp.id},${uid},${l.id},${l.name||''},${l.email||''},${l.company||''},${sendStatus},${subject||''},${body||''},${Date.now()},${varIdx})
+            `.catch(()=>{});
+
+            if (i < targets.length - 1 && (cfg.rate||0) > 0)
+              await new Promise(r => setTimeout(r, cfg.rate * 1000));
+          }
+
+          await sql2`
+            UPDATE campaigns SET status='COMPLETED', total_sent=${result.sent}, total_failed=${result.failed}, total_skipped=${result.skipped},
+              stats=${JSON.stringify({sent:result.sent,failed:result.failed,skipped:result.skipped})}::jsonb
+            WHERE id=${camp.id}
+          `;
+          ran++;
+          results.push({ ...result, status:'COMPLETED' });
+        } catch(err) {
+          console.error(`[run-scheduled] campaign ${camp.id} failed:`, err.message);
+          await sql2`UPDATE campaigns SET status='FAILED' WHERE id=${camp.id}`.catch(()=>{});
+          results.push({ ...result, status:'FAILED', error:err.message });
+        }
+      }
+      return res.json({ ok:true, ran, results });
+    } catch(err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   res.status(400).json({ error: "Invalid type" });
 };
