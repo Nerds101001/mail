@@ -74,16 +74,17 @@ export default function Deals() {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              {['Type','Contact','Company','Amount','Status','Date','Notes','Actions'].map(h => (
+              {['Type','Contact','Company','Invoice','Service','Amount','Status','Date','Notes','Actions'].map(h => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={8}><Empty icon={FileText} title="No deals yet" sub="Add a demo call, quotation or order" /></td></tr>
+              <tr><td colSpan={10}><Empty icon={FileText} title="No deals yet" sub="Add a demo call, quotation or order" /></td></tr>
             ) : filtered.map(d => {
               const Icon = TYPE_ICONS[d.type] || FileText
+              const dateDisplay = d.closeDate ? fmtDate(d.closeDate) : d.demoDate ? fmtDate(d.demoDate) + (d.demoTime ? ' '+d.demoTime : '') : fmtDate(d.createdAt)
               return (
                 <tr key={d.id} className="table-row">
                   <td className="px-4 py-3">
@@ -93,14 +94,16 @@ export default function Deals() {
                   </td>
                   <td className="px-4 py-3 font-semibold text-slate-900">{d.clientName || '—'}</td>
                   <td className="px-4 py-3 text-slate-600">{d.company || '—'}</td>
+                  <td className="px-4 py-3 text-slate-500 text-xs font-mono">{d.invoiceNo || '—'}</td>
+                  <td className="px-4 py-3 text-slate-600 text-xs max-w-[120px] truncate">{d.service || '—'}</td>
                   <td className="px-4 py-3 font-bold text-emerald-600">{fmtCurrency(d.amount)}</td>
                   <td className="px-4 py-3">
                     <select className={`badge text-[11px] border-0 cursor-pointer ${STATUS_COLORS[d.status]}`} value={d.status} onChange={e => updateStatus(d.id, e.target.value)}>
                       <option>OPEN</option><option>SENT</option><option>ACCEPTED</option><option>REJECTED</option><option>DONE</option>
                     </select>
                   </td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{d.demoDate ? fmtDate(d.demoDate) + (d.demoTime ? ' '+d.demoTime : '') : fmtDate(d.createdAt)}</td>
-                  <td className="px-4 py-3 text-slate-400 text-xs max-w-[160px] truncate">{d.notes || '—'}</td>
+                  <td className="px-4 py-3 text-slate-500 text-xs">{dateDisplay}</td>
+                  <td className="px-4 py-3 text-slate-400 text-xs max-w-[140px] truncate">{d.notes || '—'}</td>
                   <td className="px-4 py-3">
                     <button className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition-colors" onClick={() => deleteDeal(d.id)}><Trash2 size={13} /></button>
                   </td>

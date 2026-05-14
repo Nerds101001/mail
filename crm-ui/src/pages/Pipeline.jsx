@@ -141,7 +141,7 @@ function DealModal({ lead, onConfirm, onSkip, saving }) {
 }
 
 export default function Pipeline() {
-  const { leads, setLeads, saveLeads, viewAs } = useCRM()
+  const { leads, setLeads, saveLeads, deals, setDeals, clients, setClients, pushToRedis, logActivity, viewAs } = useCRM()
 
   const [activeTab,      setActiveTab]      = useState('ALL')
   const [search,         setSearch]         = useState('')
@@ -273,24 +273,65 @@ export default function Pipeline() {
   async function handleDealConfirm(form) {
     if (!dealLead) return
     setDealSaving(true)
+    const vaQ = viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
+    const amount = parseFloat(form.amount) || 0
     try {
-      const vaQ = viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
+      // Save deal to DB
       await fetch(`/api/crm?type=deals${vaQ}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
         body: JSON.stringify({
-          leadId:    dealLead.id,
-          leadName:  dealLead.name  || '',
-          leadEmail: dealLead.email || '',
-          company:   dealLead.company || '',
-          invoiceNo: form.invoiceNo.trim(),
-          amount:    parseFloat(form.amount) || 0,
-          service:   form.service.trim(),
-          closeDate: form.closeDate,
-          notes:     form.notes.trim(),
-          status:    'WON',
+          leadId:     dealLead.id,
+          clientName: dealLead.name  || '',
+          leadEmail:  dealLead.email || '',
+          company:    dealLead.company || '',
+          invoiceNo:  form.invoiceNo.trim(),
+          amount,
+          service:    form.service.trim(),
+          closeDate:  form.closeDate,
+          notes:      form.notes.trim(),
+          status:     'DONE',
+          type:       'ORDER',
         }),
       })
+
+      // Add deal to local store so Deals page shows it immediately
+      const newDeal = {
+        id:         `deal_${Date.now()}`,
+        type:       'ORDER',
+        clientName: dealLead.name    || '',
+        company:    dealLead.company || '',
+        leadEmail:  dealLead.email   || '',
+        amount,
+        invoiceNo:  form.invoiceNo.trim(),
+        service:    form.service.trim(),
+        closeDate:  form.closeDate,
+        notes:      form.notes.trim(),
+        status:     'DONE',
+        createdAt:  new Date().toISOString(),
+      }
+      setDeals([...deals, newDeal])
+
+      // Auto-create client so Dashboard Active Clients count updates
+      const newClient = {
+        id:            `client_${Date.now() + 1}`,
+        createdAt:     new Date().toISOString(),
+        renewalStatus: 'ACTIVE',
+        name:          dealLead.name    || '',
+        company:       dealLead.company || '',
+        email:         dealLead.email   || '',
+        phone:         dealLead.phone   || '',
+        software:      form.service.trim(),
+        amount,
+        invoiceNo:     form.invoiceNo.trim(),
+        paymentStatus: 'PENDING',
+        renewalDate:   '',
+        notes:         form.notes.trim(),
+      }
+      setClients([...clients, newClient])
+
+      logActivity(`Deal won: ${dealLead.name || dealLead.email} — ₹${amount.toLocaleString()}`)
+      pushToRedis()
     } catch (e) { console.warn('deal save failed', e) }
     applyStage(dealLead.id, 'WON')
     setDealLead(null)

@@ -6,7 +6,7 @@ import { daysDiff, daysSince, fmtCurrency } from '../utils'
 import { Users, UserCheck, Flame, CheckSquare, Send, MessageSquare, RefreshCw, RotateCcw, TrendingUp, Mail } from 'lucide-react'
 
 export default function Dashboard() {
-  const { leads, clients, deals, activity, logActivity, viewAs } = useCRM()
+  const { leads, clients, deals, activity, loadFromRedis, viewAs } = useCRM()
   const [tasks, setTasks] = useState([])
   const [loadingTasks, setLoadingTasks] = useState(true)
   const navigate = useNavigate()
@@ -15,13 +15,16 @@ export default function Dashboard() {
   const replied = leads.filter(l => l.status === 'REPLIED').length
   const hot     = leads.filter(l => l.pipelineStage === 'HOT' && !['WON','LOST','UNSUBSCRIBED'].includes(l.pipelineStage)).length
   const renewalsSoon = clients.filter(c => { const d = daysDiff(c.renewalDate); return d !== null && d >= 0 && d <= 30 }).length
-  const overdue = clients.filter(c => c.paymentStatus === 'OVERDUE').length
+  const overdueClients = clients.filter(c => c.paymentStatus === 'OVERDUE')
+  const overdue = overdueClients.length
+  const renewingSoonClients = clients.filter(c => { const d = daysDiff(c.renewalDate); return d !== null && d >= 0 && d <= 7 })
   const revenue = clients.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0)
 
   const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
   const vaParam    = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
 
   useEffect(() => {
+    loadFromRedis()
     fetch(`/api/ops?type=tasks${vaParam()}`, { headers: authHeader() })
       .then(r => r.json())
       .then(d => { setTasks(d.tasks || []); setLoadingTasks(false) })
@@ -40,6 +43,46 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Alert banners */}
+      {(overdueClients.length > 0 || renewingSoonClients.length > 0) && (
+        <div className="space-y-2">
+          {overdueClients.length > 0 && (
+            <div
+              className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl cursor-pointer hover:bg-red-100 transition-colors"
+              onClick={() => navigate('/clients')}
+            >
+              <span className="text-lg">🚨</span>
+              <div className="flex-1">
+                <p className="text-sm font-bold text-red-800">
+                  {overdueClients.length} overdue payment{overdueClients.length > 1 ? 's' : ''}
+                </p>
+                <p className="text-xs text-red-600 truncate">
+                  {overdueClients.map(c => c.name || c.company || c.email).join(', ')}
+                </p>
+              </div>
+              <span className="text-xs text-red-500 font-medium whitespace-nowrap">View Clients →</span>
+            </div>
+          )}
+          {renewingSoonClients.length > 0 && (
+            <div
+              className="flex items-center gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer hover:bg-amber-100 transition-colors"
+              onClick={() => navigate('/clients')}
+            >
+              <span className="text-lg">⏰</span>
+              <div className="flex-1">
+                <p className="text-sm font-bold text-amber-800">
+                  {renewingSoonClients.length} renewal{renewingSoonClients.length > 1 ? 's' : ''} due within 7 days
+                </p>
+                <p className="text-xs text-amber-700 truncate">
+                  {renewingSoonClients.map(c => c.name || c.company || c.email).join(', ')}
+                </p>
+              </div>
+              <span className="text-xs text-amber-600 font-medium whitespace-nowrap">View Clients →</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Stats row 1 */}
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="Total Leads"    value={leads.length}  sub="All contacts"          icon={Users}       color="slate"   onClick={() => navigate('/leads')} />
