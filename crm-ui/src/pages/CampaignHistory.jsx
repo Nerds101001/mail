@@ -4,13 +4,24 @@ import { PageHeader, Empty, Btn, Card, toast } from '../components/ui'
 import { fmtDate } from '../utils'
 import {
   History, ChevronDown, ChevronRight, Send, Eye, MousePointer,
-  AlertCircle, Trash2, Calendar, Clock, Pencil, X, Check,
+  AlertCircle, Trash2, Calendar, Clock, Pencil, Check,
 } from 'lucide-react'
+
+const STATUS_COLOR = {
+  sent:         'bg-blue-100 text-blue-700',
+  failed:       'bg-red-100 text-red-700',
+  skipped:      'bg-slate-100 text-slate-500',
+  opened:       'bg-emerald-100 text-emerald-700',
+  clicked:      'bg-amber-100 text-amber-700',
+  replied:      'bg-purple-100 text-purple-700',
+  bounced:      'bg-red-100 text-red-600',
+  unsubscribed: 'bg-slate-100 text-slate-400',
+}
 
 function parseBrowser(ua) {
   if (!ua || ua === '—') return '—'
   let os = 'Unknown'
-  if (/Windows NT 1[01]/.test(ua))      os = 'Windows 10/11'
+  if (/Windows NT 1[01]/.test(ua))       os = 'Windows 10/11'
   else if (/Windows NT 6\.[13]/.test(ua)) os = 'Windows 7/8'
   else if (/Macintosh|Mac OS X/.test(ua)) os = 'macOS'
   else if (/iPhone/.test(ua))             os = 'iOS'
@@ -18,30 +29,29 @@ function parseBrowser(ua) {
   else if (/Android/.test(ua))            os = 'Android'
   else if (/Linux/.test(ua))              os = 'Linux'
   let br = 'Browser'
-  if (/Edg\//.test(ua))              br = 'Edge'
-  else if (/OPR\/|Opera/.test(ua))   br = 'Opera'
-  else if (/Firefox\//.test(ua))     br = 'Firefox'
-  else if (/Chrome\//.test(ua))      br = 'Chrome'
-  else if (/Safari\//.test(ua))      br = 'Safari'
+  if (/Edg\//.test(ua))             br = 'Edge'
+  else if (/OPR\/|Opera/.test(ua))  br = 'Opera'
+  else if (/Firefox\//.test(ua))    br = 'Firefox'
+  else if (/Chrome\//.test(ua))     br = 'Chrome'
+  else if (/Safari\//.test(ua))     br = 'Safari'
   return `${br} / ${os}`
 }
 
-// ── Edit-scheduled campaign modal ────────────────────────────────────────────
+// ── Edit Scheduled Campaign Modal ─────────────────────────────────────────────
 function EditScheduledModal({ campaign, onClose, onSaved }) {
   const sc = campaign.schedule_config || {}
-  const [name, setName]               = useState(campaign.name || '')
-  const [schedTime, setSchedTime]     = useState(() => {
+  const [name, setName]           = useState(campaign.name || '')
+  const [schedTime, setSchedTime] = useState(() => {
     if (!campaign.scheduled_at) return ''
-    const d = new Date(parseInt(campaign.scheduled_at))
-    // datetime-local needs "YYYY-MM-DDTHH:mm"
-    const pad = n => String(n).padStart(2,'0')
+    const d   = new Date(parseInt(campaign.scheduled_at))
+    const pad = n => String(n).padStart(2, '0')
     return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
   })
-  const [variants, setVariants]       = useState(() =>
+  const [variants, setVariants] = useState(() =>
     (campaign.variants || []).map(v => ({ ...v }))
   )
-  const [saving, setSaving]           = useState(false)
-  const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
+  const [saving, setSaving] = useState(false)
+  const authHdr = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
 
   async function save() {
     if (!schedTime) { toast('Pick a date/time', 'error'); return }
@@ -49,11 +59,10 @@ function EditScheduledModal({ campaign, onClose, onSaved }) {
     if (scheduledAt <= Date.now()) { toast('Time must be in the future', 'error'); return }
     setSaving(true)
     try {
-      const newSC = { ...sc, variants }
       const res = await fetch(`/api/crm?type=campaigns&id=${campaign.id}`, {
         method:  'PATCH',
-        headers: { 'Content-Type': 'application/json', ...authHeader() },
-        body:    JSON.stringify({ name, scheduled_at: scheduledAt, schedule_config: newSC, variants }),
+        headers: { 'Content-Type': 'application/json', ...authHdr() },
+        body:    JSON.stringify({ name, scheduled_at: scheduledAt, schedule_config: { ...sc, variants }, variants }),
       })
       if (!res.ok) throw new Error('Save failed')
       toast('Campaign updated ✓', 'success')
@@ -69,7 +78,6 @@ function EditScheduledModal({ campaign, onClose, onSaved }) {
          onClick={onClose}>
       <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col"
            onClick={e => e.stopPropagation()}>
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
           <div className="flex items-center gap-2">
             <Calendar size={16} className="text-amber-500" />
@@ -78,26 +86,18 @@ function EditScheduledModal({ campaign, onClose, onSaved }) {
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
         </div>
 
-        {/* Body */}
         <div className="overflow-y-auto flex-1 p-5 space-y-5">
-          {/* Name + Time */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Campaign Name</label>
               <input className="input w-full" value={name} onChange={e => setName(e.target.value)} />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Scheduled Date & Time</label>
-              <input
-                type="datetime-local"
-                className="input w-full"
-                value={schedTime}
-                onChange={e => setSchedTime(e.target.value)}
-              />
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Scheduled Date &amp; Time</label>
+              <input type="datetime-local" className="input w-full" value={schedTime} onChange={e => setSchedTime(e.target.value)} />
             </div>
           </div>
 
-          {/* Variants editor */}
           {variants.length > 0 && (
             <div>
               <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">
@@ -107,10 +107,8 @@ function EditScheduledModal({ campaign, onClose, onSaved }) {
                 {variants.map((v, vi) => (
                   <div key={vi} className="border border-slate-200 rounded-lg p-4 bg-slate-50">
                     <div className="flex items-center gap-2 mb-3">
-                      <span className="w-5 h-5 flex items-center justify-center bg-amber-100 text-amber-700 rounded-full text-[10px] font-bold shrink-0">
-                        {vi + 1}
-                      </span>
-                      <span className="text-xs font-semibold text-slate-600">Variant {vi + 1}</span>
+                      <span className="w-5 h-5 flex items-center justify-center bg-amber-100 text-amber-700 rounded-full text-[10px] font-bold shrink-0">{vi+1}</span>
+                      <span className="text-xs font-semibold text-slate-600">Variant {vi+1}</span>
                     </div>
                     <div className="space-y-2">
                       <div>
@@ -138,11 +136,8 @@ function EditScheduledModal({ campaign, onClose, onSaved }) {
           )}
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 font-medium">
-            Cancel
-          </button>
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
           <Btn variant="primary" onClick={save} disabled={saving}>
             {saving ? '⏳ Saving...' : <><Check size={13}/> Save Changes</>}
           </Btn>
@@ -152,25 +147,246 @@ function EditScheduledModal({ campaign, onClose, onSaved }) {
   )
 }
 
+// ── Campaign row — defined outside to avoid Fast Refresh issues ───────────────
+function CampaignRow({ c, isScheduled, expanded, detail, trackingData, onExpand, onEdit, onCancel, onDelete, onViewEmail }) {
+  const scheduledDate = c.scheduled_at
+    ? new Date(parseInt(c.scheduled_at)).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'short' })
+    : null
+  const isExpanded = expanded === c.id
+
+  return (
+    <div className={`card overflow-hidden ${isScheduled ? 'border-2 border-amber-300 bg-amber-50/40' : ''}`}>
+      {/* Header row */}
+      <div
+        className={`flex items-center gap-4 px-5 py-4 cursor-pointer transition-colors ${isScheduled ? 'hover:bg-amber-50/80' : 'hover:bg-slate-50'}`}
+        onClick={() => onExpand(c.id)}
+      >
+        <div className="text-slate-400">
+          {isExpanded ? <ChevronDown size={16}/> : <ChevronRight size={16}/>}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-bold text-slate-900 truncate">{c.name}</p>
+            {isScheduled && c.status === 'SCHEDULED' && (
+              <span className="flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full whitespace-nowrap">
+                <Clock size={9}/> SCHEDULED
+              </span>
+            )}
+            {c.status === 'RUNNING' && (
+              <span className="flex items-center gap-1 text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full whitespace-nowrap animate-pulse">
+                ▶ RUNNING
+              </span>
+            )}
+            {c.status === 'CANCELLED' && (
+              <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">CANCELLED</span>
+            )}
+            {c.status === 'FAILED' && (
+              <span className="text-[10px] font-bold bg-red-100 text-red-600 px-2 py-0.5 rounded-full">FAILED</span>
+            )}
+          </div>
+          {isScheduled && scheduledDate ? (
+            <p className="text-xs text-amber-700 font-medium mt-0.5">
+              🕐 Runs at {scheduledDate} · Target: {c.target} · Sender: {c.sender}
+            </p>
+          ) : (
+            <p className="text-xs text-slate-400">
+              {fmtDate(new Date(parseInt(c.created_at)).toISOString())} · Target: {c.target} · Sender: {c.sender}
+            </p>
+          )}
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {isScheduled && c.status === 'SCHEDULED' && (
+            <>
+              <Btn variant="ghost" size="sm" onClick={e => { e.stopPropagation(); onEdit(c) }} title="Edit schedule time or content">
+                <Pencil size={12}/> Edit
+              </Btn>
+              <button
+                onClick={e => onCancel(c, e)}
+                className="px-2 py-1 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-100 rounded-lg transition-colors font-medium"
+              >
+                ✕ Cancel
+              </button>
+            </>
+          )}
+          {!isScheduled && (
+            <Btn variant="ghost" size="sm" onClick={e => { e.stopPropagation(); window.location.href = `/campaign?followup=${c.id}` }}
+              title="Re-target zero-open leads">
+              ↩ Follow Up
+            </Btn>
+          )}
+          <button onClick={e => onDelete(c, e)} title="Delete" className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+            <Trash2 size={14}/>
+          </button>
+        </div>
+
+        {/* Stats for completed */}
+        {!isScheduled && (
+          <div className="flex items-center gap-4 text-sm shrink-0">
+            <div className="flex items-center gap-1.5 text-blue-600">
+              <Send size={13}/><span className="font-bold">{c.total_sent}</span><span className="text-slate-400 text-xs">sent</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-red-500">
+              <AlertCircle size={13}/><span className="font-bold">{c.total_failed}</span><span className="text-slate-400 text-xs">failed</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-slate-400">
+              <span className="font-bold">{c.total_skipped}</span><span className="text-xs">skipped</span>
+            </div>
+            {isExpanded && detail && Object.keys(trackingData).length > 0 && (
+              <>
+                <div className="flex items-center gap-1.5 text-emerald-600">
+                  <Eye size={13}/>
+                  <span className="font-bold">{Object.values(trackingData).reduce((s, t) => s + (t.opens||0), 0)}</span>
+                  <span className="text-slate-400 text-xs">opens</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-amber-600">
+                  <MousePointer size={13}/>
+                  <span className="font-bold">{Object.values(trackingData).reduce((s, t) => s + (t.clicks||0), 0)}</span>
+                  <span className="text-slate-400 text-xs">clicks</span>
+                </div>
+              </>
+            )}
+            {(!isExpanded || !detail || Object.keys(trackingData).length === 0) && (
+              <>
+                {c.stats?.opens  > 0 && <div className="flex items-center gap-1.5 text-emerald-600"><Eye size={13}/><span className="font-bold">{c.stats.opens}</span></div>}
+                {c.stats?.clicks > 0 && <div className="flex items-center gap-1.5 text-amber-600"><MousePointer size={13}/><span className="font-bold">{c.stats.clicks}</span></div>}
+              </>
+            )}
+          </div>
+        )}
+
+        {isScheduled && (
+          <div className="text-xs text-slate-400 shrink-0">
+            {c.variants?.length || 0} variant{c.variants?.length !== 1 ? 's' : ''}
+          </div>
+        )}
+      </div>
+
+      {/* Expanded detail */}
+      {isExpanded && detail && (
+        <div className="border-t border-slate-100">
+          {/* Brief + Variants summary */}
+          {(detail.brief?.product || detail.variants?.length > 0) && (
+            <div className="px-5 py-4 bg-slate-50 border-b border-slate-100 grid grid-cols-2 gap-6">
+              {detail.brief?.product && (
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Campaign Brief</p>
+                  <div className="space-y-1 text-xs text-slate-600">
+                    {detail.brief.product      && <div><span className="font-semibold text-slate-700">Product:</span> {detail.brief.product}</div>}
+                    {detail.brief.industries   && <div><span className="font-semibold text-slate-700">Industries:</span> {detail.brief.industries}</div>}
+                    {detail.brief.problems     && <div><span className="font-semibold text-slate-700">Problems:</span> {detail.brief.problems}</div>}
+                    {detail.brief.solutions    && <div><span className="font-semibold text-slate-700">Solutions:</span> {detail.brief.solutions}</div>}
+                    {detail.brief.technologies && <div><span className="font-semibold text-slate-700">Tech/USP:</span> {detail.brief.technologies}</div>}
+                  </div>
+                </div>
+              )}
+              {detail.variants?.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">AI Variants Used ({detail.variants.length})</p>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {detail.variants.map((v, vi) => {
+                      const used   = detail.leads?.filter(l => (l.variant_index??0) === vi).length || 0
+                      const opens  = detail.leads?.filter(l => (l.variant_index??0) === vi).reduce((s,l)=>s+(trackingData[l.lead_id]?.opens||0),0) || 0
+                      const clicks = detail.leads?.filter(l => (l.variant_index??0) === vi).reduce((s,l)=>s+(trackingData[l.lead_id]?.clicks||0),0) || 0
+                      return (
+                        <div key={vi} className="flex items-center gap-2 text-xs">
+                          <span className="w-5 h-5 flex items-center justify-center bg-slate-200 rounded-full text-[10px] font-bold text-slate-600 shrink-0">{vi+1}</span>
+                          <span className="text-slate-700 font-medium truncate flex-1" title={v.subject}>{v.subject}</span>
+                          <span className="text-slate-400 shrink-0">{used} sent</span>
+                          {opens  > 0 && <span className="text-blue-500 shrink-0">{opens} opens</span>}
+                          {clicks > 0 && <span className="text-amber-500 shrink-0">{clicks} clicks</span>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Scheduled — no leads yet */}
+          {(c.status === 'SCHEDULED' || c.status === 'RUNNING' || c.status === 'CANCELLED') && (!detail.leads || detail.leads.length === 0) && (
+            <div className="px-5 py-4">
+              <p className="text-xs text-slate-500 text-center py-2">No leads sent yet — campaign will execute at the scheduled time.</p>
+            </div>
+          )}
+
+          {/* Lead table */}
+          {detail.leads?.length > 0 && (
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  {['Name','Email','Company','Status','Variant #','Subject','Sent At','Actions'].map(h => (
+                    <th key={h} className="px-4 py-2 text-left font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {detail.leads.map((l, i) => {
+                  const td     = trackingData[l.lead_id]
+                  const status = td?.clicks > 0 ? { status:'clicked', display:`clicked ${td.clicks}x` }
+                               : td?.opens  > 0 ? { status:'opened',  display:`opened ${td.opens}x`  }
+                               : { status: l.status, display: l.status }
+                  const varNum = (l.variant_index ?? 0) + 1
+                  return (
+                    <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                      <td className="px-4 py-2 font-semibold text-slate-800">{l.lead_name||'—'}</td>
+                      <td className="px-4 py-2 text-slate-500 font-mono text-[11px]">{l.lead_email}</td>
+                      <td className="px-4 py-2 text-slate-600">{l.lead_company||'—'}</td>
+                      <td className="px-4 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`badge text-[10px] ${STATUS_COLOR[status.status] || 'bg-slate-100 text-slate-600'}`}>{status.display}</span>
+                          {td && (td.opens > 0 || td.clicks > 0) && (
+                            <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                              {td.opens  > 0 && <span className="flex items-center gap-0.5"><Eye size={9}/>{td.opens}</span>}
+                              {td.clicks > 0 && <span className="flex items-center gap-0.5"><MousePointer size={9}/>{td.clicks}</span>}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        <span className="w-5 h-5 inline-flex items-center justify-center bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold">{varNum}</span>
+                      </td>
+                      <td className="px-4 py-2 text-slate-500 max-w-[180px] truncate">{l.subject||'—'}</td>
+                      <td className="px-4 py-2 text-slate-400">{l.sent_at ? new Date(parseInt(l.sent_at)).toLocaleTimeString('en-IN') : '—'}</td>
+                      <td className="px-4 py-2">
+                        <button onClick={() => onViewEmail(l)} className="text-blue-600 hover:text-blue-700 text-xs font-medium flex items-center gap-1">
+                          <Eye size={12}/> View
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function CampaignHistory() {
   const { viewAs } = useCRM()
-  const [campaigns, setCampaigns]   = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [expanded, setExpanded]     = useState(null)
-  const [detail, setDetail]         = useState(null)
-  const [trackingData, setTrackingData] = useState({})
+  const [campaigns, setCampaigns]         = useState([])
+  const [loading, setLoading]             = useState(true)
+  const [expanded, setExpanded]           = useState(null)
+  const [detail, setDetail]               = useState(null)
+  const [trackingData, setTrackingData]   = useState({})
   const [viewingEmail, setViewingEmail]   = useState(null)
   const [modalEvents, setModalEvents]     = useState([])
   const [modalEventsLoading, setModalEventsLoading] = useState(false)
   const [modalTab, setModalTab]           = useState('body')
-  const [editingCamp, setEditingCamp]     = useState(null)   // campaign being edited
+  const [editingCamp, setEditingCamp]     = useState(null)
 
   const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
   const vaParam    = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
 
-  useEffect(() => { load() }, [viewAs])  // eslint-disable-line
+  useEffect(() => { load() }, [viewAs]) // eslint-disable-line
 
   async function load() {
     setLoading(true)
@@ -187,15 +403,14 @@ export default function CampaignHistory() {
     try {
       const res = await fetch(`/api/crm?type=campaigns&id=${id}${vaParam()}`, { headers: authHeader() })
       if (res.ok) {
-        const campaignDetail = await res.json()
-        setDetail(campaignDetail)
-        if (campaignDetail.leads?.length > 0) {
-          const leadIds = campaignDetail.leads.map(l => l.lead_id).filter(Boolean).join(',')
-          if (leadIds) {
+        const d = await res.json()
+        setDetail(d)
+        if (d.leads?.length > 0) {
+          const ids = d.leads.map(l => l.lead_id).filter(Boolean).join(',')
+          if (ids) {
             try {
-              const tr = await fetch(`/api/ops?type=tracking&ids=${leadIds}&campaignId=${id}`)
-              if (tr.ok) setTrackingData(await tr.json())
-              else setTrackingData({})
+              const tr = await fetch(`/api/ops?type=tracking&ids=${ids}&campaignId=${id}`)
+              setTrackingData(tr.ok ? await tr.json() : {})
             } catch { setTrackingData({}) }
           }
         }
@@ -203,17 +418,12 @@ export default function CampaignHistory() {
     } catch(e) { console.error('Failed to load campaign details:', e) }
   }
 
-  function getEnhancedStatus(lead) {
-    const t = trackingData[lead.lead_id]
-    if (t?.clicks > 0) return { status: 'clicked', display: `clicked ${t.clicks}x` }
-    if (t?.opens  > 0) return { status: 'opened',  display: `opened ${t.opens}x`  }
-    return { status: lead.status, display: lead.status }
-  }
-
   async function deleteCampaign(c, e) {
     e.stopPropagation()
-    const label = c.status === 'SCHEDULED' ? 'Delete this scheduled campaign?' : `Delete "${c.name}"?\n\nThis removes the campaign and all its send history. This cannot be undone.`
-    if (!confirm(label)) return
+    const msg = c.status === 'SCHEDULED'
+      ? `Delete scheduled campaign "${c.name}"?`
+      : `Delete "${c.name}"?\n\nThis removes the campaign and all send history. Cannot be undone.`
+    if (!confirm(msg)) return
     try {
       const res = await fetch(`/api/crm?type=campaigns&id=${c.id}`, { method: 'DELETE', headers: authHeader() })
       if (!res.ok) throw new Error('Delete failed')
@@ -225,7 +435,7 @@ export default function CampaignHistory() {
 
   async function cancelSchedule(c, e) {
     e.stopPropagation()
-    if (!confirm(`Cancel the scheduled campaign "${c.name}"?\nThe campaign record will be kept but it will not run.`)) return
+    if (!confirm(`Cancel "${c.name}"? The record will be kept but it will not run.`)) return
     try {
       const res = await fetch(`/api/crm?type=campaigns&id=${c.id}`, {
         method:  'PATCH',
@@ -250,264 +460,8 @@ export default function CampaignHistory() {
     setModalEventsLoading(false)
   }
 
-  const statusColor = {
-    sent:         'bg-blue-100 text-blue-700',
-    failed:       'bg-red-100 text-red-700',
-    skipped:      'bg-slate-100 text-slate-500',
-    opened:       'bg-emerald-100 text-emerald-700',
-    clicked:      'bg-amber-100 text-amber-700',
-    replied:      'bg-purple-100 text-purple-700',
-    bounced:      'bg-red-100 text-red-600',
-    unsubscribed: 'bg-slate-100 text-slate-400',
-  }
-
-  // Split into scheduled-pending and completed
   const scheduledCamps = campaigns.filter(c => c.status === 'SCHEDULED' || c.status === 'RUNNING')
   const completedCamps = campaigns.filter(c => c.status !== 'SCHEDULED' && c.status !== 'RUNNING')
-
-  function CampaignRow({ c, isScheduled }) {
-    const scheduledDate = c.scheduled_at
-      ? new Date(parseInt(c.scheduled_at)).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'short' })
-      : null
-
-    return (
-      <div
-        key={c.id}
-        className={`card overflow-hidden ${
-          isScheduled
-            ? 'border-2 border-amber-300 bg-amber-50/40'
-            : ''
-        }`}
-      >
-        {/* Campaign row header */}
-        <div
-          className={`flex items-center gap-4 px-5 py-4 cursor-pointer transition-colors ${
-            isScheduled ? 'hover:bg-amber-50/80' : 'hover:bg-slate-50'
-          }`}
-          onClick={() => expand(c.id)}
-        >
-          <div className="text-slate-400">
-            {expanded === c.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          </div>
-
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-sm font-bold text-slate-900 truncate">{c.name}</p>
-              {isScheduled && (
-                <span className="flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full whitespace-nowrap">
-                  <Clock size={9}/> SCHEDULED
-                </span>
-              )}
-              {c.status === 'RUNNING' && (
-                <span className="flex items-center gap-1 text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full whitespace-nowrap animate-pulse">
-                  ▶ RUNNING
-                </span>
-              )}
-              {c.status === 'CANCELLED' && (
-                <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
-                  CANCELLED
-                </span>
-              )}
-              {c.status === 'FAILED' && (
-                <span className="text-[10px] font-bold bg-red-100 text-red-600 px-2 py-0.5 rounded-full">
-                  FAILED
-                </span>
-              )}
-            </div>
-            {isScheduled && scheduledDate ? (
-              <p className="text-xs text-amber-700 font-medium mt-0.5">
-                🕐 Runs at {scheduledDate} · Target: {c.target} · Sender: {c.sender}
-              </p>
-            ) : (
-              <p className="text-xs text-slate-400">
-                {fmtDate(new Date(parseInt(c.created_at)).toISOString())} · Target: {c.target} · Sender: {c.sender}
-              </p>
-            )}
-          </div>
-
-          {/* Action buttons */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            {isScheduled && c.status === 'SCHEDULED' && (
-              <>
-                <Btn
-                  variant="ghost" size="sm"
-                  onClick={e => { e.stopPropagation(); setEditingCamp(c) }}
-                  title="Edit schedule time or content"
-                >
-                  <Pencil size={12}/> Edit
-                </Btn>
-                <button
-                  onClick={e => cancelSchedule(c, e)}
-                  title="Cancel this scheduled campaign"
-                  className="px-2 py-1 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-100 rounded-lg transition-colors font-medium"
-                >
-                  ✕ Cancel
-                </button>
-              </>
-            )}
-            {!isScheduled && (
-              <Btn
-                variant="ghost" size="sm"
-                onClick={e => { e.stopPropagation(); window.location.href = `/campaign?followup=${c.id}` }}
-                title="Re-target leads from this campaign that had zero opens"
-              >
-                ↩ Follow Up
-              </Btn>
-            )}
-            <button
-              onClick={e => deleteCampaign(c, e)}
-              title="Delete this campaign"
-              className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-            ><Trash2 size={14}/></button>
-          </div>
-
-          {/* Stats (only for completed) */}
-          {!isScheduled && (
-            <div className="flex items-center gap-4 text-sm shrink-0">
-              <div className="flex items-center gap-1.5 text-blue-600">
-                <Send size={13}/><span className="font-bold">{c.total_sent}</span><span className="text-slate-400 text-xs">sent</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-red-500">
-                <AlertCircle size={13}/><span className="font-bold">{c.total_failed}</span><span className="text-slate-400 text-xs">failed</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-slate-400">
-                <span className="font-bold">{c.total_skipped}</span><span className="text-xs">skipped</span>
-              </div>
-              {expanded === c.id && detail && Object.keys(trackingData).length > 0 && (
-                <>
-                  <div className="flex items-center gap-1.5 text-emerald-600">
-                    <Eye size={13}/>
-                    <span className="font-bold">{Object.values(trackingData).reduce((s, t) => s + (t.opens||0), 0)}</span>
-                    <span className="text-slate-400 text-xs">opens</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-amber-600">
-                    <MousePointer size={13}/>
-                    <span className="font-bold">{Object.values(trackingData).reduce((s, t) => s + (t.clicks||0), 0)}</span>
-                    <span className="text-slate-400 text-xs">clicks</span>
-                  </div>
-                </>
-              )}
-              {(!expanded || !detail || Object.keys(trackingData).length === 0) && (
-                <>
-                  {c.stats?.opens  > 0 && <div className="flex items-center gap-1.5 text-emerald-600"><Eye size={13}/><span className="font-bold">{c.stats.opens}</span></div>}
-                  {c.stats?.clicks > 0 && <div className="flex items-center gap-1.5 text-amber-600"><MousePointer size={13}/><span className="font-bold">{c.stats.clicks}</span></div>}
-                </>
-              )}
-            </div>
-          )}
-
-          {/* For scheduled: show variant count */}
-          {isScheduled && (
-            <div className="text-xs text-slate-400 shrink-0">
-              {c.variants?.length || 0} variant{c.variants?.length !== 1 ? 's' : ''}
-            </div>
-          )}
-        </div>
-
-        {/* Expanded detail (only for non-scheduled with leads data) */}
-        {expanded === c.id && detail && (
-          <div className="border-t border-slate-100">
-
-            {/* Campaign Brief + Variants summary */}
-            {(detail.brief?.product || detail.variants?.length > 0) && (
-              <div className="px-5 py-4 bg-slate-50 border-b border-slate-100 grid grid-cols-2 gap-6">
-                {detail.brief?.product && (
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Campaign Brief</p>
-                    <div className="space-y-1 text-xs text-slate-600">
-                      {detail.brief.product      && <div><span className="font-semibold text-slate-700">Product:</span> {detail.brief.product}</div>}
-                      {detail.brief.industries   && <div><span className="font-semibold text-slate-700">Industries:</span> {detail.brief.industries}</div>}
-                      {detail.brief.problems     && <div><span className="font-semibold text-slate-700">Problems:</span> {detail.brief.problems}</div>}
-                      {detail.brief.solutions    && <div><span className="font-semibold text-slate-700">Solutions:</span> {detail.brief.solutions}</div>}
-                      {detail.brief.technologies && <div><span className="font-semibold text-slate-700">Tech/USP:</span> {detail.brief.technologies}</div>}
-                    </div>
-                  </div>
-                )}
-                {detail.variants?.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">AI Variants Used ({detail.variants.length})</p>
-                    <div className="space-y-1 max-h-32 overflow-y-auto">
-                      {detail.variants.map((v, vi) => {
-                        const used   = detail.leads?.filter(l => (l.variant_index??0) === vi).length || 0
-                        const opens  = detail.leads?.filter(l => (l.variant_index??0) === vi).reduce((s,l)=>s+(trackingData[l.lead_id]?.opens||0),0) || 0
-                        const clicks = detail.leads?.filter(l => (l.variant_index??0) === vi).reduce((s,l)=>s+(trackingData[l.lead_id]?.clicks||0),0) || 0
-                        return (
-                          <div key={vi} className="flex items-center gap-2 text-xs">
-                            <span className="w-5 h-5 flex items-center justify-center bg-slate-200 rounded-full text-[10px] font-bold text-slate-600 shrink-0">{vi+1}</span>
-                            <span className="text-slate-700 font-medium truncate flex-1" title={v.subject}>{v.subject}</span>
-                            <span className="text-slate-400 shrink-0">{used} sent</span>
-                            {opens  > 0 && <span className="text-blue-500 shrink-0">{opens} opens</span>}
-                            {clicks > 0 && <span className="text-amber-500 shrink-0">{clicks} clicks</span>}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Scheduled campaign: show variants preview (no leads table) */}
-            {(c.status === 'SCHEDULED' || c.status === 'RUNNING' || c.status === 'CANCELLED') && detail.variants?.length > 0 && detail.leads?.length === 0 && (
-              <div className="px-5 py-4 bg-amber-50/30">
-                <p className="text-xs text-slate-500 text-center py-2">No leads sent yet — campaign will execute at the scheduled time.</p>
-              </div>
-            )}
-
-            {/* Lead table */}
-            {detail.leads?.length > 0 && (
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    {['Name','Email','Company','Status','Variant #','Subject','Sent At','Actions'].map(h => (
-                      <th key={h} className="px-4 py-2 text-left font-bold text-slate-500 uppercase tracking-wide">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {detail.leads.map((l, i) => {
-                    const enhancedStatus = getEnhancedStatus(l)
-                    const leadTracking   = trackingData[l.lead_id]
-                    const varNum         = (l.variant_index ?? 0) + 1
-                    return (
-                      <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
-                        <td className="px-4 py-2 font-semibold text-slate-800">{l.lead_name || '—'}</td>
-                        <td className="px-4 py-2 text-slate-500 font-mono text-[11px]">{l.lead_email}</td>
-                        <td className="px-4 py-2 text-slate-600">{l.lead_company || '—'}</td>
-                        <td className="px-4 py-2">
-                          <div className="flex items-center gap-2">
-                            <span className={`badge text-[10px] ${statusColor[enhancedStatus.status] || 'bg-slate-100 text-slate-600'}`}>
-                              {enhancedStatus.display}
-                            </span>
-                            {leadTracking && (leadTracking.opens > 0 || leadTracking.clicks > 0) && (
-                              <div className="flex items-center gap-1 text-[10px] text-slate-400">
-                                {leadTracking.opens  > 0 && <span className="flex items-center gap-0.5"><Eye size={9}/>{leadTracking.opens}</span>}
-                                {leadTracking.clicks > 0 && <span className="flex items-center gap-0.5"><MousePointer size={9}/>{leadTracking.clicks}</span>}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-2 text-center">
-                          <span className="w-5 h-5 inline-flex items-center justify-center bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold">{varNum}</span>
-                        </td>
-                        <td className="px-4 py-2 text-slate-500 max-w-[180px] truncate">{l.subject || '—'}</td>
-                        <td className="px-4 py-2 text-slate-400">{l.sent_at ? new Date(parseInt(l.sent_at)).toLocaleTimeString('en-IN') : '—'}</td>
-                        <td className="px-4 py-2">
-                          <button onClick={() => openEmailModal(l)} className="text-blue-600 hover:text-blue-700 text-xs font-medium flex items-center gap-1">
-                            <Eye size={12}/> View
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        )}
-      </div>
-    )
-  }
 
   return (
     <div>
@@ -524,25 +478,28 @@ export default function CampaignHistory() {
       ) : (
         <div className="space-y-6">
 
-          {/* ── Scheduled campaigns (pending execution) ── */}
+          {/* Scheduled campaigns */}
           {scheduledCamps.length > 0 && (
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <Calendar size={15} className="text-amber-500" />
                 <h2 className="text-sm font-bold text-amber-700 uppercase tracking-wide">Scheduled</h2>
-                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
-                  {scheduledCamps.length}
-                </span>
+                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">{scheduledCamps.length}</span>
               </div>
               <div className="space-y-3">
                 {scheduledCamps.map(c => (
-                  <CampaignRow key={c.id} c={c} isScheduled={true} />
+                  <CampaignRow
+                    key={c.id} c={c} isScheduled={true}
+                    expanded={expanded} detail={expanded === c.id ? detail : null} trackingData={trackingData}
+                    onExpand={expand} onEdit={setEditingCamp} onCancel={cancelSchedule}
+                    onDelete={deleteCampaign} onViewEmail={openEmailModal}
+                  />
                 ))}
               </div>
             </div>
           )}
 
-          {/* ── Completed / past campaigns ── */}
+          {/* Completed campaigns */}
           {completedCamps.length > 0 && (
             <div>
               {scheduledCamps.length > 0 && (
@@ -553,7 +510,12 @@ export default function CampaignHistory() {
               )}
               <div className="space-y-3">
                 {completedCamps.map(c => (
-                  <CampaignRow key={c.id} c={c} isScheduled={false} />
+                  <CampaignRow
+                    key={c.id} c={c} isScheduled={false}
+                    expanded={expanded} detail={expanded === c.id ? detail : null} trackingData={trackingData}
+                    onExpand={expand} onEdit={setEditingCamp} onCancel={cancelSchedule}
+                    onDelete={deleteCampaign} onViewEmail={openEmailModal}
+                  />
                 ))}
               </div>
             </div>
@@ -562,22 +524,24 @@ export default function CampaignHistory() {
         </div>
       )}
 
-      {/* ── Edit Scheduled Campaign Modal ── */}
+      {/* Edit scheduled campaign modal */}
       {editingCamp && (
         <EditScheduledModal
           campaign={editingCamp}
           onClose={() => setEditingCamp(null)}
-          onSaved={(updated) => {
+          onSaved={updated => {
             setCampaigns(prev => prev.map(x => x.id === updated.id ? { ...x, ...updated } : x))
             setEditingCamp(null)
           }}
         />
       )}
 
-      {/* ── Email Detail Modal — Body + Events tabs ── */}
+      {/* Email Detail Modal */}
       {viewingEmail && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setViewingEmail(null)}>
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+             onClick={() => setViewingEmail(null)}>
+          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col"
+               onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">{viewingEmail.lead_name}</h3>
@@ -597,6 +561,7 @@ export default function CampaignHistory() {
                 <button onClick={() => setViewingEmail(null)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
               </div>
             </div>
+
             <div className="flex border-b border-slate-200 px-5">
               {['body','events'].map(t => (
                 <button key={t} onClick={() => setModalTab(t)}
@@ -605,6 +570,7 @@ export default function CampaignHistory() {
                 </button>
               ))}
             </div>
+
             <div className="overflow-y-auto flex-1 p-5">
               {modalTab === 'body' ? (
                 <div>
@@ -617,7 +583,7 @@ export default function CampaignHistory() {
                     <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
                       {viewingEmail.body
                         ? <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{viewingEmail.body}</p>
-                        : <p className="text-sm text-slate-400 text-center py-6">Body not recorded for this send.<br/><span className="text-xs">New campaigns save full body content.</span></p>
+                        : <p className="text-sm text-slate-400 text-center py-6">Body not recorded for this send.</p>
                       }
                     </div>
                   </div>
@@ -641,21 +607,21 @@ export default function CampaignHistory() {
                         </tr>
                       </thead>
                       <tbody>
-                        {modalEvents.map((e, i) => {
-                          const clickUrl = e.event_type === 'click' && e.target_url && !e.target_url.startsWith('campaign:') ? e.target_url : null
+                        {modalEvents.map((ev, i) => {
+                          const clickUrl = ev.event_type === 'click' && ev.target_url && !ev.target_url.startsWith('campaign:') ? ev.target_url : null
                           return (
                             <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
                               <td className="px-3 py-2">
-                                <span className={`badge text-[10px] ${e.event_type==='open' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
-                                  {e.event_type==='open' ? '👁 Opened' : '🖱 Clicked'}
+                                <span className={`badge text-[10px] ${ev.event_type==='open' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                                  {ev.event_type==='open' ? '👁 Opened' : '🖱 Clicked'}
                                 </span>
                               </td>
-                              <td className="px-3 py-2 text-slate-600 font-mono whitespace-nowrap">{new Date(parseInt(e.created_at)).toLocaleString('en-IN')}</td>
-                              <td className="px-3 py-2 text-slate-500 font-mono">{e.ip || '—'}</td>
-                              <td className="px-3 py-2 text-slate-600">{parseBrowser(e.user_agent)}</td>
+                              <td className="px-3 py-2 text-slate-600 font-mono whitespace-nowrap">{new Date(parseInt(ev.created_at)).toLocaleString('en-IN')}</td>
+                              <td className="px-3 py-2 text-slate-500 font-mono">{ev.ip||'—'}</td>
+                              <td className="px-3 py-2 text-slate-600">{parseBrowser(ev.user_agent)}</td>
                               <td className="px-3 py-2 text-slate-500 max-w-[160px]">
                                 {clickUrl
-                                  ? <a href={clickUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate block" title={clickUrl}>{clickUrl.replace(/^https?:\/\//,'').substring(0,40)}…</a>
+                                  ? <a href={clickUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate block">{clickUrl.replace(/^https?:\/\//,'').substring(0,40)}…</a>
                                   : '—'}
                               </td>
                             </tr>
