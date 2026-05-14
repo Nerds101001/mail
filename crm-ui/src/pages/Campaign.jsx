@@ -4,6 +4,26 @@ import { Btn, Card, PageHeader, toast } from '../components/ui'
 import RichEditor, { htmlToPlain } from '../components/RichEditor'
 import { Play, Zap, RefreshCw, ChevronLeft, ChevronRight, Plus, X, Calendar, Pencil, Check } from 'lucide-react'
 
+// Convert plain text (with \n) to simple HTML paragraphs for RichEditor
+function plainToHtml(text) {
+  if (!text) return '<p></p>'
+  return text
+    .split(/\n{2,}/)
+    .map(para => `<p>${para.replace(/\n/g, '<br>').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>`)
+    .join('')
+}
+// Convert HTML back to plain text preserving paragraph breaks
+function htmlToVariantPlain(html) {
+  if (!html) return ''
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>\s*<p[^>]*>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+    .replace(/&nbsp;/g,' ')
+    .trim()
+}
+
 export default function Campaign() {
   const { leads, setLeads, profiles, settings, logActivity, viewAs } = useCRM()
   const vaParam = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
@@ -765,32 +785,58 @@ export default function Campaign() {
               </div>
 
               {editingVariant && mode === 'ai' ? (
-                // Editable mode — changes update the variants array directly
+                // Editable mode — RichEditor with plain↔HTML conversion
                 <div className="space-y-2">
-                  <input
-                    className="w-full text-xs font-semibold border border-blue-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/30"
-                    value={currentVariant.subject}
-                    onChange={e => setVariants(vs => vs.map((v, i) => i === variantIdx ? { ...v, subject: e.target.value } : v))}
-                    placeholder="Subject line..."
-                  />
-                  <textarea
-                    rows={10}
-                    className="w-full text-xs border border-blue-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/30 resize-y leading-relaxed font-mono"
-                    value={currentVariant.body}
-                    onChange={e => setVariants(vs => vs.map((v, i) => i === variantIdx ? { ...v, body: e.target.value } : v))}
-                    placeholder="Email body..."
-                  />
-                  <p className="text-[10px] text-slate-400">Changes are saved automatically — this is what will be sent.</p>
+                  <div>
+                    <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Subject Line</label>
+                    <input
+                      className="w-full text-sm font-semibold border border-blue-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/30"
+                      value={currentVariant.subject}
+                      onChange={e => setVariants(vs => vs.map((v, i) => i === variantIdx ? { ...v, subject: e.target.value } : v))}
+                      placeholder="Subject line..."
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Email Body</label>
+                    <RichEditor
+                      value={plainToHtml(currentVariant.body)}
+                      onChange={html => setVariants(vs => vs.map((v, i) => i === variantIdx ? { ...v, body: htmlToVariantPlain(html) } : v))}
+                      minHeight={220}
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-400">✏️ Changes are live — this exact content will be sent.</p>
                 </div>
               ) : (
-                // Read-only preview
-                <div className="bg-slate-50 rounded-lg p-3 text-sm border border-slate-200 max-h-64 overflow-y-auto">
-                  <p className="font-bold text-slate-900 border-b pb-1 mb-2 text-xs">
-                    Subject: {mode === 'custom' ? customSubj : currentVariant.subject}
-                  </p>
-                  <p className="whitespace-pre-wrap text-slate-600 leading-relaxed text-xs">
-                    {mode === 'custom' ? customBody : currentVariant.body}
-                  </p>
+                // Read-only preview — rendered as formatted email
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden max-h-80 overflow-y-auto shadow-sm">
+                  {/* Email header bar */}
+                  <div className="bg-slate-50 border-b border-slate-200 px-4 py-2.5 flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Subject:</span>
+                    <span className="text-sm font-semibold text-slate-800 truncate">
+                      {mode === 'custom' ? customSubj : currentVariant.subject}
+                    </span>
+                    {(mode === 'ai' ? currentVariant.approach : null) && (
+                      <span className="ml-auto text-[9px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap flex-shrink-0">
+                        {currentVariant.approach}
+                      </span>
+                    )}
+                  </div>
+                  {/* Email body rendered as paragraphs */}
+                  <div className="px-4 py-3 text-sm text-slate-700 leading-relaxed space-y-3 font-sans">
+                    {(mode === 'custom' ? customBody : currentVariant.body)
+                      .split(/\n{2,}/)
+                      .map((para, idx) => (
+                        <p key={idx} className="m-0">
+                          {para.split('\n').map((line, li) => (
+                            <span key={li}>
+                              {line}
+                              {li < para.split('\n').length - 1 && <br/>}
+                            </span>
+                          ))}
+                        </p>
+                      ))
+                    }
+                  </div>
                 </div>
               )}
             </div>

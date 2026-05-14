@@ -389,7 +389,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
               model: 'meta/llama-3.3-70b-instruct',
               messages: [{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }],
               temperature,
-              max_tokens: 400,
+              max_tokens: 900,
               top_p: 0.95,
             })
           });
@@ -400,18 +400,60 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
 
           const raw = data.choices[0].message.content;
           let result;
-          try {
-            result = JSON.parse(raw.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim());
-          } catch {
-            const subMatch = raw.match(/subject[:\s]+["']?(.+?)["']?\n/i);
+
+          // ── Robust JSON extraction ─────────────────────────────────────
+          // The model sometimes emits literal newlines inside the JSON string
+          // (invalid JSON) or wraps output in markdown fences. We try multiple
+          // extraction strategies before falling back to plain-text parsing.
+          const cleanRaw = raw.replace(/```json\n?/gi,'').replace(/```\n?/g,'').trim();
+
+          // Strategy 1: direct JSON.parse (works when model behaves)
+          try { result = JSON.parse(cleanRaw); } catch { /* try next */ }
+
+          // Strategy 2: find the outermost {...} block and parse it
+          if (!result) {
+            const jsonBlock = cleanRaw.match(/\{[\s\S]*\}/);
+            if (jsonBlock) { try { result = JSON.parse(jsonBlock[0]); } catch { /* try next */ } }
+          }
+
+          // Strategy 3: regex-extract "subject" and "body" field values directly.
+          // This handles literal (unescaped) newlines inside string values — a
+          // common model failure mode that breaks JSON.parse.
+          if (!result || typeof result.body !== 'string') {
+            const subMatch  = cleanRaw.match(/"subject"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+            const bodyMatch = cleanRaw.match(/"body"\s*:\s*"((?:[^"\\]|\\[\s\S])*?)"\s*[,}]/s);
+            if (subMatch || bodyMatch) {
+              const unescape = s => s
+                .replace(/\\n/g,  '\n')
+                .replace(/\\t/g,  '\t')
+                .replace(/\\"/g,  '"')
+                .replace(/\\\\/g, '\\');
+              result = {
+                subject: subMatch  ? unescape(subMatch[1]).trim()  : null,
+                body:    bodyMatch ? unescape(bodyMatch[1]).trim()  : null,
+              };
+            }
+          }
+
+          // Strategy 4: the model returned plain text (no JSON at all) — use it as body
+          if (!result) {
+            const lines = cleanRaw.split('\n');
+            const firstLine = lines[0].trim();
             result = {
-              subject: subMatch ? subMatch[1].trim() : `Opportunity for ${company || '[Company]'}`,
-              body:    raw.replace(/subject[:\s]+.+?\n/i,'').trim(),
+              subject: firstLine.length < 100 ? firstLine : null,
+              body:    firstLine.length < 100 ? lines.slice(1).join('\n').trim() : cleanRaw,
             };
           }
 
           result.subject  = (result.subject || '').replace(/^["']|["']$/g,'').trim() || `Opportunity for ${company || '[Company]'}`;
           result.body     = (result.body    || '').replace(/^["']|["']$/g,'').trim() || `Hi ${name || 'there'},\n\nWould you be open to a quick 15-minute chat?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution`;
+
+          // Final sanity check — if body still looks like raw JSON, re-extract
+          if (/^\s*\{/.test(result.body) && result.body.includes('"subject"')) {
+            const m = result.body.match(/"body"\s*:\s*"([\s\S]+?)"\s*}/);
+            if (m) result.body = m[1].replace(/\\n/g,'\n').replace(/\\"/g,'"').trim();
+          }
+
           result.approach = approach.name;
 
           console.log(`✅ Variant ${i+1} [${approach.name}]:`, result.subject.substring(0, 60));
