@@ -23,6 +23,8 @@ export default function Campaign() {
   })
 
   const [aiPrompt, setAiPrompt]         = useState('')
+  const [contentPurpose, setContentPurpose] = useState('email_sales')
+  const [minWords, setMinWords]         = useState(150)
   const [variantCount, setVariantCount] = useState(5)
   const [variants, setVariants]         = useState([])
   const [variantIdx, setVariantIdx]     = useState(0)
@@ -189,10 +191,30 @@ export default function Campaign() {
     }
   }
 
+  const PURPOSE_LABELS = {
+    email_sales:    'a cold sales pitch email',
+    email_followup: 'a follow-up email (the recipient may have seen a previous email — reference that naturally)',
+    email_intro:    'an introduction email establishing first contact, no hard sell',
+    email_demo:     'an email requesting a product demo or short discovery call',
+    linkedin:       'a LinkedIn InMail or connection message — keep it concise and professional, under 300 characters',
+    whatsapp:       'a WhatsApp business message — conversational, friendly tone, under 200 words',
+    custom:         'content exactly as described in the extra instructions below',
+  }
+
   async function generateVariants() {
     if (!settings.openaiKey) { toast('Set NVIDIA API key in Settings first', 'error'); return }
     if (!brief.product.trim()) { toast('Fill in the Product/Service field in Campaign Brief', 'error'); return }
     setGenLoading(true)
+
+    // Build the full prompt incorporating purpose + min word count + user instructions
+    const purposeLabel = PURPOSE_LABELS[contentPurpose] || 'a sales email'
+    const wordInstruction = minWords > 0 ? `The body must be at least ${minWords} words.` : ''
+    const fullPrompt = [
+      `Write ${purposeLabel}.`,
+      wordInstruction,
+      aiPrompt,
+    ].filter(Boolean).join(' ')
+
     try {
       const res = await fetch('/api/ops?type=generate-ai', {
         method: 'POST',
@@ -203,7 +225,7 @@ export default function Campaign() {
           role:         '[Role]',
           category:     cfg.filterVal || brief.industries || 'Business',
           apiKey:       settings.openaiKey,
-          customPrompt: aiPrompt,
+          customPrompt: fullPrompt,
           count:        variantCount,
           brief,
         })
@@ -632,6 +654,36 @@ export default function Campaign() {
 
           {mode === 'ai' ? (
             <div className="space-y-4">
+              {/* Row 1 — Purpose + Min Words */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Content Purpose</label>
+                  <select className="input" value={contentPurpose} onChange={e => setContentPurpose(e.target.value)}>
+                    <option value="email_sales">📧 Sales Pitch Email</option>
+                    <option value="email_followup">🔄 Follow-up Email</option>
+                    <option value="email_intro">👋 Introduction Email</option>
+                    <option value="email_demo">📅 Demo Request Email</option>
+                    <option value="linkedin">💼 LinkedIn Message</option>
+                    <option value="whatsapp">💬 WhatsApp Message</option>
+                    <option value="custom">✏️ Custom (use instructions)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Min. Words in Body</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    max="2000"
+                    step="50"
+                    value={minWords}
+                    onChange={e => setMinWords(+e.target.value)}
+                    placeholder="e.g. 150"
+                  />
+                </div>
+              </div>
+
+              {/* Row 2 — Variants + Extra Instructions */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">Number of Variants</label>
@@ -644,9 +696,22 @@ export default function Campaign() {
                   <input className="input" value={aiPrompt} onChange={e=>setAiPrompt(e.target.value)} placeholder="e.g. Focus on cost savings" />
                 </div>
               </div>
+
+              {/* AI Prompt Preview */}
+              {brief.product && (
+                <div className="text-[10px] text-slate-400 bg-slate-50 rounded-lg px-3 py-2 border border-slate-100 leading-relaxed">
+                  <span className="font-semibold text-slate-500">AI will generate: </span>
+                  Write {PURPOSE_LABELS[contentPurpose]}.
+                  {minWords > 0 && <> Body min <strong>{minWords} words</strong>.</>}
+                  {aiPrompt && <> {aiPrompt}.</>}
+                  {' '}Product: <strong>{brief.product}</strong>.
+                  {brief.industries && <> Industries: {brief.industries}.</>}
+                </div>
+              )}
+
               <Btn variant="secondary" size="sm" onClick={generateVariants} disabled={genLoading} className="w-full justify-center">
                 {genLoading ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />}
-                {genLoading ? 'Generating...' : `Generate ${variantCount} Sales Pitch Variants`}
+                {genLoading ? 'Generating...' : `Generate ${variantCount} ${contentPurpose === 'linkedin' ? 'LinkedIn' : contentPurpose === 'whatsapp' ? 'WhatsApp' : 'Email'} Variants`}
               </Btn>
 
               {variants.length > 0 && (
