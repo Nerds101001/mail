@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useCRM } from '../store'
 import { Btn, Card, PageHeader, toast } from '../components/ui'
 import RichEditor, { htmlToPlain } from '../components/RichEditor'
@@ -15,6 +16,7 @@ function buildSignature(senderDisplayName) {
 }
 
 export default function Campaign() {
+  const navigate = useNavigate()
   const { leads, setLeads, profiles, settings, logActivity, viewAs } = useCRM()
   const vaParam = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
   const [mode, setMode]       = useState('ai')
@@ -316,7 +318,7 @@ export default function Campaign() {
     const campaignId = `camp_${Date.now()}`
     const token = localStorage.getItem('crm_token') || ''
     try {
-      await fetch('/api/campaigns', {
+      const res = await fetch('/api/campaigns', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -330,6 +332,7 @@ export default function Campaign() {
           status:  'RUNNING',
         }),
       })
+      if (!res.ok) throw new Error(`Server error ${res.status}`)
     } catch(e) {
       toast('Could not create campaign record: ' + e.message, 'error')
       return
@@ -363,8 +366,8 @@ export default function Campaign() {
     })
 
     toast(`🚀 Campaign started — ${targets.length} emails sending in background`, 'success')
-    // Navigate to Campaign History so the user can watch progress
-    setTimeout(() => { window.location.href = '/history' }, 600)
+    // Client-side navigation — preserves the module-level runner singleton
+    setTimeout(() => navigate('/history'), 600)
   }
 
   async function scheduleCampaign() {
@@ -402,7 +405,7 @@ export default function Campaign() {
       })
       if (!res.ok) throw new Error('Save failed')
       toast(`✅ Campaign scheduled for ${new Date(scheduledAt).toLocaleString()} — saved to Campaign History`, 'success')
-      setTimeout(() => { window.location.href = '/cam-history' }, 1500)
+      setTimeout(() => navigate('/history'), 1500)
     } catch(err) {
       toast('Could not schedule: ' + err.message, 'error')
     }

@@ -246,9 +246,10 @@ module.exports = async (req, res) => {
         const leads = await sql`SELECT * FROM campaign_leads WHERE campaign_id=${id} ORDER BY sent_at DESC`;
         return res.json({
           ...camp,
-          stats:    typeof camp.stats    === 'string' ? JSON.parse(camp.stats    ||"{}") : (camp.stats    || {}),
-          brief:    typeof camp.brief    === 'string' ? JSON.parse(camp.brief    ||"{}") : (camp.brief    || {}),
-          variants: typeof camp.variants === 'string' ? JSON.parse(camp.variants ||"[]") : (camp.variants || []),
+          stats:           typeof camp.stats           === 'string' ? JSON.parse(camp.stats           ||"{}") : (camp.stats           || {}),
+          brief:           typeof camp.brief           === 'string' ? JSON.parse(camp.brief           ||"{}") : (camp.brief           || {}),
+          variants:        typeof camp.variants        === 'string' ? JSON.parse(camp.variants        ||"[]") : (camp.variants        || []),
+          schedule_config: typeof camp.schedule_config === 'string' ? JSON.parse(camp.schedule_config ||"{}") : (camp.schedule_config || {}),
           leads,
         });
       }
@@ -259,9 +260,10 @@ module.exports = async (req, res) => {
           : await sql`SELECT * FROM campaigns WHERE user_id=${userId} ORDER BY created_at DESC LIMIT 100`;
         return res.json(camps.map(c=>({
           ...c,
-          stats:    typeof c.stats    === 'string' ? JSON.parse(c.stats    ||"{}") : (c.stats    || {}),
-          brief:    typeof c.brief    === 'string' ? JSON.parse(c.brief    ||"{}") : (c.brief    || {}),
-          variants: typeof c.variants === 'string' ? JSON.parse(c.variants ||"[]") : (c.variants || []),
+          stats:           typeof c.stats           === 'string' ? JSON.parse(c.stats           ||"{}") : (c.stats           || {}),
+          brief:           typeof c.brief           === 'string' ? JSON.parse(c.brief           ||"{}") : (c.brief           || {}),
+          variants:        typeof c.variants        === 'string' ? JSON.parse(c.variants        ||"[]") : (c.variants        || []),
+          schedule_config: typeof c.schedule_config === 'string' ? JSON.parse(c.schedule_config ||"{}") : (c.schedule_config || {}),
         })));
       }
 

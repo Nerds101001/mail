@@ -161,37 +161,31 @@ async function _saveLeads(campaignId, leads, token) {
 // ─── Pause handler ────────────────────────────────────────────────────────────
 
 async function _handlePause(fromIndex, config, doneLeads, reason) {
-  // Leads that haven't been sent yet → PENDING
-  const pendingLeads = config.targets.slice(fromIndex).map((l, ri) => {
-    const vd = _getContent(l, config, fromIndex + ri)
-    return {
-      id: l.id, name: l.name || '', email: l.email, company: l.company || '',
-      status: 'PENDING', subject: vd.subject, body: vd.body,
-      variantIndex: (fromIndex + ri) % (config.variants?.length || 1),
-    }
-  })
-
-  _state.status   = 'PAUSED'
-  _state.pending  = pendingLeads.length
-  _state.pausedAt = Date.now()
-  _state.capPause = reason === 'cap'
-
-  const msg = reason === 'cap'
-    ? `🚫 All senders hit daily limit — ${pendingLeads.length} leads pending. Resume in 24h.`
-    : `⏸ Paused manually — ${pendingLeads.length} leads pending. Resume in 24h.`
-  _addLog(msg, 'warn')
-  _notify()
-
-  // Minimal lead info stored for resume (no body — regenerated at resume time)
+  // Leads not yet sent — stored in resume config, NOT in campaign_leads
+  // (saving them as PENDING would create duplicate rows when resume re-inserts them as SENT)
   const resumeTargets = config.targets.slice(fromIndex).map(l => ({
     id: l.id, email: l.email, name: l.name || '', company: l.company || '',
     notes: l.notes || '', role: l.role || '', category: l.category || '',
     tags: l.tags || [], group: l.group || '',
   }))
+  const pendingCount = resumeTargets.length
 
-  // Save all leads (done + pending) to campaign_leads table
-  const allLeads = [...doneLeads, ...pendingLeads]
-  await _saveLeads(config.campaignId, allLeads, config.token)
+  _state.status   = 'PAUSED'
+  _state.pending  = pendingCount
+  _state.pausedAt = Date.now()
+  _state.capPause = reason === 'cap'
+
+  const msg = reason === 'cap'
+    ? `🚫 All senders hit daily limit — ${pendingCount} leads pending. Resume in 24h.`
+    : `⏸ Paused manually — ${pendingCount} leads pending. Resume in 24h.`
+  _addLog(msg, 'warn')
+  _notify()
+
+  // Only save completed (SENT/FAILED/BOUNCED) leads — NOT pending.
+  // Pending leads are stored in schedule_config.resume_config.targets_remaining.
+  // Saving PENDING rows here would create duplicates when resume completes and
+  // re-inserts the same leads as SENT.
+  await _saveLeads(config.campaignId, doneLeads, config.token)
 
   // Patch campaign with PAUSED status + resume config
   await _patchCampaign(config.campaignId, {
