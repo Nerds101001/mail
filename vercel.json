@@ -23,7 +23,6 @@
     }
   ],
   "crons": [
-    { "path": "/api/ops?type=reminder",  "schedule": "0 2 * * *" },
-    { "path": "/api/run-scheduled",      "schedule": "* * * * *"  }
+    { "path": "/api/ops?type=reminder",  "schedule": "0 2 * * *" }
   ]
 }

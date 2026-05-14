@@ -388,6 +388,25 @@ export default function CampaignHistory() {
 
   useEffect(() => { load() }, [viewAs]) // eslint-disable-line
 
+  // Hobby plan has no per-minute cron — trigger runner client-side instead.
+  // Fire immediately when a due campaign is found, then poll every 30 s while
+  // any SCHEDULED campaigns exist so the page stays current.
+  useEffect(() => {
+    const dueNow = campaigns.filter(c => c.status === 'SCHEDULED' && parseInt(c.scheduled_at) <= Date.now())
+    if (dueNow.length > 0) {
+      fetch('/api/run-scheduled', { method: 'POST', headers: authHeader() })
+        .then(() => load())
+        .catch(() => {})
+    }
+  }, [campaigns]) // eslint-disable-line
+
+  useEffect(() => {
+    const hasScheduled = campaigns.some(c => c.status === 'SCHEDULED')
+    if (!hasScheduled) return
+    const timer = setInterval(() => load(), 30000)
+    return () => clearInterval(timer)
+  }, [campaigns]) // eslint-disable-line
+
   async function load() {
     setLoading(true)
     try {
