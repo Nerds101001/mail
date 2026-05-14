@@ -140,9 +140,8 @@ export default function Campaign() {
   }, [])
 
   // Scheduling state
-  const [scheduleTime, setScheduleTime] = useState('')
-  const [scheduled, setScheduled]       = useState(false)
-  const scheduleTimerRef = useRef(null)
+  const [scheduleTime, setScheduleTime]     = useState('')
+  const [schedSaving, setSchedSaving]       = useState(false)
 
   const activeProfiles = profiles.filter(p => p.active)
   const [selectedSenders, setSelectedSenders] = useState(new Set(profiles.filter(p=>p.active).map(p=>p.user||p.email||'')))
@@ -404,34 +403,60 @@ export default function Campaign() {
     toast(`Campaign complete — ${processed}/${targets.length} sent`, 'success')
   }
 
-  function scheduleCampaign() {
+  async function scheduleCampaign() {
     if (!scheduleTime) { toast('Pick a date and time first', 'error'); return }
-    const ms = new Date(scheduleTime).getTime() - Date.now()
-    if (ms < 0) { toast('Schedule time must be in the future', 'error'); return }
-    scheduleTimerRef.current = setTimeout(() => { runCampaign(); setScheduled(false) }, ms)
-    setScheduled(true)
-    toast(`Scheduled for ${new Date(scheduleTime).toLocaleString()} — keep this tab open`, 'success')
-  }
+    const scheduledAt = new Date(scheduleTime).getTime()
+    if (scheduledAt <= Date.now()) { toast('Schedule time must be in the future', 'error'); return }
 
-  function cancelSchedule() {
-    if (scheduleTimerRef.current) clearTimeout(scheduleTimerRef.current)
-    setScheduled(false)
-    toast('Schedule cancelled', 'info')
+    const senderProfiles = activeProfiles.filter(p => selectedSenders.has(p.user || p.email || ''))
+    if (!senderProfiles.length) { toast('Select at least one sender account', 'error'); return }
+
+    const campId = `camp_${Date.now()}`
+    setSchedSaving(true)
+    try {
+      const res = await fetch('/api/campaigns', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({
+          id:           campId,
+          name:         campaignName,
+          target:       cfg.target,
+          sender:       cfg.sender,
+          brief,
+          variants,
+          stats:        { sent: 0, failed: 0, skipped: 0 },
+          status:       'SCHEDULED',
+          scheduled_at: scheduledAt,
+          schedule_config: {
+            cfg,
+            variants,
+            selectedSenders:    [...selectedSenders],
+            selectedAttachments,
+            usePersonalization,
+          },
+        }),
+      })
+      if (!res.ok) throw new Error('Save failed')
+      toast(`✅ Campaign scheduled for ${new Date(scheduledAt).toLocaleString()} — saved to Campaign History`, 'success')
+      setTimeout(() => { window.location.href = '/cam-history' }, 1500)
+    } catch(err) {
+      toast('Could not schedule: ' + err.message, 'error')
+    }
+    setSchedSaving(false)
   }
 
   return (
     <div className="space-y-6">
       <PageHeader title="AI Campaign" subtitle="Send personalized sales emails at scale">
         <div className="flex items-center gap-2 flex-wrap">
-          <input type="datetime-local" className="input text-xs py-1.5" value={scheduleTime} onChange={e=>setScheduleTime(e.target.value)} disabled={scheduled||running} title="Schedule campaign for later" />
-          {!scheduled
-            ? <Btn variant="secondary" onClick={scheduleCampaign} disabled={running||!scheduleTime}><Calendar size={13}/> Schedule</Btn>
-            : <Btn variant="danger" size="sm" onClick={cancelSchedule}>✕ Cancel Schedule</Btn>
-          }
+          <input type="datetime-local" className="input text-xs py-1.5" value={scheduleTime} onChange={e=>setScheduleTime(e.target.value)} disabled={running||schedSaving} title="Schedule campaign for later" />
+          <Btn variant="secondary" onClick={scheduleCampaign} disabled={running||schedSaving||!scheduleTime}>
+            {schedSaving ? '⏳ Saving...' : <><Calendar size={13}/> Schedule</>}
+          </Btn>
           <Btn variant="secondary" onClick={checkDeliverability} disabled={delivLoading||running}>
             {delivLoading ? '...' : '🎯 Check Score'}
           </Btn>
-          <Btn variant="primary" onClick={runCampaign} disabled={running||scheduled}>
+          <Btn variant="primary" onClick={runCampaign} disabled={running||schedSaving}>
             <Play size={14} /> {running ? 'Running...' : 'Run Campaign'}
           </Btn>
         </div>
@@ -467,13 +492,6 @@ export default function Campaign() {
           <span>↩</span>
           <span className="font-medium">{followupInfo}</span>
           <button className="ml-auto text-blue-400 hover:text-blue-600" onClick={() => { setFollowupIds(null); setFollowupInfo(''); window.history.replaceState({}, '', '/campaign') }}>✕ Clear</button>
-        </div>
-      )}
-
-      {scheduled && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 flex items-center gap-2">
-          <Calendar size={14} />
-          <span>Campaign scheduled for <strong>{new Date(scheduleTime).toLocaleString()}</strong> — keep this browser tab open</span>
         </div>
       )}
 

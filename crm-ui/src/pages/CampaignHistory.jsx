@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react'
 import { useCRM } from '../store'
 import { PageHeader, Empty, Btn, Card, toast } from '../components/ui'
 import { fmtDate } from '../utils'
-import { History, ChevronDown, ChevronRight, Send, Eye, MousePointer, AlertCircle, Trash2 } from 'lucide-react'
+import {
+  History, ChevronDown, ChevronRight, Send, Eye, MousePointer,
+  AlertCircle, Trash2, Calendar, Clock, Pencil, X, Check,
+} from 'lucide-react'
 
 function parseBrowser(ua) {
   if (!ua || ua === '—') return '—'
@@ -23,22 +26,151 @@ function parseBrowser(ua) {
   return `${br} / ${os}`
 }
 
+// ── Edit-scheduled campaign modal ────────────────────────────────────────────
+function EditScheduledModal({ campaign, onClose, onSaved }) {
+  const sc = campaign.schedule_config || {}
+  const [name, setName]               = useState(campaign.name || '')
+  const [schedTime, setSchedTime]     = useState(() => {
+    if (!campaign.scheduled_at) return ''
+    const d = new Date(parseInt(campaign.scheduled_at))
+    // datetime-local needs "YYYY-MM-DDTHH:mm"
+    const pad = n => String(n).padStart(2,'0')
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  })
+  const [variants, setVariants]       = useState(() =>
+    (campaign.variants || []).map(v => ({ ...v }))
+  )
+  const [saving, setSaving]           = useState(false)
+  const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
+
+  async function save() {
+    if (!schedTime) { toast('Pick a date/time', 'error'); return }
+    const scheduledAt = new Date(schedTime).getTime()
+    if (scheduledAt <= Date.now()) { toast('Time must be in the future', 'error'); return }
+    setSaving(true)
+    try {
+      const newSC = { ...sc, variants }
+      const res = await fetch(`/api/crm?type=campaigns&id=${campaign.id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body:    JSON.stringify({ name, scheduled_at: scheduledAt, schedule_config: newSC, variants }),
+      })
+      if (!res.ok) throw new Error('Save failed')
+      toast('Campaign updated ✓', 'success')
+      onSaved({ ...campaign, name, scheduled_at: scheduledAt, variants })
+    } catch(err) {
+      toast('Could not save: ' + err.message, 'error')
+    }
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+         onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col"
+           onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+          <div className="flex items-center gap-2">
+            <Calendar size={16} className="text-amber-500" />
+            <h3 className="text-sm font-bold text-slate-900">Edit Scheduled Campaign</h3>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto flex-1 p-5 space-y-5">
+          {/* Name + Time */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Campaign Name</label>
+              <input className="input w-full" value={name} onChange={e => setName(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Scheduled Date & Time</label>
+              <input
+                type="datetime-local"
+                className="input w-full"
+                value={schedTime}
+                onChange={e => setSchedTime(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Variants editor */}
+          {variants.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">
+                Email Variants ({variants.length})
+              </p>
+              <div className="space-y-4">
+                {variants.map((v, vi) => (
+                  <div key={vi} className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="w-5 h-5 flex items-center justify-center bg-amber-100 text-amber-700 rounded-full text-[10px] font-bold shrink-0">
+                        {vi + 1}
+                      </span>
+                      <span className="text-xs font-semibold text-slate-600">Variant {vi + 1}</span>
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Subject</label>
+                        <input
+                          className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/30"
+                          value={v.subject || ''}
+                          onChange={e => setVariants(vs => vs.map((x, i) => i === vi ? { ...x, subject: e.target.value } : x))}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Body</label>
+                        <textarea
+                          rows={6}
+                          className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/30 resize-y leading-relaxed"
+                          value={v.body || ''}
+                          onChange={e => setVariants(vs => vs.map((x, i) => i === vi ? { ...x, body: e.target.value } : x))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 font-medium">
+            Cancel
+          </button>
+          <Btn variant="primary" onClick={save} disabled={saving}>
+            {saving ? '⏳ Saving...' : <><Check size={13}/> Save Changes</>}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function CampaignHistory() {
   const { viewAs } = useCRM()
-  const [campaigns, setCampaigns] = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [expanded, setExpanded]   = useState(null)
-  const [detail, setDetail]       = useState(null)
+  const [campaigns, setCampaigns]   = useState([])
+  const [loading, setLoading]       = useState(true)
+  const [expanded, setExpanded]     = useState(null)
+  const [detail, setDetail]         = useState(null)
   const [trackingData, setTrackingData] = useState({})
   const [viewingEmail, setViewingEmail]   = useState(null)
   const [modalEvents, setModalEvents]     = useState([])
   const [modalEventsLoading, setModalEventsLoading] = useState(false)
-  const [modalTab, setModalTab]           = useState('body') // 'body' | 'events'
+  const [modalTab, setModalTab]           = useState('body')
+  const [editingCamp, setEditingCamp]     = useState(null)   // campaign being edited
 
   const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
   const vaParam    = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
 
-  useEffect(() => { load() }, [viewAs])
+  useEffect(() => { load() }, [viewAs])  // eslint-disable-line
 
   async function load() {
     setLoading(true)
@@ -57,59 +189,53 @@ export default function CampaignHistory() {
       if (res.ok) {
         const campaignDetail = await res.json()
         setDetail(campaignDetail)
-        
-        // Fetch tracking data for all leads in this campaign
         if (campaignDetail.leads?.length > 0) {
           const leadIds = campaignDetail.leads.map(l => l.lead_id).filter(Boolean).join(',')
           if (leadIds) {
             try {
-              const trackingRes = await fetch(`/api/ops?type=tracking&ids=${leadIds}&campaignId=${id}`)
-              if (trackingRes.ok) {
-                const tracking = await trackingRes.json()
-                setTrackingData(tracking)
-                console.log('📊 [CAMPAIGN] Loaded tracking data:', tracking)
-              } else {
-                console.error('Failed to load tracking data')
-                setTrackingData({})
-              }
-            } catch (trackingError) {
-              console.error('Failed to load tracking data:', trackingError)
-              setTrackingData({})
-            }
+              const tr = await fetch(`/api/ops?type=tracking&ids=${leadIds}&campaignId=${id}`)
+              if (tr.ok) setTrackingData(await tr.json())
+              else setTrackingData({})
+            } catch { setTrackingData({}) }
           }
         }
       }
-    } catch(e) {
-      console.error('Failed to load campaign details:', e)
-    }
+    } catch(e) { console.error('Failed to load campaign details:', e) }
   }
 
-  // Enhanced status logic with tracking data
   function getEnhancedStatus(lead) {
-    const leadTracking = trackingData[lead.lead_id]
-    if (leadTracking) {
-      if (leadTracking.clicks > 0) {
-        return { status: 'clicked', display: `clicked ${leadTracking.clicks}x` }
-      }
-      if (leadTracking.opens > 0) {
-        return { status: 'opened', display: `opened ${leadTracking.opens}x` }
-      }
-    }
+    const t = trackingData[lead.lead_id]
+    if (t?.clicks > 0) return { status: 'clicked', display: `clicked ${t.clicks}x` }
+    if (t?.opens  > 0) return { status: 'opened',  display: `opened ${t.opens}x`  }
     return { status: lead.status, display: lead.status }
   }
 
   async function deleteCampaign(c, e) {
     e.stopPropagation()
-    if (!confirm(`Delete "${c.name}"?\n\nThis removes the campaign and all its send history from the database. Tracking data (opens/clicks) is also deleted. This cannot be undone.`)) return
+    const label = c.status === 'SCHEDULED' ? 'Delete this scheduled campaign?' : `Delete "${c.name}"?\n\nThis removes the campaign and all its send history. This cannot be undone.`
+    if (!confirm(label)) return
     try {
       const res = await fetch(`/api/crm?type=campaigns&id=${c.id}`, { method: 'DELETE', headers: authHeader() })
       if (!res.ok) throw new Error('Delete failed')
       setCampaigns(prev => prev.filter(x => x.id !== c.id))
       if (expanded === c.id) { setExpanded(null); setDetail(null) }
       toast(`"${c.name}" deleted`, 'success')
-    } catch(e) {
-      toast('Could not delete campaign', 'error')
-    }
+    } catch(e) { toast('Could not delete campaign', 'error') }
+  }
+
+  async function cancelSchedule(c, e) {
+    e.stopPropagation()
+    if (!confirm(`Cancel the scheduled campaign "${c.name}"?\nThe campaign record will be kept but it will not run.`)) return
+    try {
+      const res = await fetch(`/api/crm?type=campaigns&id=${c.id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body:    JSON.stringify({ status: 'CANCELLED' }),
+      })
+      if (!res.ok) throw new Error('PATCH failed')
+      setCampaigns(prev => prev.map(x => x.id === c.id ? { ...x, status: 'CANCELLED' } : x))
+      toast(`"${c.name}" cancelled`, 'info')
+    } catch(e) { toast('Could not cancel: ' + e.message, 'error') }
   }
 
   async function openEmailModal(l) {
@@ -125,22 +251,269 @@ export default function CampaignHistory() {
   }
 
   const statusColor = {
-    sent:        'bg-blue-100 text-blue-700',
-    failed:      'bg-red-100 text-red-700',
-    skipped:     'bg-slate-100 text-slate-500',
-    opened:      'bg-emerald-100 text-emerald-700',
-    clicked:     'bg-amber-100 text-amber-700',
-    replied:     'bg-purple-100 text-purple-700',
-    bounced:     'bg-red-100 text-red-600',
-    unsubscribed:'bg-slate-100 text-slate-400',
+    sent:         'bg-blue-100 text-blue-700',
+    failed:       'bg-red-100 text-red-700',
+    skipped:      'bg-slate-100 text-slate-500',
+    opened:       'bg-emerald-100 text-emerald-700',
+    clicked:      'bg-amber-100 text-amber-700',
+    replied:      'bg-purple-100 text-purple-700',
+    bounced:      'bg-red-100 text-red-600',
+    unsubscribed: 'bg-slate-100 text-slate-400',
+  }
+
+  // Split into scheduled-pending and completed
+  const scheduledCamps = campaigns.filter(c => c.status === 'SCHEDULED' || c.status === 'RUNNING')
+  const completedCamps = campaigns.filter(c => c.status !== 'SCHEDULED' && c.status !== 'RUNNING')
+
+  function CampaignRow({ c, isScheduled }) {
+    const scheduledDate = c.scheduled_at
+      ? new Date(parseInt(c.scheduled_at)).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'short' })
+      : null
+
+    return (
+      <div
+        key={c.id}
+        className={`card overflow-hidden ${
+          isScheduled
+            ? 'border-2 border-amber-300 bg-amber-50/40'
+            : ''
+        }`}
+      >
+        {/* Campaign row header */}
+        <div
+          className={`flex items-center gap-4 px-5 py-4 cursor-pointer transition-colors ${
+            isScheduled ? 'hover:bg-amber-50/80' : 'hover:bg-slate-50'
+          }`}
+          onClick={() => expand(c.id)}
+        >
+          <div className="text-slate-400">
+            {expanded === c.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-bold text-slate-900 truncate">{c.name}</p>
+              {isScheduled && (
+                <span className="flex items-center gap-1 text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full whitespace-nowrap">
+                  <Clock size={9}/> SCHEDULED
+                </span>
+              )}
+              {c.status === 'RUNNING' && (
+                <span className="flex items-center gap-1 text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full whitespace-nowrap animate-pulse">
+                  ▶ RUNNING
+                </span>
+              )}
+              {c.status === 'CANCELLED' && (
+                <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+                  CANCELLED
+                </span>
+              )}
+              {c.status === 'FAILED' && (
+                <span className="text-[10px] font-bold bg-red-100 text-red-600 px-2 py-0.5 rounded-full">
+                  FAILED
+                </span>
+              )}
+            </div>
+            {isScheduled && scheduledDate ? (
+              <p className="text-xs text-amber-700 font-medium mt-0.5">
+                🕐 Runs at {scheduledDate} · Target: {c.target} · Sender: {c.sender}
+              </p>
+            ) : (
+              <p className="text-xs text-slate-400">
+                {fmtDate(new Date(parseInt(c.created_at)).toISOString())} · Target: {c.target} · Sender: {c.sender}
+              </p>
+            )}
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {isScheduled && c.status === 'SCHEDULED' && (
+              <>
+                <Btn
+                  variant="ghost" size="sm"
+                  onClick={e => { e.stopPropagation(); setEditingCamp(c) }}
+                  title="Edit schedule time or content"
+                >
+                  <Pencil size={12}/> Edit
+                </Btn>
+                <button
+                  onClick={e => cancelSchedule(c, e)}
+                  title="Cancel this scheduled campaign"
+                  className="px-2 py-1 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-100 rounded-lg transition-colors font-medium"
+                >
+                  ✕ Cancel
+                </button>
+              </>
+            )}
+            {!isScheduled && (
+              <Btn
+                variant="ghost" size="sm"
+                onClick={e => { e.stopPropagation(); window.location.href = `/campaign?followup=${c.id}` }}
+                title="Re-target leads from this campaign that had zero opens"
+              >
+                ↩ Follow Up
+              </Btn>
+            )}
+            <button
+              onClick={e => deleteCampaign(c, e)}
+              title="Delete this campaign"
+              className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+            ><Trash2 size={14}/></button>
+          </div>
+
+          {/* Stats (only for completed) */}
+          {!isScheduled && (
+            <div className="flex items-center gap-4 text-sm shrink-0">
+              <div className="flex items-center gap-1.5 text-blue-600">
+                <Send size={13}/><span className="font-bold">{c.total_sent}</span><span className="text-slate-400 text-xs">sent</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-red-500">
+                <AlertCircle size={13}/><span className="font-bold">{c.total_failed}</span><span className="text-slate-400 text-xs">failed</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-slate-400">
+                <span className="font-bold">{c.total_skipped}</span><span className="text-xs">skipped</span>
+              </div>
+              {expanded === c.id && detail && Object.keys(trackingData).length > 0 && (
+                <>
+                  <div className="flex items-center gap-1.5 text-emerald-600">
+                    <Eye size={13}/>
+                    <span className="font-bold">{Object.values(trackingData).reduce((s, t) => s + (t.opens||0), 0)}</span>
+                    <span className="text-slate-400 text-xs">opens</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-amber-600">
+                    <MousePointer size={13}/>
+                    <span className="font-bold">{Object.values(trackingData).reduce((s, t) => s + (t.clicks||0), 0)}</span>
+                    <span className="text-slate-400 text-xs">clicks</span>
+                  </div>
+                </>
+              )}
+              {(!expanded || !detail || Object.keys(trackingData).length === 0) && (
+                <>
+                  {c.stats?.opens  > 0 && <div className="flex items-center gap-1.5 text-emerald-600"><Eye size={13}/><span className="font-bold">{c.stats.opens}</span></div>}
+                  {c.stats?.clicks > 0 && <div className="flex items-center gap-1.5 text-amber-600"><MousePointer size={13}/><span className="font-bold">{c.stats.clicks}</span></div>}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* For scheduled: show variant count */}
+          {isScheduled && (
+            <div className="text-xs text-slate-400 shrink-0">
+              {c.variants?.length || 0} variant{c.variants?.length !== 1 ? 's' : ''}
+            </div>
+          )}
+        </div>
+
+        {/* Expanded detail (only for non-scheduled with leads data) */}
+        {expanded === c.id && detail && (
+          <div className="border-t border-slate-100">
+
+            {/* Campaign Brief + Variants summary */}
+            {(detail.brief?.product || detail.variants?.length > 0) && (
+              <div className="px-5 py-4 bg-slate-50 border-b border-slate-100 grid grid-cols-2 gap-6">
+                {detail.brief?.product && (
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Campaign Brief</p>
+                    <div className="space-y-1 text-xs text-slate-600">
+                      {detail.brief.product      && <div><span className="font-semibold text-slate-700">Product:</span> {detail.brief.product}</div>}
+                      {detail.brief.industries   && <div><span className="font-semibold text-slate-700">Industries:</span> {detail.brief.industries}</div>}
+                      {detail.brief.problems     && <div><span className="font-semibold text-slate-700">Problems:</span> {detail.brief.problems}</div>}
+                      {detail.brief.solutions    && <div><span className="font-semibold text-slate-700">Solutions:</span> {detail.brief.solutions}</div>}
+                      {detail.brief.technologies && <div><span className="font-semibold text-slate-700">Tech/USP:</span> {detail.brief.technologies}</div>}
+                    </div>
+                  </div>
+                )}
+                {detail.variants?.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">AI Variants Used ({detail.variants.length})</p>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {detail.variants.map((v, vi) => {
+                        const used   = detail.leads?.filter(l => (l.variant_index??0) === vi).length || 0
+                        const opens  = detail.leads?.filter(l => (l.variant_index??0) === vi).reduce((s,l)=>s+(trackingData[l.lead_id]?.opens||0),0) || 0
+                        const clicks = detail.leads?.filter(l => (l.variant_index??0) === vi).reduce((s,l)=>s+(trackingData[l.lead_id]?.clicks||0),0) || 0
+                        return (
+                          <div key={vi} className="flex items-center gap-2 text-xs">
+                            <span className="w-5 h-5 flex items-center justify-center bg-slate-200 rounded-full text-[10px] font-bold text-slate-600 shrink-0">{vi+1}</span>
+                            <span className="text-slate-700 font-medium truncate flex-1" title={v.subject}>{v.subject}</span>
+                            <span className="text-slate-400 shrink-0">{used} sent</span>
+                            {opens  > 0 && <span className="text-blue-500 shrink-0">{opens} opens</span>}
+                            {clicks > 0 && <span className="text-amber-500 shrink-0">{clicks} clicks</span>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Scheduled campaign: show variants preview (no leads table) */}
+            {(c.status === 'SCHEDULED' || c.status === 'RUNNING' || c.status === 'CANCELLED') && detail.variants?.length > 0 && detail.leads?.length === 0 && (
+              <div className="px-5 py-4 bg-amber-50/30">
+                <p className="text-xs text-slate-500 text-center py-2">No leads sent yet — campaign will execute at the scheduled time.</p>
+              </div>
+            )}
+
+            {/* Lead table */}
+            {detail.leads?.length > 0 && (
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    {['Name','Email','Company','Status','Variant #','Subject','Sent At','Actions'].map(h => (
+                      <th key={h} className="px-4 py-2 text-left font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.leads.map((l, i) => {
+                    const enhancedStatus = getEnhancedStatus(l)
+                    const leadTracking   = trackingData[l.lead_id]
+                    const varNum         = (l.variant_index ?? 0) + 1
+                    return (
+                      <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                        <td className="px-4 py-2 font-semibold text-slate-800">{l.lead_name || '—'}</td>
+                        <td className="px-4 py-2 text-slate-500 font-mono text-[11px]">{l.lead_email}</td>
+                        <td className="px-4 py-2 text-slate-600">{l.lead_company || '—'}</td>
+                        <td className="px-4 py-2">
+                          <div className="flex items-center gap-2">
+                            <span className={`badge text-[10px] ${statusColor[enhancedStatus.status] || 'bg-slate-100 text-slate-600'}`}>
+                              {enhancedStatus.display}
+                            </span>
+                            {leadTracking && (leadTracking.opens > 0 || leadTracking.clicks > 0) && (
+                              <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                                {leadTracking.opens  > 0 && <span className="flex items-center gap-0.5"><Eye size={9}/>{leadTracking.opens}</span>}
+                                {leadTracking.clicks > 0 && <span className="flex items-center gap-0.5"><MousePointer size={9}/>{leadTracking.clicks}</span>}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2 text-center">
+                          <span className="w-5 h-5 inline-flex items-center justify-center bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold">{varNum}</span>
+                        </td>
+                        <td className="px-4 py-2 text-slate-500 max-w-[180px] truncate">{l.subject || '—'}</td>
+                        <td className="px-4 py-2 text-slate-400">{l.sent_at ? new Date(parseInt(l.sent_at)).toLocaleTimeString('en-IN') : '—'}</td>
+                        <td className="px-4 py-2">
+                          <button onClick={() => openEmailModal(l)} className="text-blue-600 hover:text-blue-700 text-xs font-medium flex items-center gap-1">
+                            <Eye size={12}/> View
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (
     <div>
-      <PageHeader title="Campaign History" subtitle="All past campaign runs with full stats">
+      <PageHeader title="Campaign History" subtitle="All past and scheduled campaign runs">
         <Btn variant="secondary" size="sm" onClick={load}>↻ Refresh</Btn>
       </PageHeader>
-
 
       {loading ? (
         <div className="card p-16 text-center text-sm text-slate-400">Loading...</div>
@@ -149,187 +522,68 @@ export default function CampaignHistory() {
           <Empty icon={History} title="No campaigns yet" sub="Run your first campaign to see history here" />
         </div>
       ) : (
-        <div className="space-y-3">
-          {campaigns.map(c => (
-            <div key={c.id} className="card overflow-hidden">
-              {/* Campaign row */}
-              <div
-                className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-slate-50 transition-colors"
-                onClick={() => expand(c.id)}
-              >
-                <div className="text-slate-400">
-                  {expanded === c.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-slate-900">{c.name}</p>
-                  <p className="text-xs text-slate-400">{fmtDate(new Date(parseInt(c.created_at)).toISOString())} · Target: {c.target} · Sender: {c.sender}</p>
-                </div>
-                <Btn variant="ghost" size="sm" onClick={e => { e.stopPropagation(); window.location.href = `/campaign?followup=${c.id}` }}
-                  title="Re-target leads from this campaign that had zero opens">↩ Follow Up</Btn>
-                <button
-                  onClick={e => deleteCampaign(c, e)}
-                  title="Delete this campaign and all its history"
-                  className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                ><Trash2 size={14}/></button>
-                <div className="flex items-center gap-4 text-sm">
-                  <div className="flex items-center gap-1.5 text-blue-600">
-                    <Send size={13} /><span className="font-bold">{c.total_sent}</span><span className="text-slate-400 text-xs">sent</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-red-500">
-                    <AlertCircle size={13} /><span className="font-bold">{c.total_failed}</span><span className="text-slate-400 text-xs">failed</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-slate-400">
-                    <span className="font-bold">{c.total_skipped}</span><span className="text-xs">skipped</span>
-                  </div>
-                  {/* Enhanced stats with tracking data */}
-                  {expanded === c.id && detail && Object.keys(trackingData).length > 0 && (
-                    <>
-                      <div className="flex items-center gap-1.5 text-emerald-600">
-                        <Eye size={13} />
-                        <span className="font-bold">
-                          {Object.values(trackingData).reduce((sum, t) => sum + (t.opens || 0), 0)}
-                        </span>
-                        <span className="text-slate-400 text-xs">opens</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-amber-600">
-                        <MousePointer size={13} />
-                        <span className="font-bold">
-                          {Object.values(trackingData).reduce((sum, t) => sum + (t.clicks || 0), 0)}
-                        </span>
-                        <span className="text-slate-400 text-xs">clicks</span>
-                      </div>
-                    </>
-                  )}
-                  {/* Fallback to original stats if no tracking data */}
-                  {(!expanded || !detail || Object.keys(trackingData).length === 0) && (
-                    <>
-                      {c.stats?.opens > 0 && (
-                        <div className="flex items-center gap-1.5 text-emerald-600">
-                          <Eye size={13} /><span className="font-bold">{c.stats.opens}</span>
-                        </div>
-                      )}
-                      {c.stats?.clicks > 0 && (
-                        <div className="flex items-center gap-1.5 text-amber-600">
-                          <MousePointer size={13} /><span className="font-bold">{c.stats.clicks}</span>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
+        <div className="space-y-6">
+
+          {/* ── Scheduled campaigns (pending execution) ── */}
+          {scheduledCamps.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Calendar size={15} className="text-amber-500" />
+                <h2 className="text-sm font-bold text-amber-700 uppercase tracking-wide">Scheduled</h2>
+                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
+                  {scheduledCamps.length}
+                </span>
               </div>
+              <div className="space-y-3">
+                {scheduledCamps.map(c => (
+                  <CampaignRow key={c.id} c={c} isScheduled={true} />
+                ))}
+              </div>
+            </div>
+          )}
 
-              {/* Expanded detail */}
-              {expanded === c.id && detail && (
-                <div className="border-t border-slate-100">
-
-                  {/* Campaign Brief + Variants summary */}
-                  {(detail.brief?.product || detail.variants?.length > 0) && (
-                    <div className="px-5 py-4 bg-slate-50 border-b border-slate-100 grid grid-cols-2 gap-6">
-                      {detail.brief?.product && (
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Campaign Brief</p>
-                          <div className="space-y-1 text-xs text-slate-600">
-                            {detail.brief.product      && <div><span className="font-semibold text-slate-700">Product:</span> {detail.brief.product}</div>}
-                            {detail.brief.industries   && <div><span className="font-semibold text-slate-700">Industries:</span> {detail.brief.industries}</div>}
-                            {detail.brief.problems     && <div><span className="font-semibold text-slate-700">Problems:</span> {detail.brief.problems}</div>}
-                            {detail.brief.solutions    && <div><span className="font-semibold text-slate-700">Solutions:</span> {detail.brief.solutions}</div>}
-                            {detail.brief.technologies && <div><span className="font-semibold text-slate-700">Tech/USP:</span> {detail.brief.technologies}</div>}
-                          </div>
-                        </div>
-                      )}
-                      {detail.variants?.length > 0 && (
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">AI Variants Used ({detail.variants.length})</p>
-                          <div className="space-y-1 max-h-32 overflow-y-auto">
-                            {detail.variants.map((v, vi) => {
-                              // count how many leads got this variant
-                              const used = detail.leads?.filter(l => (l.variant_index ?? 0) === vi).length || 0
-                              const opens  = detail.leads?.filter(l => (l.variant_index ?? 0) === vi).reduce((s,l) => s + (trackingData[l.lead_id]?.opens||0), 0) || 0
-                              const clicks = detail.leads?.filter(l => (l.variant_index ?? 0) === vi).reduce((s,l) => s + (trackingData[l.lead_id]?.clicks||0), 0) || 0
-                              return (
-                                <div key={vi} className="flex items-center gap-2 text-xs">
-                                  <span className="w-5 h-5 flex items-center justify-center bg-slate-200 rounded-full text-[10px] font-bold text-slate-600 shrink-0">{vi+1}</span>
-                                  <span className="text-slate-700 font-medium truncate flex-1" title={v.subject}>{v.subject}</span>
-                                  <span className="text-slate-400 shrink-0">{used} sent</span>
-                                  {opens > 0  && <span className="text-blue-500 shrink-0">{opens} opens</span>}
-                                  {clicks > 0 && <span className="text-amber-500 shrink-0">{clicks} clicks</span>}
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Lead table */}
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200">
-                        {['Name','Email','Company','Status','Variant #','Subject','Sent At','Actions'].map(h => (
-                          <th key={h} className="px-4 py-2 text-left font-bold text-slate-500 uppercase tracking-wide">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.leads?.length === 0 ? (
-                        <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-400">No lead details recorded</td></tr>
-                      ) : detail.leads?.map((l, i) => {
-                        const enhancedStatus = getEnhancedStatus(l)
-                        const leadTracking   = trackingData[l.lead_id]
-                        const varNum         = (l.variant_index ?? 0) + 1
-                        return (
-                          <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
-                            <td className="px-4 py-2 font-semibold text-slate-800">{l.lead_name || '—'}</td>
-                            <td className="px-4 py-2 text-slate-500 font-mono text-[11px]">{l.lead_email}</td>
-                            <td className="px-4 py-2 text-slate-600">{l.lead_company || '—'}</td>
-                            <td className="px-4 py-2">
-                              <div className="flex items-center gap-2">
-                                <span className={`badge text-[10px] ${statusColor[enhancedStatus.status] || 'bg-slate-100 text-slate-600'}`}>
-                                  {enhancedStatus.display}
-                                </span>
-                                {leadTracking && (leadTracking.opens > 0 || leadTracking.clicks > 0) && (
-                                  <div className="flex items-center gap-1 text-[10px] text-slate-400">
-                                    {leadTracking.opens  > 0 && <span className="flex items-center gap-0.5"><Eye size={9}/>{leadTracking.opens}</span>}
-                                    {leadTracking.clicks > 0 && <span className="flex items-center gap-0.5"><MousePointer size={9}/>{leadTracking.clicks}</span>}
-                                  </div>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-4 py-2 text-center">
-                              <span className="w-5 h-5 inline-flex items-center justify-center bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold">{varNum}</span>
-                            </td>
-                            <td className="px-4 py-2 text-slate-500 max-w-[180px] truncate">{l.subject || '—'}</td>
-                            <td className="px-4 py-2 text-slate-400">{l.sent_at ? new Date(parseInt(l.sent_at)).toLocaleTimeString('en-IN') : '—'}</td>
-                            <td className="px-4 py-2">
-                              <button onClick={() => openEmailModal(l)} className="text-blue-600 hover:text-blue-700 text-xs font-medium flex items-center gap-1">
-                                <Eye size={12}/> View
-                              </button>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+          {/* ── Completed / past campaigns ── */}
+          {completedCamps.length > 0 && (
+            <div>
+              {scheduledCamps.length > 0 && (
+                <div className="flex items-center gap-2 mb-3">
+                  <History size={15} className="text-slate-400" />
+                  <h2 className="text-sm font-bold text-slate-500 uppercase tracking-wide">Completed</h2>
                 </div>
               )}
+              <div className="space-y-3">
+                {completedCamps.map(c => (
+                  <CampaignRow key={c.id} c={c} isScheduled={false} />
+                ))}
+              </div>
             </div>
-          ))}
+          )}
+
         </div>
       )}
 
-      {/* Email Detail Modal — Body + Events tabs */}
+      {/* ── Edit Scheduled Campaign Modal ── */}
+      {editingCamp && (
+        <EditScheduledModal
+          campaign={editingCamp}
+          onClose={() => setEditingCamp(null)}
+          onSaved={(updated) => {
+            setCampaigns(prev => prev.map(x => x.id === updated.id ? { ...x, ...updated } : x))
+            setEditingCamp(null)
+          }}
+        />
+      )}
+
+      {/* ── Email Detail Modal — Body + Events tabs ── */}
       {viewingEmail && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setViewingEmail(null)}>
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">{viewingEmail.lead_name}</h3>
                 <p className="text-xs text-slate-500 font-mono">{viewingEmail.lead_email}</p>
               </div>
               <div className="flex items-center gap-4">
-                {/* Engagement badges */}
                 {(trackingData[viewingEmail.lead_id]?.opens > 0 || trackingData[viewingEmail.lead_id]?.clicks > 0) && (
                   <div className="flex gap-2 text-xs">
                     <span className="flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-1 rounded-lg">
@@ -343,7 +597,6 @@ export default function CampaignHistory() {
                 <button onClick={() => setViewingEmail(null)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
               </div>
             </div>
-            {/* Tabs */}
             <div className="flex border-b border-slate-200 px-5">
               {['body','events'].map(t => (
                 <button key={t} onClick={() => setModalTab(t)}
@@ -352,7 +605,6 @@ export default function CampaignHistory() {
                 </button>
               ))}
             </div>
-            {/* Content */}
             <div className="overflow-y-auto flex-1 p-5">
               {modalTab === 'body' ? (
                 <div>

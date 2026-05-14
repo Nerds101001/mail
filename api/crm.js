@@ -229,6 +229,9 @@ module.exports = async (req, res) => {
       // Ensure columns exist on existing tables
       await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS brief JSONB DEFAULT '{}'`.catch(()=>{});
       await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS variants JSONB DEFAULT '[]'`.catch(()=>{});
+      await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'COMPLETED'`.catch(()=>{});
+      await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS scheduled_at BIGINT`.catch(()=>{});
+      await sql`ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS schedule_config JSONB DEFAULT '{}'`.catch(()=>{});
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS subject TEXT`.catch(()=>{});
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS body TEXT`.catch(()=>{});
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS opens INT DEFAULT 0`.catch(()=>{});
@@ -268,13 +271,30 @@ module.exports = async (req, res) => {
         return res.json({ ok: true });
       }
 
-      if (req.method === "POST") {
-        const { id: providedId, name, target, sender, leads: campLeads, stats, brief, variants } = req.body;
-        const campId = providedId || `camp_${Date.now()}`;
+      // PATCH — update a scheduled campaign (time, name, variants, config, status)
+      if (req.method === "PATCH" && id) {
+        const { name, scheduled_at, schedule_config, variants, status: newStatus } = req.body;
         await sql`
-          INSERT INTO campaigns (id,user_id,name,created_at,target,sender,total_sent,total_failed,total_skipped,stats,brief,variants)
-          VALUES (${campId},${userId},${name||"Campaign"},${Date.now()},${target||"all"},${sender||""},${stats?.sent||0},${stats?.failed||0},${stats?.skipped||0},${JSON.stringify(stats||{})},${JSON.stringify(brief||{})},${JSON.stringify(variants||[])})
-          ON CONFLICT (id) DO UPDATE SET total_sent=EXCLUDED.total_sent, stats=EXCLUDED.stats, brief=EXCLUDED.brief, variants=EXCLUDED.variants
+          UPDATE campaigns SET
+            name            = COALESCE(${name        ?? null}, name),
+            scheduled_at    = COALESCE(${scheduled_at ?? null}, scheduled_at),
+            schedule_config = COALESCE(${schedule_config ? JSON.stringify(schedule_config) : null}::jsonb, schedule_config),
+            variants        = COALESCE(${variants        ? JSON.stringify(variants)        : null}::jsonb, variants),
+            status          = COALESCE(${newStatus   ?? null}, status)
+          WHERE id = ${id} AND (user_id = ${userId} OR ${userId} = 'admin')
+        `;
+        return res.json({ ok: true });
+      }
+
+      if (req.method === "POST") {
+        const { id: providedId, name, target, sender, leads: campLeads, stats, brief, variants,
+                status, scheduled_at, schedule_config } = req.body;
+        const campId = providedId || `camp_${Date.now()}`;
+        const campStatus = status || 'COMPLETED';
+        await sql`
+          INSERT INTO campaigns (id,user_id,name,created_at,target,sender,total_sent,total_failed,total_skipped,stats,brief,variants,status,scheduled_at,schedule_config)
+          VALUES (${campId},${userId},${name||"Campaign"},${Date.now()},${target||"all"},${sender||""},${stats?.sent||0},${stats?.failed||0},${stats?.skipped||0},${JSON.stringify(stats||{})},${JSON.stringify(brief||{})},${JSON.stringify(variants||[])},${campStatus},${scheduled_at||null},${JSON.stringify(schedule_config||{})})
+          ON CONFLICT (id) DO UPDATE SET total_sent=EXCLUDED.total_sent, stats=EXCLUDED.stats, brief=EXCLUDED.brief, variants=EXCLUDED.variants, status=EXCLUDED.status, scheduled_at=EXCLUDED.scheduled_at, schedule_config=EXCLUDED.schedule_config
         `;
         if (campLeads?.length) {
           for (const l of campLeads) {
