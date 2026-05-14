@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useCRM } from '../store'
 import { Btn, Card, PageHeader, toast } from '../components/ui'
 import RichEditor, { htmlToPlain } from '../components/RichEditor'
 import { Play, Zap, RefreshCw, ChevronLeft, ChevronRight, Plus, X, Calendar, Pencil, Check } from 'lucide-react'
+import * as campaignRunner from '../campaignRunner'
 
 // Build a clean signature string from a "Name - Company" display name
 function buildSignature(senderDisplayName) {
@@ -49,17 +50,14 @@ export default function Campaign() {
   const [selectedAttachments, setSelectedAttachments] = useState([])
   const [attachmentLoading, setAttachmentLoading]   = useState(false)
 
-  const [running, setRunning]           = useState(false)
-  const [progress, setProgress]         = useState(0)
-  const [status, setStatus]             = useState('Ready to launch')
-  const [log, setLog]                   = useState([])
+  const [runnerState, setRunnerState]   = useState(campaignRunner.getState())
+
+  useEffect(() => campaignRunner.subscribe(setRunnerState), [])
   const [genLoading, setGenLoading]                   = useState(false)
   const [delivScore, setDelivScore]                   = useState(null)
   const [delivLoading, setDelivLoading]               = useState(false)
   const [campaignName, setCampaignName]               = useState(`Campaign ${new Date().toLocaleDateString('en-GB')}`)
   const [usePersonalization, setUsePersonalization]   = useState(false)
-  const bodyRef = useRef(null)
-
   const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
 
   useEffect(() => { loadFileAttachments() }, [viewAs]) // eslint-disable-line
@@ -286,46 +284,12 @@ export default function Campaign() {
     setDelivLoading(false)
   }
 
-  async function sendOne(lead, subject, body, profile, campaignId) {
-    try {
-      const endpoint = profile.type === 'gmail' ? '/api/send-email' : '/api/send-smtp'
-      // Build {id, name} objects from selected attachment IDs
-      const selectedAtts = fileAttachments
-        .filter(a => selectedAttachments.includes(a.id))
-        .map(a => ({ id: a.id, name: a.label }))
-      const payload = {
-        leadId: lead.id,
-        to: lead.email,
-        subject,
-        body,
-        senderName: cfg.sender,
-        replyTo: cfg.replyTo,
-        campaignId,
-        attachments: selectedAtts
-      }
-      if (profile.type === 'smtp') payload.smtpConfig = profile
-      if (profile.type === 'gmail') {
-        payload.gmailUser = profile.user                    // OAuth token lookup key
-        if (profile.alias) payload.fromEmail = profile.alias // "Send mail as" alias
-      }
-      const res = await fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
-      const data = await res.json().catch(() => ({}))
-      if (data.bounced) return { ok: false, bounced: true }
-      if (data.skipped) return { ok: false, skipped: true }
-      return { ok: res.ok }
-    } catch(e) { return { ok: false } }
-  }
-
-  function addLog(msg, type='info') {
-    const colors = { success:'text-emerald-600', error:'text-red-500', info:'text-blue-500', warn:'text-amber-500' }
-    setLog(prev => [{ msg, color: colors[type], time: new Date().toLocaleTimeString() }, ...prev].slice(0, 50))
-  }
-
   async function runCampaign() {
     const senderProfiles = activeProfiles.filter(p => selectedSenders.has(p.user||p.email||''))
     const targets = getTargets().slice(0, cfg.batch)
     if (!senderProfiles.length || !targets.length) { toast('Missing senders or leads', 'error'); return }
 
+    // ── Deliverability pre-check ──
     const checkSubject = mode === 'custom' ? customSubj : (currentVariant.subject || '')
     const checkBody    = mode === 'custom' ? customBody  : (currentVariant.body    || '')
     if (checkSubject || checkBody) {
@@ -348,75 +312,59 @@ export default function Campaign() {
       } catch { /* non-blocking */ }
     }
 
-    setRunning(true); setLog([]); setProgress(0)
+    // ── Create campaign in DB immediately as RUNNING ──
     const campaignId = `camp_${Date.now()}`
-    let processed = 0
-    const updatedLeads = [...leads]
-    const campaignDataLeads = []
-
-    const today = new Date().toISOString().split('T')[0]
-    for (let i = 0; i < targets.length; i++) {
-      const l = targets[i]
-      setStatus(`Processing: ${l.name}`)
-      setProgress(Math.round(((i + 1) / targets.length) * 100))
-
-      const profile    = senderProfiles[i % senderProfiles.length]
-      const vPool      = variants.length > 0 ? variants : null
-      const vData      = await getContent(l, vPool, i)
-      const { subject, body } = vData
-      const varIdx     = i % (variants.length || 1)
-
-      const capKey   = `warmup:${profile.id}:${today}`
-      const sentToday = parseInt(localStorage.getItem(capKey) || '0')
-      const dailyCap  = profile.dailyCap || 50
-      if (sentToday >= dailyCap) {
-        addLog(`⚠ Daily cap (${dailyCap}) hit for ${profile.name} — skipping ${l.name}`, 'warn')
-        campaignDataLeads.push({ id:l.id, name:l.name, email:l.email, company:l.company, status:'SKIPPED', subject:'', body:'', variantIndex:varIdx })
-        continue
-      }
-
-      const result = await sendOne(l, subject, body, profile, campaignId)
-      if (result.ok) {
-        addLog(`✓ Sent to ${l.name} via ${profile.user||profile.name} (variant ${varIdx + 1})`, 'success')
-        processed++
-        localStorage.setItem(capKey, String(sentToday + 1))
-        const idx = updatedLeads.findIndex(x => x.id === l.id)
-        if (idx !== -1) updatedLeads[idx] = { ...updatedLeads[idx], status:'SENT', lastSent:new Date().toISOString(), pipelineStage: (updatedLeads[idx].pipelineStage === 'COLD' || !updatedLeads[idx].pipelineStage) ? 'CONTACTED' : updatedLeads[idx].pipelineStage }
-        campaignDataLeads.push({ id:l.id, name:l.name, email:l.email, company:l.company, status:'SENT', subject, body, variantIndex: varIdx })
-      } else if (result.bounced) {
-        addLog(`⚡ BOUNCED: ${l.name} <${l.email}>`, 'warn')
-        const idx = updatedLeads.findIndex(x => x.id === l.id)
-        if (idx !== -1) updatedLeads[idx] = { ...updatedLeads[idx], status:'BOUNCED' }
-        campaignDataLeads.push({ id:l.id, name:l.name, email:l.email, company:l.company, status:'BOUNCED', subject, body, variantIndex: varIdx })
-      } else {
-        addLog(`✗ Failed for ${l.name}`, 'error')
-        campaignDataLeads.push({ id:l.id, name:l.name, email:l.email, company:l.company, status:'FAILED', subject, body, variantIndex: varIdx })
-      }
-
-      if (i < targets.length - 1 && cfg.rate > 0) await new Promise(r => setTimeout(r, cfg.rate * 1000))
+    const token = localStorage.getItem('crm_token') || ''
+    try {
+      await fetch('/api/campaigns', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          id:      campaignId,
+          name:    campaignName,
+          target:  cfg.target,
+          sender:  cfg.sender,
+          brief,
+          variants,
+          stats:   { sent: 0, failed: 0, skipped: 0 },
+          status:  'RUNNING',
+        }),
+      })
+    } catch(e) {
+      toast('Could not create campaign record: ' + e.message, 'error')
+      return
     }
 
-    setLeads(updatedLeads)
+    // ── Build pre-computed attachment text (link attachments) ──
+    const attachmentText = buildAttachmentText()
 
-    const campaignData = {
-      id:       campaignId,
-      name:     campaignName,
-      target:   cfg.target,
-      sender:   cfg.sender,
-      brief,
+    // ── Build selected file attachments ──
+    const selectedAtts = fileAttachments
+      .filter(a => selectedAttachments.includes(a.id))
+      .map(a => ({ id: a.id, name: a.label }))
+
+    // ── Start background runner ──
+    campaignRunner.start({
+      campaignId,
+      campaignName,
+      targets,
+      senderProfiles,
       variants,
-      stats:    { sent: processed, failed: targets.length - processed, skipped: 0 },
-      leads:    campaignDataLeads,
-    }
-    await fetch('/api/campaigns', {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json', 'Authorization': `Bearer ${localStorage.getItem('crm_token')}` },
-      body: JSON.stringify(campaignData)
+      mode,
+      customSubj,
+      customBody,
+      cfg:              { rate: cfg.rate },
+      senderName:       cfg.sender,
+      replyTo:          cfg.replyTo,
+      selectedAtts,
+      usePersonalization,
+      attachmentText,
+      token,
     })
 
-    setRunning(false)
-    setStatus(`Done — ${processed} sent`)
-    toast(`Campaign complete — ${processed}/${targets.length} sent`, 'success')
+    toast(`🚀 Campaign started — ${targets.length} emails sending in background`, 'success')
+    // Navigate to Campaign History so the user can watch progress
+    setTimeout(() => { window.location.href = '/history' }, 600)
   }
 
   async function scheduleCampaign() {
@@ -465,15 +413,15 @@ export default function Campaign() {
     <div className="space-y-6">
       <PageHeader title="AI Campaign" subtitle="Send personalized sales emails at scale">
         <div className="flex items-center gap-2 flex-wrap">
-          <input type="datetime-local" className="input text-xs py-1.5" value={scheduleTime} onChange={e=>setScheduleTime(e.target.value)} disabled={running||schedSaving} title="Schedule campaign for later" />
-          <Btn variant="secondary" onClick={scheduleCampaign} disabled={running||schedSaving||!scheduleTime}>
+          <input type="datetime-local" className="input text-xs py-1.5" value={scheduleTime} onChange={e=>setScheduleTime(e.target.value)} disabled={runnerState.status==='RUNNING'||schedSaving} title="Schedule campaign for later" />
+          <Btn variant="secondary" onClick={scheduleCampaign} disabled={runnerState.status==='RUNNING'||schedSaving||!scheduleTime}>
             {schedSaving ? '⏳ Saving...' : <><Calendar size={13}/> Schedule</>}
           </Btn>
-          <Btn variant="secondary" onClick={checkDeliverability} disabled={delivLoading||running}>
+          <Btn variant="secondary" onClick={checkDeliverability} disabled={delivLoading||runnerState.status==='RUNNING'}>
             {delivLoading ? '...' : '🎯 Check Score'}
           </Btn>
-          <Btn variant="primary" onClick={runCampaign} disabled={running||schedSaving}>
-            <Play size={14} /> {running ? 'Running...' : 'Run Campaign'}
+          <Btn variant="primary" onClick={runCampaign} disabled={runnerState.status==='RUNNING'||schedSaving}>
+            <Play size={14} /> {runnerState.status === 'RUNNING' ? 'Running...' : 'Run Campaign'}
           </Btn>
         </div>
       </PageHeader>
@@ -511,15 +459,16 @@ export default function Campaign() {
         </div>
       )}
 
-      {(running || progress > 0) && (
-        <Card className="p-4 border-emerald-100 bg-emerald-50/30">
+      {runnerState.status === 'RUNNING' && (
+        <Card className="p-4 border-blue-100 bg-blue-50/30">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-emerald-800">{status}</span>
-            <span className="text-sm font-bold text-emerald-600">{progress}%</span>
+            <span className="text-sm font-medium text-blue-800">Sending: {runnerState.currentLead}</span>
+            <span className="text-sm font-bold text-blue-600">{runnerState.sent}/{runnerState.total} sent · {runnerState.progress}%</span>
           </div>
-          <div className="h-2 bg-white rounded-full overflow-hidden border border-emerald-100">
-            <div className="h-full bg-emerald-500 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
+          <div className="h-2 bg-white rounded-full overflow-hidden border border-blue-100">
+            <div className="h-full bg-blue-500 rounded-full transition-all duration-300" style={{ width: `${runnerState.progress}%` }} />
           </div>
+          <p className="text-[10px] text-blue-500 mt-1">You've been redirected to Campaign History — check progress there</p>
         </Card>
       )}
 
@@ -1161,12 +1110,12 @@ export default function Campaign() {
         </Card>
       </div>
 
-      {/* Live Log */}
-      {log.length > 0 && (
+      {/* Live Log — visible when runner is active and user hasn't navigated away */}
+      {runnerState.log.length > 0 && runnerState.status === 'RUNNING' && (
         <Card className="p-5">
           <h3 className="text-sm font-bold text-slate-900 mb-3">Live Log</h3>
           <div className="space-y-1 font-mono text-[10px] max-h-40 overflow-y-auto">
-            {log.map((l,i)=><div key={i} className={l.color}>[{l.time}] {l.msg}</div>)}
+            {runnerState.log.map((l,i)=><div key={i} className={l.color}>[{l.time}] {l.msg}</div>)}
           </div>
         </Card>
       )}

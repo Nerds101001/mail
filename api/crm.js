@@ -271,16 +271,20 @@ module.exports = async (req, res) => {
         return res.json({ ok: true });
       }
 
-      // PATCH — update a scheduled campaign (time, name, variants, config, status)
+      // PATCH — update a campaign (time, name, variants, config, status, stats)
       if (req.method === "PATCH" && id) {
-        const { name, scheduled_at, schedule_config, variants, status: newStatus } = req.body;
+        const { name, scheduled_at, schedule_config, variants, status: newStatus,
+                total_sent, total_failed, total_skipped } = req.body;
         await sql`
           UPDATE campaigns SET
-            name            = COALESCE(${name        ?? null}, name),
-            scheduled_at    = COALESCE(${scheduled_at ?? null}, scheduled_at),
+            name            = COALESCE(${name          ?? null}, name),
+            scheduled_at    = COALESCE(${scheduled_at  ?? null}, scheduled_at),
             schedule_config = COALESCE(${schedule_config ? JSON.stringify(schedule_config) : null}::jsonb, schedule_config),
             variants        = COALESCE(${variants        ? JSON.stringify(variants)        : null}::jsonb, variants),
-            status          = COALESCE(${newStatus   ?? null}, status)
+            status          = COALESCE(${newStatus      ?? null}, status),
+            total_sent      = COALESCE(${total_sent     ?? null}, total_sent),
+            total_failed    = COALESCE(${total_failed   ?? null}, total_failed),
+            total_skipped   = COALESCE(${total_skipped  ?? null}, total_skipped)
           WHERE id = ${id} AND (user_id = ${userId} OR ${userId} = 'admin')
         `;
         return res.json({ ok: true });
@@ -288,8 +292,20 @@ module.exports = async (req, res) => {
 
       if (req.method === "POST") {
         const { id: providedId, name, target, sender, leads: campLeads, stats, brief, variants,
-                status, scheduled_at, schedule_config } = req.body;
+                status, scheduled_at, schedule_config, leads_only } = req.body;
         const campId = providedId || `camp_${Date.now()}`;
+
+        // leads_only=true — just insert leads into an existing campaign, don't touch campaign row
+        if (leads_only && providedId && campLeads?.length) {
+          for (const l of campLeads) {
+            await sql`
+              INSERT INTO campaign_leads (campaign_id,user_id,lead_id,lead_name,lead_email,lead_company,status,subject,body,sent_at,variant_index)
+              VALUES (${campId},${userId},${l.id},${l.name||""},${l.email||""},${l.company||""},${l.status||"sent"},${l.subject||""},${l.body||""},${Date.now()},${l.variantIndex||0})
+            `.catch(()=>{});
+          }
+          return res.json({ ok: true, id: campId });
+        }
+
         const campStatus = status || 'COMPLETED';
         await sql`
           INSERT INTO campaigns (id,user_id,name,created_at,target,sender,total_sent,total_failed,total_skipped,stats,brief,variants,status,scheduled_at,schedule_config)

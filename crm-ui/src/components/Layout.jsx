@@ -3,8 +3,10 @@ import { useCRM } from '../store'
 import { useEffect, useState } from 'react'
 import {
   LayoutDashboard, CheckSquare, Users, GitBranch, Send,
-  UserCheck, FileText, BarChart2, Settings, LogOut, Zap, Mail, UserX, History, Paperclip, Eye
+  UserCheck, FileText, BarChart2, Settings, LogOut, Zap, Mail, UserX, History, Paperclip, Eye,
+  Pause, X as XIcon,
 } from 'lucide-react'
+import * as campaignRunner from '../campaignRunner'
 
 const NAV = [
   { label: 'Overview', items: [
@@ -37,7 +39,11 @@ export default function Layout({ children, taskCount = 0 }) {
   const navigate   = useNavigate()
   const isAdmin    = localStorage.getItem('crm_role') === 'admin'
   const hot        = leads.filter(l => l.pipelineStage === 'HOT' && !['WON','LOST','UNSUBSCRIBED'].includes(l.pipelineStage)).length
-  const [userList, setUserList] = useState([])
+  const [userList, setUserList]     = useState([])
+  const [runner, setRunner]         = useState(campaignRunner.getState())
+
+  // Subscribe to runner state for the floating progress banner
+  useEffect(() => campaignRunner.subscribe(setRunner), [])
 
   // Load user list for admin view-as switcher
   useEffect(() => {
@@ -182,6 +188,110 @@ export default function Layout({ children, taskCount = 0 }) {
           {children}
         </main>
       </div>
+
+      {/* ── Floating Campaign Runner Banner ────────────────────────────── */}
+      {(runner.status === 'RUNNING' || runner.status === 'PAUSED' || runner.status === 'DONE') && (
+        <div className={`fixed bottom-5 right-5 z-50 w-80 rounded-2xl shadow-2xl border overflow-hidden ${
+          runner.status === 'RUNNING' ? 'bg-white border-blue-200'
+          : runner.status === 'PAUSED' ? 'bg-amber-50 border-amber-200'
+          : 'bg-emerald-50 border-emerald-200'
+        }`}>
+          {/* Header */}
+          <div className={`flex items-center justify-between px-4 py-2.5 ${
+            runner.status === 'RUNNING' ? 'bg-blue-600'
+            : runner.status === 'PAUSED' ? 'bg-amber-500'
+            : 'bg-emerald-600'
+          }`}>
+            <div className="flex items-center gap-2 text-white">
+              {runner.status === 'RUNNING' && <span className="w-2 h-2 bg-white rounded-full animate-pulse"/>}
+              {runner.status === 'PAUSED'  && <Pause size={12}/>}
+              {runner.status === 'DONE'    && <span className="text-sm">✅</span>}
+              <span className="text-xs font-bold truncate max-w-[180px]">{runner.campaignName}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {runner.status === 'RUNNING' && (
+                <button
+                  onClick={() => campaignRunner.pause()}
+                  className="flex items-center gap-1 bg-white/20 hover:bg-white/30 text-white text-[10px] font-semibold px-2 py-1 rounded-lg transition-colors"
+                >
+                  <Pause size={10}/> Pause
+                </button>
+              )}
+              {(runner.status === 'PAUSED' || runner.status === 'DONE') && (
+                <button
+                  onClick={() => { campaignRunner.dismiss(); navigate('/history') }}
+                  className="text-white/80 hover:text-white transition-colors"
+                  title="Dismiss"
+                >
+                  <XIcon size={14}/>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="px-4 py-3 space-y-2">
+            {runner.status === 'RUNNING' && (
+              <>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500 truncate max-w-[160px]">{runner.currentLead || 'Starting...'}</span>
+                  <span className="font-bold text-blue-700 shrink-0">{runner.sent}/{runner.total}</span>
+                </div>
+                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                    style={{ width: `${runner.progress}%` }}
+                  />
+                </div>
+                <div className="flex gap-3 text-[10px] text-slate-500">
+                  <span className="text-emerald-600 font-semibold">{runner.sent} sent</span>
+                  {runner.failed  > 0 && <span className="text-red-500">{runner.failed} failed</span>}
+                  {runner.skipped > 0 && <span>{runner.skipped} skipped</span>}
+                </div>
+              </>
+            )}
+
+            {runner.status === 'PAUSED' && (
+              <>
+                <p className="text-xs font-semibold text-amber-800">
+                  {runner.capPause ? '🚫 Daily sending limit reached' : '⏸ Paused by you'}
+                </p>
+                <p className="text-[10px] text-amber-600">
+                  {runner.pending} leads pending · Resume button appears in Campaign History after 24h
+                </p>
+                <div className="flex gap-3 text-[10px] text-slate-500">
+                  <span className="text-emerald-600 font-semibold">{runner.sent} sent</span>
+                  {runner.failed > 0 && <span className="text-red-500">{runner.failed} failed</span>}
+                  <span className="text-amber-600">{runner.pending} pending</span>
+                </div>
+                <button
+                  onClick={() => { campaignRunner.dismiss(); navigate('/history') }}
+                  className="w-full mt-1 text-xs text-amber-700 font-semibold hover:underline"
+                >
+                  View in Campaign History →
+                </button>
+              </>
+            )}
+
+            {runner.status === 'DONE' && (
+              <>
+                <p className="text-xs font-semibold text-emerald-800">Campaign complete!</p>
+                <div className="flex gap-3 text-[10px]">
+                  <span className="text-emerald-600 font-semibold">{runner.sent} sent</span>
+                  {runner.failed  > 0 && <span className="text-red-500">{runner.failed} failed</span>}
+                  {runner.skipped > 0 && <span className="text-slate-500">{runner.skipped} skipped</span>}
+                </div>
+                <button
+                  onClick={() => { campaignRunner.dismiss(); navigate('/history') }}
+                  className="w-full mt-1 text-xs text-emerald-700 font-semibold hover:underline"
+                >
+                  View results in Campaign History →
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

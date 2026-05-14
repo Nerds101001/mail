@@ -4,8 +4,9 @@ import { PageHeader, Empty, Btn, Card, toast } from '../components/ui'
 import { fmtDate } from '../utils'
 import {
   History, ChevronDown, ChevronRight, Send, Eye, MousePointer,
-  AlertCircle, Trash2, Calendar, Clock, Pencil, Check,
+  AlertCircle, Trash2, Calendar, Clock, Pencil, Check, Pause, Play,
 } from 'lucide-react'
+import * as campaignRunner from '../campaignRunner'
 
 const STATUS_COLOR = {
   sent:         'bg-blue-100 text-blue-700',
@@ -148,17 +149,37 @@ function EditScheduledModal({ campaign, onClose, onSaved }) {
 }
 
 // ── Campaign row — defined outside to avoid Fast Refresh issues ───────────────
-function CampaignRow({ c, isScheduled, expanded, detail, trackingData, onExpand, onEdit, onCancel, onDelete, onViewEmail }) {
+function CampaignRow({ c, isScheduled, isPaused, expanded, detail, trackingData, onExpand, onEdit, onCancel, onDelete, onViewEmail, onResume, runnerState }) {
   const scheduledDate = c.scheduled_at
     ? new Date(parseInt(c.scheduled_at)).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'short' })
     : null
   const isExpanded = expanded === c.id
 
+  // Live runner stats for this campaign (if it's the one currently running)
+  const isLive = runnerState?.status === 'RUNNING' && runnerState.campaignId === c.id
+  const liveSent   = isLive ? runnerState.sent   : c.total_sent
+  const liveFailed = isLive ? runnerState.failed  : c.total_failed
+  const liveSkip   = isLive ? runnerState.skipped : c.total_skipped
+
+  // Resume button logic — enabled 24h after pause
+  const pausedAt    = c.schedule_config?.paused_at
+  const resumeReady = pausedAt && (Date.now() - pausedAt >= 24 * 60 * 60 * 1000)
+  const pendingCount = c.schedule_config?.pending_count || 0
+  const hoursLeft   = pausedAt ? Math.max(0, Math.ceil((24 * 60 * 60 * 1000 - (Date.now() - pausedAt)) / (60 * 60 * 1000))) : 0
+
   return (
-    <div className={`card overflow-hidden ${isScheduled ? 'border-2 border-amber-300 bg-amber-50/40' : ''}`}>
+    <div className={`card overflow-hidden ${
+      isScheduled && !isPaused ? 'border-2 border-amber-300 bg-amber-50/40'
+      : isPaused ? 'border-2 border-orange-300 bg-orange-50/40'
+      : ''
+    }`}>
       {/* Header row */}
       <div
-        className={`flex items-center gap-4 px-5 py-4 cursor-pointer transition-colors ${isScheduled ? 'hover:bg-amber-50/80' : 'hover:bg-slate-50'}`}
+        className={`flex items-center gap-4 px-5 py-4 cursor-pointer transition-colors ${
+          isScheduled && !isPaused ? 'hover:bg-amber-50/80'
+          : isPaused ? 'hover:bg-orange-50/80'
+          : 'hover:bg-slate-50'
+        }`}
         onClick={() => onExpand(c.id)}
       >
         <div className="text-slate-400">
@@ -175,7 +196,12 @@ function CampaignRow({ c, isScheduled, expanded, detail, trackingData, onExpand,
             )}
             {c.status === 'RUNNING' && (
               <span className="flex items-center gap-1 text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full whitespace-nowrap animate-pulse">
-                ▶ RUNNING
+                ▶ RUNNING {isLive && `· ${runnerState.progress}%`}
+              </span>
+            )}
+            {isPaused && (
+              <span className="flex items-center gap-1 text-[10px] font-bold bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full whitespace-nowrap">
+                <Pause size={9}/> PAUSED · {pendingCount} pending
               </span>
             )}
             {c.status === 'CANCELLED' && (
@@ -185,9 +211,15 @@ function CampaignRow({ c, isScheduled, expanded, detail, trackingData, onExpand,
               <span className="text-[10px] font-bold bg-red-100 text-red-600 px-2 py-0.5 rounded-full">FAILED</span>
             )}
           </div>
-          {isScheduled && scheduledDate ? (
+          {isScheduled && !isPaused && scheduledDate ? (
             <p className="text-xs text-amber-700 font-medium mt-0.5">
               🕐 Runs at {scheduledDate} · Target: {c.target} · Sender: {c.sender}
+            </p>
+          ) : isPaused ? (
+            <p className="text-xs text-orange-700 font-medium mt-0.5">
+              {c.schedule_config?.cap_pause ? '🚫 Daily limit hit' : '⏸ Manually paused'}
+              {pausedAt ? ` · ${new Date(pausedAt).toLocaleString('en-IN', { dateStyle:'short', timeStyle:'short' })}` : ''}
+              {' '}· {c.target} · {c.sender}
             </p>
           ) : (
             <p className="text-xs text-slate-400">
@@ -211,7 +243,20 @@ function CampaignRow({ c, isScheduled, expanded, detail, trackingData, onExpand,
               </button>
             </>
           )}
-          {!isScheduled && (
+          {isPaused && (
+            <>
+              {resumeReady ? (
+                <Btn variant="primary" size="sm" onClick={e => { e.stopPropagation(); onResume(c) }} title="Resume sending pending leads">
+                  <Play size={12}/> Resume
+                </Btn>
+              ) : (
+                <span className="text-[10px] text-orange-600 bg-orange-100 px-2 py-1 rounded-lg font-medium" title={`Available after 24h from pause time`}>
+                  Resume in {hoursLeft}h
+                </span>
+              )}
+            </>
+          )}
+          {!isScheduled && !isPaused && (
             <Btn variant="ghost" size="sm" onClick={e => { e.stopPropagation(); window.location.href = `/campaign?followup=${c.id}` }}
               title="Re-target zero-open leads">
               ↩ Follow Up
@@ -222,18 +267,25 @@ function CampaignRow({ c, isScheduled, expanded, detail, trackingData, onExpand,
           </button>
         </div>
 
-        {/* Stats for completed */}
-        {!isScheduled && (
+        {/* Stats */}
+        {(!isScheduled || isPaused || c.status === 'RUNNING') && (
           <div className="flex items-center gap-4 text-sm shrink-0">
             <div className="flex items-center gap-1.5 text-blue-600">
-              <Send size={13}/><span className="font-bold">{c.total_sent}</span><span className="text-slate-400 text-xs">sent</span>
+              <Send size={13}/><span className="font-bold">{liveSent}</span><span className="text-slate-400 text-xs">sent</span>
             </div>
             <div className="flex items-center gap-1.5 text-red-500">
-              <AlertCircle size={13}/><span className="font-bold">{c.total_failed}</span><span className="text-slate-400 text-xs">failed</span>
+              <AlertCircle size={13}/><span className="font-bold">{liveFailed}</span><span className="text-slate-400 text-xs">failed</span>
             </div>
-            <div className="flex items-center gap-1.5 text-slate-400">
-              <span className="font-bold">{c.total_skipped}</span><span className="text-xs">skipped</span>
-            </div>
+            {(liveSkip > 0 || isPaused) && (
+              <div className="flex items-center gap-1.5 text-slate-400">
+                <span className="font-bold">{liveSkip}</span><span className="text-xs">skipped</span>
+              </div>
+            )}
+            {isPaused && pendingCount > 0 && (
+              <div className="flex items-center gap-1.5 text-orange-500">
+                <span className="font-bold">{pendingCount}</span><span className="text-xs">pending</span>
+              </div>
+            )}
             {isExpanded && detail && Object.keys(trackingData).length > 0 && (
               <>
                 <div className="flex items-center gap-1.5 text-emerald-600">
@@ -248,7 +300,7 @@ function CampaignRow({ c, isScheduled, expanded, detail, trackingData, onExpand,
                 </div>
               </>
             )}
-            {(!isExpanded || !detail || Object.keys(trackingData).length === 0) && (
+            {(!isExpanded || !detail || Object.keys(trackingData).length === 0) && !isPaused && (
               <>
                 {c.stats?.opens  > 0 && <div className="flex items-center gap-1.5 text-emerald-600"><Eye size={13}/><span className="font-bold">{c.stats.opens}</span></div>}
                 {c.stats?.clicks > 0 && <div className="flex items-center gap-1.5 text-amber-600"><MousePointer size={13}/><span className="font-bold">{c.stats.clicks}</span></div>}
@@ -257,7 +309,7 @@ function CampaignRow({ c, isScheduled, expanded, detail, trackingData, onExpand,
           </div>
         )}
 
-        {isScheduled && (
+        {isScheduled && !isPaused && c.status !== 'RUNNING' && (
           <div className="text-xs text-slate-400 shrink-0">
             {c.variants?.length || 0} variant{c.variants?.length !== 1 ? 's' : ''}
           </div>
@@ -382,15 +434,31 @@ export default function CampaignHistory() {
   const [modalEventsLoading, setModalEventsLoading] = useState(false)
   const [modalTab, setModalTab]           = useState('body')
   const [editingCamp, setEditingCamp]     = useState(null)
+  const [runnerState, setRunnerState]     = useState(campaignRunner.getState())
+  const [resuming, setResuming]           = useState(null) // campaignId being resumed
 
   const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
   const vaParam    = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
 
   useEffect(() => { load() }, [viewAs]) // eslint-disable-line
 
+  // Subscribe to runner for live progress
+  useEffect(() => campaignRunner.subscribe(s => {
+    setRunnerState(s)
+    // When runner finishes, reload to get final stats from DB
+    if (s.status === 'DONE' || s.status === 'PAUSED') {
+      setTimeout(() => load(), 1500)
+    }
+  }), []) // eslint-disable-line
+
+  // Poll every 5s while RUNNING (in case tab was opened mid-run)
+  useEffect(() => {
+    if (runnerState.status !== 'RUNNING') return
+    const t = setInterval(() => {}, 5000)    // keep alive; runner already pushes updates
+    return () => clearInterval(t)
+  }, [runnerState.status])
+
   // Hobby plan has no per-minute cron — trigger runner client-side instead.
-  // Fire immediately when a due campaign is found, then poll every 30 s while
-  // any SCHEDULED campaigns exist so the page stays current.
   useEffect(() => {
     const dueNow = campaigns.filter(c => c.status === 'SCHEDULED' && parseInt(c.scheduled_at) <= Date.now())
     if (dueNow.length > 0) {
@@ -452,6 +520,29 @@ export default function CampaignHistory() {
     } catch(e) { toast('Could not delete campaign', 'error') }
   }
 
+  async function resumeCampaign(c) {
+    if (runnerState.status === 'RUNNING') {
+      toast('A campaign is already running — wait for it to finish or pause it first', 'error')
+      return
+    }
+    const sc = c.schedule_config || {}
+    if (!sc.resume_config?.targets_remaining?.length) {
+      toast('No pending leads found for this campaign', 'error')
+      return
+    }
+    setResuming(c.id)
+    // Optimistically update the local list
+    setCampaigns(prev => prev.map(x => x.id === c.id ? { ...x, status: 'RUNNING' } : x))
+    toast(`▶ Resuming "${c.name}" — ${sc.pending_count || '?'} pending leads`, 'info')
+    try {
+      await campaignRunner.resume(c, localStorage.getItem('crm_token') || '')
+    } catch(e) {
+      toast('Resume failed: ' + e.message, 'error')
+      setCampaigns(prev => prev.map(x => x.id === c.id ? { ...x, status: 'PAUSED' } : x))
+    }
+    setResuming(null)
+  }
+
   async function cancelSchedule(c, e) {
     e.stopPropagation()
     if (!confirm(`Cancel "${c.name}"? The record will be kept but it will not run.`)) return
@@ -480,7 +571,8 @@ export default function CampaignHistory() {
   }
 
   const scheduledCamps = campaigns.filter(c => c.status === 'SCHEDULED' || c.status === 'RUNNING')
-  const completedCamps = campaigns.filter(c => c.status !== 'SCHEDULED' && c.status !== 'RUNNING')
+  const pausedCamps    = campaigns.filter(c => c.status === 'PAUSED')
+  const completedCamps = campaigns.filter(c => c.status !== 'SCHEDULED' && c.status !== 'RUNNING' && c.status !== 'PAUSED')
 
   return (
     <div>
@@ -497,21 +589,45 @@ export default function CampaignHistory() {
       ) : (
         <div className="space-y-6">
 
-          {/* Scheduled campaigns */}
+          {/* Scheduled / Running campaigns */}
           {scheduledCamps.length > 0 && (
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <Calendar size={15} className="text-amber-500" />
-                <h2 className="text-sm font-bold text-amber-700 uppercase tracking-wide">Scheduled</h2>
+                <h2 className="text-sm font-bold text-amber-700 uppercase tracking-wide">Scheduled / Running</h2>
                 <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">{scheduledCamps.length}</span>
               </div>
               <div className="space-y-3">
                 {scheduledCamps.map(c => (
                   <CampaignRow
-                    key={c.id} c={c} isScheduled={true}
+                    key={c.id} c={c} isScheduled={true} isPaused={false}
                     expanded={expanded} detail={expanded === c.id ? detail : null} trackingData={trackingData}
                     onExpand={expand} onEdit={setEditingCamp} onCancel={cancelSchedule}
                     onDelete={deleteCampaign} onViewEmail={openEmailModal}
+                    onResume={resumeCampaign} runnerState={runnerState}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Paused campaigns */}
+          {pausedCamps.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Pause size={15} className="text-orange-500" />
+                <h2 className="text-sm font-bold text-orange-700 uppercase tracking-wide">Paused</h2>
+                <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-semibold">{pausedCamps.length}</span>
+                <span className="text-[10px] text-orange-500 ml-1">— Resume after 24h when daily limits reset</span>
+              </div>
+              <div className="space-y-3">
+                {pausedCamps.map(c => (
+                  <CampaignRow
+                    key={c.id} c={c} isScheduled={false} isPaused={true}
+                    expanded={expanded} detail={expanded === c.id ? detail : null} trackingData={trackingData}
+                    onExpand={expand} onEdit={setEditingCamp} onCancel={cancelSchedule}
+                    onDelete={deleteCampaign} onViewEmail={openEmailModal}
+                    onResume={resumeCampaign} runnerState={runnerState}
                   />
                 ))}
               </div>
@@ -521,7 +637,7 @@ export default function CampaignHistory() {
           {/* Completed campaigns */}
           {completedCamps.length > 0 && (
             <div>
-              {scheduledCamps.length > 0 && (
+              {(scheduledCamps.length > 0 || pausedCamps.length > 0) && (
                 <div className="flex items-center gap-2 mb-3">
                   <History size={15} className="text-slate-400" />
                   <h2 className="text-sm font-bold text-slate-500 uppercase tracking-wide">Completed</h2>
@@ -530,10 +646,11 @@ export default function CampaignHistory() {
               <div className="space-y-3">
                 {completedCamps.map(c => (
                   <CampaignRow
-                    key={c.id} c={c} isScheduled={false}
+                    key={c.id} c={c} isScheduled={false} isPaused={false}
                     expanded={expanded} detail={expanded === c.id ? detail : null} trackingData={trackingData}
                     onExpand={expand} onEdit={setEditingCamp} onCancel={cancelSchedule}
                     onDelete={deleteCampaign} onViewEmail={openEmailModal}
+                    onResume={resumeCampaign} runnerState={runnerState}
                   />
                 ))}
               </div>
