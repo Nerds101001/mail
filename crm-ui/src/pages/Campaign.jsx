@@ -370,14 +370,15 @@ export default function Campaign() {
       variants,
       mode,
       customSubj,
-      customBody: htmlToPlain(customBodyHtml),
-      cfg:              { rate: cfg.rate },
-      senderName:       cfg.sender,
-      replyTo:          cfg.replyTo,
+      customBody:         htmlToPlain(customBodyHtml),
+      cfg:                { rate: cfg.rate },
+      senderName:         cfg.sender,
+      replyTo:            cfg.replyTo,
       selectedAtts,
       usePersonalization,
       attachmentText,
       token,
+      preInsertLeads: true,  // pre-log all leads as PENDING before sending starts
     })
 
     toast(`🚀 Campaign started — ${targets.length} emails sending in background`, 'success')

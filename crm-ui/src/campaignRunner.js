@@ -2,6 +2,15 @@
 // Lives outside React — survives component unmounts during SPA navigation.
 // Campaign.jsx kicks it off, Layout.jsx subscribes for the floating banner,
 // CampaignHistory.jsx subscribes for live progress on the RUNNING row.
+//
+// ── How tracking works ────────────────────────────────────────────────────────
+// 1. At campaign START, every target lead is pre-inserted into campaign_leads
+//    with status='PENDING'. This happens BEFORE any email is sent.
+// 2. After each email send, the corresponding PENDING row is updated to
+//    SENT / FAILED / BOUNCED / SKIPPED — immediately, not in batches.
+// 3. On RESUME (pause/crash/refresh), the runner queries campaign_leads for
+//    status='PENDING' rows. No target list is ever stored in schedule_config.
+// ─────────────────────────────────────────────────────────────────────────────
 
 const _state = {
   status:       'IDLE',   // IDLE | RUNNING | PAUSED | DONE
@@ -144,11 +153,12 @@ async function _patchCampaign(campaignId, updates, token) {
   } catch(e) { console.warn('[Runner] patchCampaign failed:', e.message) }
 }
 
+// ─── Batch-insert leads (used for pre-inserting PENDING rows) ─────────────────
 async function _saveLeads(campaignId, leads, token) {
   if (!leads.length) return
-  // Batch leads in groups of 50 to avoid oversized requests
-  for (let i = 0; i < leads.length; i += 50) {
-    const batch = leads.slice(i, i + 50)
+  // Send in batches of 100 to avoid large request bodies
+  for (let i = 0; i < leads.length; i += 100) {
+    const batch = leads.slice(i, i + 100)
     try {
       await fetch('/api/campaigns', {
         method:  'POST',
@@ -159,36 +169,62 @@ async function _saveLeads(campaignId, leads, token) {
   }
 }
 
-// ─── Fetch leads by IDs from the CRM store (used on resume) ─────────────────
+// ─── Update a single lead's status after send (PENDING → SENT/FAILED/etc) ────
+async function _markLeadSent(campaignId, lead, token) {
+  try {
+    await fetch(`/api/crm?type=campaigns&id=${campaignId}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body:    JSON.stringify({
+        update_lead: {
+          leadId:       lead.id,
+          status:       lead.status,
+          subject:      lead.subject      || '',
+          body:         lead.body         || '',
+          variantIndex: lead.variantIndex || 0,
+          sentAt:       lead.sentAt       || Date.now(),
+        },
+      }),
+    })
+  } catch(e) { console.warn('[Runner] markLeadSent failed:', e.message) }
+}
+
+// ─── Fetch PENDING leads from campaign_leads (used on resume) ─────────────────
+async function _fetchPendingLeads(campaignId, token) {
+  try {
+    const res = await fetch(`/api/crm?type=campaigns&id=${campaignId}&pending=true`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.pending_leads || []
+  } catch(e) { console.warn('[Runner] fetchPendingLeads failed:', e.message); return [] }
+}
+
+// ─── Fetch full lead objects from the CRM store by IDs (used for hydration) ──
 async function _fetchLeadsByIds(ids, token) {
   if (!ids?.length) return []
   try {
-    // Batch in groups of 200 to stay well under URL length limits
     const leads = []
     for (let i = 0; i < ids.length; i += 200) {
       const batch = ids.slice(i, i + 200)
       const res = await fetch(`/api/crm?type=leads_by_ids&ids=${batch.join(',')}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      if (!res.ok) { console.warn('[Runner] leads_by_ids batch failed:', res.status); continue }
+      if (!res.ok) continue
       const data = await res.json()
       leads.push(...(Array.isArray(data) ? data : []))
     }
     return leads
-  } catch(e) {
-    console.warn('[Runner] _fetchLeadsByIds failed:', e.message)
-    return []
-  }
+  } catch(e) { console.warn('[Runner] fetchLeadsByIds failed:', e.message); return [] }
 }
 
 // ─── Pause handler ────────────────────────────────────────────────────────────
+// All already-sent leads are updated in DB (per-lead updates in the loop).
+// Remaining leads are still PENDING in campaign_leads — no need to store IDs.
 
-async function _handlePause(fromIndex, config, doneLeads, reason) {
-  // Store only lead IDs for remaining targets — full objects bloat the PATCH body
-  // (can be 200+ KB for 1000 leads and triggers nginx 413 errors).
-  // On resume, _fetchLeadsByIds re-hydrates leads from the CRM store.
-  const remainingIds = config.targets.slice(fromIndex).map(l => l.id)
-  const pendingCount = remainingIds.length
+async function _handlePause(fromIndex, config, reason) {
+  const pendingCount = config.targets.length - fromIndex
 
   _state.status   = 'PAUSED'
   _state.pending  = pendingCount
@@ -196,18 +232,12 @@ async function _handlePause(fromIndex, config, doneLeads, reason) {
   _state.capPause = reason === 'cap'
 
   const msg = reason === 'cap'
-    ? `🚫 All senders hit daily limit — ${pendingCount} leads pending. Resume in 24h.`
-    : `⏸ Paused manually — ${pendingCount} leads pending. Resume in 24h.`
+    ? `🚫 All senders hit daily limit — ${pendingCount} leads pending.`
+    : `⏸ Paused — ${pendingCount} leads pending.`
   _addLog(msg, 'warn')
   _notify()
 
-  // Only save completed (SENT/FAILED/BOUNCED) leads — NOT pending.
-  // Pending leads are stored in schedule_config.resume_config.targets_remaining.
-  // Saving PENDING rows here would create duplicates when resume completes and
-  // re-inserts the same leads as SENT.
-  await _saveLeads(config.campaignId, doneLeads, config.token)
-
-  // Patch campaign with PAUSED status + resume config (compact IDs only for leads)
+  // Store send config only — no lead lists needed (pending leads are in DB as PENDING rows)
   await _patchCampaign(config.campaignId, {
     status:        'PAUSED',
     total_sent:    _state.sent,
@@ -215,63 +245,25 @@ async function _handlePause(fromIndex, config, doneLeads, reason) {
     total_skipped: _state.skipped,
     schedule_config: {
       paused_at:     _state.pausedAt,
-      pending_count: remainingIds.length,
+      pending_count: pendingCount,
       cap_pause:     reason === 'cap',
       resume_config: {
-        remaining_lead_ids: remainingIds,    // ← compact: IDs only (not full objects)
-        senderProfiles:    config.senderProfiles,
-        variants:          config.variants,
-        mode:              config.mode,
-        customSubj:        config.customSubj,
-        customBody:        config.customBody,
-        cfg:               config.cfg,
-        selectedAtts:      config.selectedAtts,
+        senderProfiles:     config.senderProfiles,
+        variants:           config.variants,
+        mode:               config.mode,
+        customSubj:         config.customSubj,
+        customBody:         config.customBody,
+        cfg:                config.cfg,
+        selectedAtts:       config.selectedAtts,
         usePersonalization: config.usePersonalization,
-        attachmentText:    config.attachmentText,
-        senderName:        config.senderName,
-        replyTo:           config.replyTo,
+        attachmentText:     config.attachmentText,
+        senderName:         config.senderName,
+        replyTo:            config.replyTo,
       },
     },
   }, config.token)
 
   _notify()
-}
-
-// ─── Checkpoint (save progress to DB every N leads) ──────────────────────────
-// Flushes the in-memory doneLeads buffer to DB and updates targets_remaining so
-// the campaign is resumable after a page refresh / network drop.
-
-const CHECKPOINT_EVERY = 10   // save to DB after every 10 sends
-
-async function _checkpoint(nextIndex, config, batch) {
-  // 1. Save the just-completed batch of leads
-  if (batch.length) await _saveLeads(config.campaignId, batch, config.token)
-
-  // 2. Compute remaining lead IDs (compact — avoids nginx 413 on large campaigns)
-  const remainingIds = config.targets.slice(nextIndex).map(l => l.id)
-
-  // 3. Update DB: current stats + compact resume_config
-  await _patchCampaign(config.campaignId, {
-    total_sent:    _state.sent,
-    total_failed:  _state.failed,
-    total_skipped: _state.skipped,
-    schedule_config: {
-      resume_config: {
-        remaining_lead_ids: remainingIds,    // ← IDs only, full data fetched on resume
-        senderProfiles:    config.senderProfiles,
-        variants:          config.variants,
-        mode:              config.mode,
-        customSubj:        config.customSubj,
-        customBody:        config.customBody,
-        cfg:               config.cfg,
-        selectedAtts:      config.selectedAtts,
-        usePersonalization: config.usePersonalization,
-        attachmentText:    config.attachmentText,
-        senderName:        config.senderName,
-        replyTo:           config.replyTo,
-      },
-    },
-  }, config.token)
 }
 
 // ─── Main run loop ────────────────────────────────────────────────────────────
@@ -285,13 +277,12 @@ export async function start(config) {
    *   senderName, replyTo,
    *   selectedAtts[], usePersonalization, attachmentText,
    *   token,
-   *   resumeOffset?: { sent, failed, skipped }  ← carries over stats from a previous
-   *                                                 partial run (crash recovery / resume)
+   *   preInsertLeads?: boolean  ← true for new campaigns; false for resumes
+   *   resumeOffset?: { sent, failed, skipped }
    */
   _state.status       = 'RUNNING'
   _state.campaignId   = config.campaignId
   _state.campaignName = config.campaignName
-  // For resumes: total includes leads already sent in prior runs so progress is accurate
   const priorSent    = config.resumeOffset?.sent    || 0
   const priorFailed  = config.resumeOffset?.failed  || 0
   const priorSkipped = config.resumeOffset?.skipped || 0
@@ -299,7 +290,7 @@ export async function start(config) {
   _state.sent         = priorSent
   _state.failed       = priorFailed
   _state.skipped      = priorSkipped
-  _state.pending      = 0
+  _state.pending      = config.targets.length
   _state.currentLead  = ''
   _state.progress     = _state.total > 0 ? Math.round(((priorSent + priorFailed + priorSkipped) / _state.total) * 100) : 0
   _state.log          = []
@@ -308,14 +299,36 @@ export async function start(config) {
   _state._abortFlag   = false
   _notify()
 
-  const doneLeads = []          // buffer — flushed every CHECKPOINT_EVERY leads
+  // ── Pre-insert all leads as PENDING (new campaigns only, not resumes) ────────
+  // This writes every target lead to campaign_leads with status='PENDING' before
+  // any email is sent. On resume, the runner queries these PENDING rows — no need
+  // to store target lists in schedule_config.
+  if (config.preInsertLeads && config.targets.length > 0) {
+    _addLog(`📋 Logging ${config.targets.length} leads in database…`, 'info')
+    _notify()
+    const pendingRows = config.targets.map(l => ({
+      id:           l.id,
+      name:         l.name         || '',
+      email:        l.email        || '',
+      company:      l.company      || '',
+      status:       'PENDING',
+      subject:      '',
+      body:         '',
+      variantIndex: 0,
+      sentAt:       null,
+    }))
+    await _saveLeads(config.campaignId, pendingRows, config.token)
+    _addLog(`✓ All leads queued — starting to send…`, 'info')
+    _notify()
+  }
+
   const exhaustedProfiles = new Set()
 
   let i = 0
   while (i < config.targets.length) {
     // ── Manual pause ──
     if (_state._abortFlag) {
-      await _handlePause(i, config, doneLeads, 'manual')
+      await _handlePause(i, config, 'manual')
       return
     }
 
@@ -327,7 +340,7 @@ export async function start(config) {
     // ── Pick a sender that hasn't hit its daily limit yet ──
     const profile = _getAvailableProfile(config.senderProfiles, exhaustedProfiles, i)
     if (!profile) {
-      await _handlePause(i, config, doneLeads, 'cap')
+      await _handlePause(i, config, 'cap')
       return
     }
 
@@ -344,51 +357,61 @@ export async function start(config) {
     }
 
     const sentAt = Date.now()
+    let leadStatus
     if (result.ok) {
       _addLog(`✓ ${l.name || l.email} → ${profile.name} (v${varIdx + 1})`, 'success')
       _state.sent++
-      doneLeads.push({ id: l.id, name: l.name || '', email: l.email, company: l.company || '', status: 'SENT',    subject: vData.subject, body: vData.body, variantIndex: varIdx, sentAt })
+      leadStatus = 'SENT'
     } else if (result.bounced) {
       _addLog(`⚡ BOUNCED: ${l.email}`, 'warn')
       _state.failed++
-      doneLeads.push({ id: l.id, name: l.name || '', email: l.email, company: l.company || '', status: 'BOUNCED', subject: vData.subject, body: vData.body, variantIndex: varIdx, sentAt })
+      leadStatus = 'BOUNCED'
     } else if (result.skipped) {
       _state.skipped++
-      doneLeads.push({ id: l.id, name: l.name || '', email: l.email, company: l.company || '', status: 'SKIPPED', subject: vData.subject, body: vData.body, variantIndex: varIdx, sentAt })
+      leadStatus = 'SKIPPED'
     } else {
       _addLog(`✗ Failed: ${l.email}`, 'error')
       _state.failed++
-      doneLeads.push({ id: l.id, name: l.name || '', email: l.email, company: l.company || '', status: 'FAILED',  subject: vData.subject, body: vData.body, variantIndex: varIdx, sentAt })
+      leadStatus = 'FAILED'
     }
+    _state.pending = Math.max(0, config.targets.length - i - 1)
     _notify()
 
-    // ── Checkpoint every CHECKPOINT_EVERY leads ──
-    // Drains the buffer to DB so progress survives a page refresh or network drop.
-    if (doneLeads.length >= CHECKPOINT_EVERY) {
-      const batch = doneLeads.splice(0)   // drain buffer in-place
-      await _checkpoint(i + 1, config, batch).catch(e => console.warn('[Runner] checkpoint failed:', e.message))
-    }
+    // ── Update lead in DB + honor rate-limit delay in parallel ────────────────
+    // The DB update runs concurrently with the rate-limit sleep so it adds zero
+    // wall-clock time when a delay is configured (typical case).
+    const updatePromise = _markLeadSent(config.campaignId, {
+      id: l.id, status: leadStatus, subject: vData.subject,
+      body: vData.body, variantIndex: varIdx, sentAt,
+    }, config.token)
 
     if (i < config.targets.length - 1 && config.cfg?.rate > 0) {
-      await new Promise(r => setTimeout(r, config.cfg.rate * 1000))
+      // Parallel: both must finish before the next send
+      await Promise.all([
+        updatePromise,
+        new Promise(r => setTimeout(r, config.cfg.rate * 1000)),
+      ])
+    } else {
+      await updatePromise   // last lead or no rate limit — just wait for DB update
     }
+
     i++
   }
 
-  // ── Completed — flush any remaining buffered leads ──
+  // ── Completed ──────────────────────────────────────────────────────────────
   _state.status      = 'DONE'
   _state.progress    = 100
+  _state.pending     = 0
   _state.currentLead = ''
   _addLog(`✅ Done — ${_state.sent} sent, ${_state.failed} failed, ${_state.skipped} skipped`, 'success')
   _notify()
 
-  await _saveLeads(config.campaignId, doneLeads, config.token)
   await _patchCampaign(config.campaignId, {
-    status:        'COMPLETED',
-    total_sent:    _state.sent,
-    total_failed:  _state.failed,
-    total_skipped: _state.skipped,
-    schedule_config: {},   // clear resume config — campaign is done
+    status:          'COMPLETED',
+    total_sent:      _state.sent,
+    total_failed:    _state.failed,
+    total_skipped:   _state.skipped,
+    schedule_config: {},   // clear send config — campaign is complete
   }, config.token)
   _notify()
 }
@@ -397,62 +420,74 @@ export async function start(config) {
 
 export async function resume(campaign, token) {
   /**
-   * campaign = full campaign object from DB.
-   * Works for both manual/cap pauses AND interrupted (crashed) campaigns.
-   * Supports two resume_config formats:
-   *   - Legacy: targets_remaining (full lead objects) — kept for backward compat
-   *   - Compact: remaining_lead_ids (just IDs) — fetched from CRM store on resume
+   * Works for manual/cap pauses AND interrupted (crash/page-refresh) campaigns.
+   * Fetches status='PENDING' rows from campaign_leads — no target list in DB needed.
+   * Then hydrates full lead data (notes, role, etc.) from the CRM store for
+   * personalization.
    */
   const sc = campaign.schedule_config || {}
   const rc = sc.resume_config || {}
 
-  // ── Resolve targets ──────────────────────────────────────────────────────────
-  let targets = []
+  // ── Fetch pending leads from campaign_leads table ────────────────────────────
+  _addLog(`🔍 Loading pending leads…`, 'info')
+  _notify()
 
-  if (rc.targets_remaining?.length) {
-    // Legacy format — full lead objects already in the DB record
-    targets = rc.targets_remaining
-  } else if (rc.remaining_lead_ids?.length) {
-    // Compact format — fetch full lead data from CRM store by IDs
-    console.log(`[Runner] Fetching ${rc.remaining_lead_ids.length} leads by ID for resume…`)
-    targets = await _fetchLeadsByIds(rc.remaining_lead_ids, token)
-    if (!targets.length) {
-      console.warn('[Runner] resume: fetchLeadsByIds returned no leads')
-      throw new Error('Could not load leads for this campaign — they may have been deleted')
+  const pendingRows = await _fetchPendingLeads(campaign.id, token)
+
+  if (!pendingRows.length) {
+    _state.status = 'IDLE'
+    _notify()
+    throw new Error('No pending leads found — this campaign may already be complete')
+  }
+
+  _addLog(`📋 Found ${pendingRows.length} pending leads`, 'info')
+  _notify()
+
+  // ── Hydrate with full CRM data for personalization ────────────────────────────
+  // campaign_leads only stores name/email/company; CRM store has notes/role/etc.
+  const leadIds  = pendingRows.map(r => r.lead_id)
+  const fullLeads = await _fetchLeadsByIds(leadIds, token)
+  const leadMap  = {}
+  fullLeads.forEach(l => { leadMap[String(l.id)] = l })
+
+  const targets = pendingRows.map(r => {
+    const full = leadMap[String(r.lead_id)] || {}
+    return {
+      id:       r.lead_id,
+      email:    r.lead_email   || full.email    || '',
+      name:     r.lead_name    || full.name     || '',
+      company:  r.lead_company || full.company  || '',
+      notes:    full.notes     || '',
+      role:     full.role      || '',
+      category: full.category  || '',
+      tags:     full.tags      || [],
+      group:    full.group     || '',
     }
-    console.log(`[Runner] Loaded ${targets.length} leads for resume`)
-  }
-
-  if (!targets.length) {
-    console.warn('[Runner] resume called but no targets found in resume_config')
-    return
-  }
+  })
 
   await _patchCampaign(campaign.id, { status: 'RUNNING' }, token)
 
-  const config = {
-    campaignId:        campaign.id,
-    campaignName:      campaign.name,
+  await start({
+    campaignId:         campaign.id,
+    campaignName:       campaign.name,
     targets,
-    senderProfiles:    rc.senderProfiles    || [],
-    variants:          rc.variants          || [],
-    mode:              rc.mode              || 'ai',
-    customSubj:        rc.customSubj        || '',
-    customBody:        rc.customBody        || '',
-    cfg:               rc.cfg               || { rate: 2 },
-    senderName:        rc.senderName        || '',
-    replyTo:           rc.replyTo           || '',
-    selectedAtts:      rc.selectedAtts      || [],
+    senderProfiles:     rc.senderProfiles     || [],
+    variants:           rc.variants           || [],
+    mode:               rc.mode               || 'ai',
+    customSubj:         rc.customSubj         || '',
+    customBody:         rc.customBody         || '',
+    cfg:                rc.cfg                || { rate: 2 },
+    senderName:         rc.senderName         || '',
+    replyTo:            rc.replyTo            || '',
+    selectedAtts:       rc.selectedAtts       || [],
     usePersonalization: rc.usePersonalization || false,
-    attachmentText:    rc.attachmentText    || '',
+    attachmentText:     rc.attachmentText     || '',
     token,
-    // Carry forward stats so progress bar and final totals accumulate correctly
+    preInsertLeads: false,   // ← PENDING rows already exist from initial insert
     resumeOffset: {
       sent:    campaign.total_sent    || 0,
       failed:  campaign.total_failed  || 0,
       skipped: campaign.total_skipped || 0,
     },
-  }
-
-  await start(config)
+  })
 }

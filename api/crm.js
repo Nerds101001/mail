@@ -252,7 +252,19 @@ module.exports = async (req, res) => {
       if (req.method === "GET" && id) {
         const [camp] = await sql`SELECT * FROM campaigns WHERE id=${id} AND (user_id=${userId} OR ${userId}='admin')`;
         if (!camp) return res.status(404).json({error:"Not found"});
-        const leads = await sql`SELECT * FROM campaign_leads WHERE campaign_id=${id} ORDER BY sent_at DESC`;
+
+        // pending=true → return only PENDING leads (used by campaignRunner.resume)
+        if (req.query.pending === "true") {
+          const pendingLeads = await sql`
+            SELECT lead_id, lead_name, lead_email, lead_company
+            FROM campaign_leads
+            WHERE campaign_id=${id} AND status='PENDING'
+            ORDER BY id ASC
+          `;
+          return res.json({ pending_leads: pendingLeads });
+        }
+
+        const leads = await sql`SELECT * FROM campaign_leads WHERE campaign_id=${id} ORDER BY CASE WHEN status='PENDING' THEN 1 ELSE 0 END, sent_at DESC`;
         return res.json({
           ...camp,
           stats:           typeof camp.stats           === 'string' ? JSON.parse(camp.stats           ||"{}") : (camp.stats           || {}),
@@ -285,7 +297,26 @@ module.exports = async (req, res) => {
       // PATCH — update a campaign (time, name, variants, config, status, stats)
       if (req.method === "PATCH" && id) {
         const { name, scheduled_at, schedule_config, variants, status: newStatus,
-                total_sent, total_failed, total_skipped } = req.body;
+                total_sent, total_failed, total_skipped, update_lead } = req.body;
+
+        // update_lead: update a single campaign_lead row from PENDING → final status
+        // Called by campaignRunner after each individual send.
+        if (update_lead) {
+          const { leadId, status: ls, subject, body, sentAt, variantIndex } = update_lead;
+          await sql`
+            UPDATE campaign_leads
+            SET status       = ${ls        || 'sent'},
+                subject      = ${subject   || ''},
+                body         = ${body      || ''},
+                sent_at      = ${sentAt    || Date.now()},
+                variant_index= ${variantIndex || 0}
+            WHERE campaign_id = ${id}
+              AND lead_id     = ${leadId}
+              AND status      = 'PENDING'
+          `;
+          return res.json({ ok: true });
+        }
+
         await sql`
           UPDATE campaigns SET
             name            = COALESCE(${name          ?? null}, name),
@@ -306,14 +337,15 @@ module.exports = async (req, res) => {
                 status, scheduled_at, schedule_config, leads_only } = req.body;
         const campId = providedId || `camp_${Date.now()}`;
 
-        // leads_only=true — just insert leads into an existing campaign, don't touch campaign row
+        // leads_only=true — insert/update leads in an existing campaign, don't touch campaign row
         if (leads_only && providedId && campLeads?.length) {
-          for (const l of campLeads) {
-            await sql`
+          // Parallel inserts (much faster than sequential for large PENDING pre-inserts)
+          await Promise.all(campLeads.map(l =>
+            sql`
               INSERT INTO campaign_leads (campaign_id,user_id,lead_id,lead_name,lead_email,lead_company,status,subject,body,sent_at,variant_index)
-              VALUES (${campId},${userId},${l.id},${l.name||""},${l.email||""},${l.company||""},${l.status||"sent"},${l.subject||""},${l.body||""},${l.sentAt||Date.now()},${l.variantIndex||0})
-            `.catch(()=>{});
-          }
+              VALUES (${campId},${userId},${l.id},${l.name||""},${l.email||""},${l.company||""},${l.status||"PENDING"},${l.subject||""},${l.body||""},${l.sentAt||null},${l.variantIndex||0})
+            `.catch(()=>{})
+          ));
           return res.json({ ok: true, id: campId });
         }
 

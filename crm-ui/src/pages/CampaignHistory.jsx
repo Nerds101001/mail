@@ -9,13 +9,19 @@ import {
 import * as campaignRunner from '../campaignRunner'
 
 const STATUS_COLOR = {
+  PENDING:      'bg-yellow-100 text-yellow-700',
+  pending:      'bg-yellow-100 text-yellow-700',
   sent:         'bg-blue-100 text-blue-700',
+  SENT:         'bg-blue-100 text-blue-700',
   failed:       'bg-red-100 text-red-700',
+  FAILED:       'bg-red-100 text-red-700',
   skipped:      'bg-slate-100 text-slate-500',
+  SKIPPED:      'bg-slate-100 text-slate-500',
   opened:       'bg-emerald-100 text-emerald-700',
   clicked:      'bg-amber-100 text-amber-700',
   replied:      'bg-purple-100 text-purple-700',
   bounced:      'bg-red-100 text-red-600',
+  BOUNCED:      'bg-red-100 text-red-600',
   unsubscribed: 'bg-slate-100 text-slate-400',
 }
 
@@ -227,7 +233,7 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
           </div>
           {isInterrupted ? (
             <p className="text-xs text-purple-700 font-medium mt-0.5">
-              ⚡ Crashed or page was refreshed mid-send · {c.total_sent || 0} sent so far · {c.target} · {c.sender}
+              ⚡ Crashed or page refreshed · {c.total_sent || 0} sent · remaining leads queued in DB · {c.target} · {c.sender}
             </p>
           ) : isScheduled && !isPaused && scheduledDate ? (
             <p className="text-xs text-amber-700 font-medium mt-0.5">
@@ -383,10 +389,12 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
             </div>
           )}
 
-          {/* Scheduled — no leads yet */}
+          {/* Scheduled / running with no sent leads yet */}
           {(c.status === 'SCHEDULED' || c.status === 'RUNNING' || c.status === 'CANCELLED') && (!detail.leads || detail.leads.length === 0) && (
             <div className="px-5 py-4">
-              <p className="text-xs text-slate-500 text-center py-2">No leads sent yet — campaign will execute at the scheduled time.</p>
+              <p className="text-xs text-slate-500 text-center py-2">
+                {c.status === 'RUNNING' ? 'Queuing leads — sending will appear here shortly…' : 'No leads sent yet — campaign will execute at the scheduled time.'}
+              </p>
             </div>
           )}
 
@@ -551,25 +559,10 @@ export default function CampaignHistory() {
       toast('A campaign is already running — wait for it to finish or pause it first', 'error')
       return
     }
-    const sc = c.schedule_config || {}
-    const isInterrupted = c.status === 'RUNNING'
-    const rc = sc.resume_config || {}
-    const hasLeads = rc.targets_remaining?.length || rc.remaining_lead_ids?.length
-    if (!hasLeads) {
-      toast(
-        isInterrupted
-          ? 'No checkpoint found — campaign was created before crash-recovery. Please create a new campaign for the remaining leads.'
-          : 'No pending leads found for this campaign',
-        'error'
-      )
-      return
-    }
     const originalStatus = c.status  // 'PAUSED' or 'RUNNING' (interrupted)
     setResuming(c.id)
-    // Optimistically update the local list
     setCampaigns(prev => prev.map(x => x.id === c.id ? { ...x, status: 'RUNNING' } : x))
-    const pendingCount = rc.remaining_lead_ids?.length || rc.targets_remaining?.length || '?'
-    toast(`▶ Resuming "${c.name}" — ${pendingCount} leads remaining`, 'info')
+    toast(`▶ Resuming "${c.name}"…`, 'info')
     try {
       await campaignRunner.resume(c, localStorage.getItem('crm_token') || '')
     } catch(e) {
