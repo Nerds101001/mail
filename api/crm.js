@@ -264,6 +264,13 @@ module.exports = async (req, res) => {
           return res.json({ pending_leads: pendingLeads });
         }
 
+        // all_lead_ids=true → return every lead_id already in this campaign (any status)
+        // Used by "Requeue unsent leads" to figure out which leads were never queued
+        if (req.query.all_lead_ids === "true") {
+          const rows = await sql`SELECT lead_id FROM campaign_leads WHERE campaign_id=${id}`;
+          return res.json({ lead_ids: rows.map(r => String(r.lead_id)) });
+        }
+
         const leads = await sql`SELECT * FROM campaign_leads WHERE campaign_id=${id} ORDER BY CASE WHEN status='PENDING' THEN 1 ELSE 0 END, sent_at DESC`;
         return res.json({
           ...camp,

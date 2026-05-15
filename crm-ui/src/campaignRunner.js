@@ -26,6 +26,7 @@ const _state = {
   log:          [],
   pausedAt:     null,
   capPause:     false,    // true = paused because all senders hit daily cap
+  batchPause:   false,    // true = paused because batch limit was reached
   _abortFlag:   false,
   _subscribers: new Set(),
 }
@@ -45,6 +46,7 @@ function _snap() {
     log:          [..._state.log],
     pausedAt:     _state.pausedAt,
     capPause:     _state.capPause,
+    batchPause:   _state.batchPause,
   }
 }
 
@@ -230,9 +232,12 @@ async function _handlePause(fromIndex, config, reason) {
   _state.pending  = pendingCount
   _state.pausedAt = Date.now()
   _state.capPause = reason === 'cap'
+  _state.batchPause = reason === 'batch'
 
   const msg = reason === 'cap'
     ? `🚫 All senders hit daily limit — ${pendingCount} leads pending.`
+    : reason === 'batch'
+    ? `⏸ Batch of ${fromIndex} sent — ${pendingCount} leads still queued. Resume to send next batch.`
     : `⏸ Paused — ${pendingCount} leads pending.`
   _addLog(msg, 'warn')
   _notify()
@@ -247,13 +252,14 @@ async function _handlePause(fromIndex, config, reason) {
       paused_at:     _state.pausedAt,
       pending_count: pendingCount,
       cap_pause:     reason === 'cap',
+      batch_pause:   reason === 'batch',
       resume_config: {
         senderProfiles:     config.senderProfiles,
         variants:           config.variants,
         mode:               config.mode,
         customSubj:         config.customSubj,
         customBody:         config.customBody,
-        cfg:                config.cfg,
+        cfg:                { ...(config.cfg || {}), batch: config.batchSize || config.cfg?.batch },
         selectedAtts:       config.selectedAtts,
         usePersonalization: config.usePersonalization,
         attachmentText:     config.attachmentText,
@@ -273,11 +279,12 @@ export async function start(config) {
    * config shape:
    *   campaignId, campaignName, targets[], senderProfiles[], variants[],
    *   mode, customSubj, customBody,
-   *   cfg: { rate }
+   *   cfg: { rate, batch? }
    *   senderName, replyTo,
    *   selectedAtts[], usePersonalization, attachmentText,
    *   token,
    *   preInsertLeads?: boolean  ← true for new campaigns; false for resumes
+   *   batchSize?: number        ← max emails to send per run; pauses after
    *   resumeOffset?: { sent, failed, skipped }
    */
   _state.status       = 'RUNNING'
@@ -296,6 +303,7 @@ export async function start(config) {
   _state.log          = []
   _state.pausedAt     = null
   _state.capPause     = false
+  _state.batchPause   = false
   _state._abortFlag   = false
   _notify()
 
@@ -322,10 +330,17 @@ export async function start(config) {
     _notify()
   }
 
+  // ── Batch size: how many to send this run ─────────────────────────────────
+  // If batchSize < targets.length, we send batchSize leads then PAUSE so the
+  // remaining PENDING rows can be picked up by the next resume.
+  const batchSize = (config.batchSize && config.batchSize < config.targets.length)
+    ? config.batchSize
+    : config.targets.length
+
   const exhaustedProfiles = new Set()
 
   let i = 0
-  while (i < config.targets.length) {
+  while (i < batchSize) {
     // ── Manual pause ──
     if (_state._abortFlag) {
       await _handlePause(i, config, 'manual')
@@ -385,7 +400,7 @@ export async function start(config) {
       body: vData.body, variantIndex: varIdx, sentAt,
     }, config.token)
 
-    if (i < config.targets.length - 1 && config.cfg?.rate > 0) {
+    if (i < batchSize - 1 && config.cfg?.rate > 0) {
       // Parallel: both must finish before the next send
       await Promise.all([
         updatePromise,
@@ -398,6 +413,12 @@ export async function start(config) {
     i++
   }
 
+  // ── Batch limit reached — more PENDING leads remain in DB ─────────────────
+  if (batchSize < config.targets.length) {
+    await _handlePause(batchSize, config, 'batch')
+    return
+  }
+
   // ── Completed ──────────────────────────────────────────────────────────────
   _state.status      = 'DONE'
   _state.progress    = 100
@@ -407,23 +428,27 @@ export async function start(config) {
   _notify()
 
   await _patchCampaign(config.campaignId, {
-    status:          'COMPLETED',
-    total_sent:      _state.sent,
-    total_failed:    _state.failed,
-    total_skipped:   _state.skipped,
-    schedule_config: {},   // clear send config — campaign is complete
+    status:        'COMPLETED',
+    total_sent:    _state.sent,
+    total_failed:  _state.failed,
+    total_skipped: _state.skipped,
+    // Keep schedule_config — needed if user wants to requeue unsent leads later
   }, config.token)
   _notify()
 }
 
 // ─── Resume ───────────────────────────────────────────────────────────────────
 
-export async function resume(campaign, token) {
+export async function resume(campaign, token, fallbackProfiles = []) {
   /**
    * Works for manual/cap pauses AND interrupted (crash/page-refresh) campaigns.
    * Fetches status='PENDING' rows from campaign_leads — no target list in DB needed.
    * Then hydrates full lead data (notes, role, etc.) from the CRM store for
    * personalization.
+   *
+   * fallbackProfiles — active sender profiles from the UI, used when the campaign's
+   * schedule_config has no senderProfiles saved (e.g. old campaigns completed before
+   * the resume_config architecture was added).
    */
   const sc = campaign.schedule_config || {}
   const rc = sc.resume_config || {}
@@ -467,23 +492,50 @@ export async function resume(campaign, token) {
 
   await _patchCampaign(campaign.id, { status: 'RUNNING' }, token)
 
+  // Resolve sender profiles: prefer saved resume_config, fall back to UI's active profiles
+  const senderProfiles = (rc.senderProfiles?.length ? rc.senderProfiles : fallbackProfiles)
+  if (!senderProfiles.length) {
+    _state.status = 'IDLE'
+    _notify()
+    throw new Error('No sender profiles found. Go to Settings → Email Accounts and add at least one active sender.')
+  }
+  if (!rc.senderProfiles?.length && fallbackProfiles.length) {
+    _addLog(`⚠ No saved sender config — using ${fallbackProfiles.length} active profile(s) from Settings`, 'warn')
+    _notify()
+  }
+
+  // Restore batchSize from saved cfg so each resume sends the same batch limit
+  const savedBatch = rc.cfg?.batch
+  _addLog(savedBatch ? `📦 Batch size: ${savedBatch} per run` : `📦 No batch limit`, 'info')
+  _notify()
+
+  // Use campaign-level variants as fallback if resume_config has none
+  const variants = rc.variants?.length ? rc.variants : (campaign.variants || [])
+  if (variants.length) {
+    _addLog(`📧 Using ${variants.length} email variant(s)`, 'info')
+  } else {
+    _addLog(`⚠ No email variants found — will use default template`, 'warn')
+  }
+  _notify()
+
   await start({
     campaignId:         campaign.id,
     campaignName:       campaign.name,
     targets,
-    senderProfiles:     rc.senderProfiles     || [],
-    variants:           rc.variants           || [],
-    mode:               rc.mode               || 'ai',
+    senderProfiles,
+    variants,
+    mode:               rc.mode               || (variants.length ? 'ai' : 'custom'),
     customSubj:         rc.customSubj         || '',
     customBody:         rc.customBody         || '',
     cfg:                rc.cfg                || { rate: 2 },
-    senderName:         rc.senderName         || '',
+    senderName:         rc.senderName         || campaign.sender || '',
     replyTo:            rc.replyTo            || '',
     selectedAtts:       rc.selectedAtts       || [],
     usePersonalization: rc.usePersonalization || false,
     attachmentText:     rc.attachmentText     || '',
     token,
     preInsertLeads: false,   // ← PENDING rows already exist from initial insert
+    batchSize:      savedBatch || undefined,  // send next N then pause again
     resumeOffset: {
       sent:    campaign.total_sent    || 0,
       failed:  campaign.total_failed  || 0,

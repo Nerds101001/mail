@@ -155,7 +155,7 @@ function EditScheduledModal({ campaign, onClose, onSaved }) {
 }
 
 // ── Campaign row — defined outside to avoid Fast Refresh issues ───────────────
-function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail, trackingData, onExpand, onEdit, onCancel, onDelete, onViewEmail, onResume, runnerState }) {
+function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail, trackingData, onExpand, onEdit, onCancel, onDelete, onViewEmail, onResume, onRequeue, requeueing, runnerState }) {
   const scheduledDate = c.scheduled_at
     ? new Date(parseInt(c.scheduled_at)).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'short' })
     : null
@@ -169,13 +169,14 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
 
   // Resume button logic
   // Cap-paused (daily limit hit) → 24 h gate so limits actually reset
-  // Manually paused → resume available immediately, no waiting
-  const capPause    = c.schedule_config?.cap_pause || false
+  // Batch-paused / manually paused → resume available immediately
+  const capPause    = c.schedule_config?.cap_pause   || false
+  const batchPause  = c.schedule_config?.batch_pause || false
   const pausedAt    = c.schedule_config?.paused_at
   const pendingCount = c.schedule_config?.pending_count || 0
   const resumeReady = capPause
     ? (pausedAt && Date.now() - pausedAt >= 24 * 60 * 60 * 1000)
-    : true   // manual pause → always resumable
+    : true   // batch/manual pause → always resumable immediately
   const hoursLeft = (capPause && pausedAt)
     ? Math.max(0, Math.ceil((24 * 60 * 60 * 1000 - (Date.now() - pausedAt)) / (60 * 60 * 1000)))
     : 0
@@ -221,7 +222,7 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
             )}
             {isPaused && (
               <span className="flex items-center gap-1 text-[10px] font-bold bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full whitespace-nowrap">
-                <Pause size={9}/> PAUSED · {pendingCount} pending
+                <Pause size={9}/> {batchPause ? `BATCH DONE · ${pendingCount} queued` : `PAUSED · ${pendingCount} pending`}
               </span>
             )}
             {c.status === 'CANCELLED' && (
@@ -241,7 +242,7 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
             </p>
           ) : isPaused ? (
             <p className="text-xs text-orange-700 font-medium mt-0.5">
-              {c.schedule_config?.cap_pause ? '🚫 Daily limit hit' : '⏸ Manually paused'}
+              {capPause ? '🚫 Daily limit hit' : batchPause ? `📦 Batch done — ${pendingCount} leads still queued` : '⏸ Manually paused'}
               {pausedAt ? ` · ${new Date(pausedAt).toLocaleString('en-IN', { dateStyle:'short', timeStyle:'short' })}` : ''}
               {' '}· {c.target} · {c.sender}
             </p>
@@ -288,10 +289,20 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
             </>
           )}
           {!isScheduled && !isPaused && !isInterrupted && (
-            <Btn variant="ghost" size="sm" onClick={e => { e.stopPropagation(); window.location.href = `/campaign?followup=${c.id}` }}
-              title="Re-target zero-open leads">
-              ↩ Follow Up
-            </Btn>
+            <>
+              <Btn variant="ghost" size="sm" onClick={e => { e.stopPropagation(); window.location.href = `/campaign?followup=${c.id}` }}
+                title="Re-target zero-open leads">
+                ↩ Follow Up
+              </Btn>
+              <Btn variant="ghost" size="sm"
+                onClick={e => { e.stopPropagation(); onRequeue(c) }}
+                disabled={requeueing === c.id}
+                title="Find leads in this target group that were never sent to and re-queue them"
+                className="text-violet-600 hover:text-violet-700 hover:bg-violet-50"
+              >
+                {requeueing === c.id ? '⏳' : '🔁'} {requeueing === c.id ? 'Requeueing…' : 'Requeue Unsent'}
+              </Btn>
+            </>
           )}
           <button onClick={e => onDelete(c, e)} title="Delete" className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
             <Trash2 size={14}/>
@@ -494,7 +505,7 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function CampaignHistory() {
-  const { viewAs } = useCRM()
+  const { viewAs, leads, profiles } = useCRM()
   const [campaigns, setCampaigns]         = useState([])
   const [loading, setLoading]             = useState(true)
   const [expanded, setExpanded]           = useState(null)
@@ -507,6 +518,7 @@ export default function CampaignHistory() {
   const [editingCamp, setEditingCamp]     = useState(null)
   const [runnerState, setRunnerState]     = useState(campaignRunner.getState())
   const [resuming, setResuming]           = useState(null) // campaignId being resumed
+  const [requeueing, setRequeueing]       = useState(null) // campaignId being requeued
 
   // Refs for safe async callbacks
   const mountedRef = useRef(true)
@@ -602,7 +614,10 @@ export default function CampaignHistory() {
     setCampaigns(prev => prev.map(x => x.id === c.id ? { ...x, status: 'RUNNING' } : x))
     toast(`▶ Resuming "${c.name}"…`, 'info')
     try {
-      await campaignRunner.resume(c, localStorage.getItem('crm_token') || '')
+      // Pass active profiles as fallback — used when campaign's schedule_config was cleared
+      // (e.g. old campaigns completed before the new architecture stored resume_config)
+      const fallbackProfiles = profiles.filter(p => p.active)
+      await campaignRunner.resume(c, localStorage.getItem('crm_token') || '', fallbackProfiles)
     } catch(e) {
       if (mountedRef.current) {
         toast('Resume failed: ' + e.message, 'error')
@@ -610,6 +625,128 @@ export default function CampaignHistory() {
       }
     }
     if (mountedRef.current) setResuming(null)
+  }
+
+  // ── Requeue unsent leads ──────────────────────────────────────────────────
+  // For COMPLETED campaigns that only sent a subset (e.g. batch limit was hit
+  // before the new batch-pause architecture). Figures out which leads in the
+  // original target group were NEVER added to campaign_leads and re-queues them.
+  async function requeueUnsent(c) {
+    if (runnerState.status === 'RUNNING') {
+      toast('A campaign is already running — finish or pause it first', 'error')
+      return
+    }
+
+    const sc = c.schedule_config || {}
+    const rc = sc.resume_config  || {}
+    const token = localStorage.getItem('crm_token') || ''
+
+    setRequeueing(c.id)
+    try {
+      // 1. Fetch lead IDs already in this campaign (any status)
+      const res = await fetch(`/api/crm?type=campaigns&id=${c.id}&all_lead_ids=true`, {
+        headers: authHeader(),
+      })
+      if (!res.ok) throw new Error('Could not fetch existing lead IDs')
+      const { lead_ids: alreadyQueued } = await res.json()
+      const alreadySet = new Set(alreadyQueued || [])
+
+      // 2. Get leads in the same target group (same logic as getTargets() in Campaign.jsx)
+      let pool = []
+      const tgt = c.target || 'valid'
+      if (tgt === 'all')      pool = leads.slice()
+      else if (tgt === 'valid')    pool = leads.filter(l => l.status === 'VALID')
+      else if (tgt === 'followup') pool = leads.filter(l => l.status === 'FOLLOW-UP')
+      else if (tgt === 'hot')      pool = leads.filter(l => l.pipelineStage === 'HOT' || l.opens >= 2 || l.clicks >= 1)
+      else                         pool = leads.filter(l =>
+        (l.group||'').toLowerCase()    === tgt.toLowerCase() ||
+        (l.category||'').toLowerCase() === tgt.toLowerCase()
+      )
+
+      // 3. Filter to only those not yet in campaign_leads
+      const unsent = pool.filter(l => !alreadySet.has(String(l.id)))
+
+      if (!unsent.length) {
+        toast(`All leads in the "${tgt}" group are already queued or sent — nothing to requeue`, 'info')
+        setRequeueing(null)
+        return
+      }
+
+      if (!confirm(`Found ${unsent.length} leads in the "${tgt}" group that were never sent to.\n\nRequeue them into this campaign and mark it as PAUSED so you can Resume?\n\nNote: You can then click Resume to send them.`)) {
+        setRequeueing(null)
+        return
+      }
+
+      // 4. Insert them as PENDING in campaign_leads
+      const pendingRows = unsent.map(l => ({
+        id: l.id, name: l.name || '', email: l.email || '', company: l.company || '',
+        status: 'PENDING', subject: '', body: '', variantIndex: 0, sentAt: null,
+      }))
+
+      // Send in batches of 100 to stay within request limits
+      for (let i = 0; i < pendingRows.length; i += 100) {
+        const batch = pendingRows.slice(i, i + 100)
+        const r = await fetch('/api/campaigns', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ id: c.id, leads_only: true, leads: batch }),
+        })
+        if (!r.ok) throw new Error(`Insert batch failed (${r.status})`)
+      }
+
+      // 5. Mark campaign as PAUSED (and save pending_count so the UI shows correctly)
+      // If resume_config is missing (old campaign), build a minimal one from what we know
+      const activeProfiles = profiles.filter(p => p.active)
+      const builtResumeConfig = rc.senderProfiles?.length ? rc : {
+        ...rc,
+        // Fallback: use current active profiles + campaign's saved variants
+        senderProfiles: activeProfiles,
+        variants:       c.variants || [],
+        mode:           'ai',
+        cfg:            { rate: 2 },
+        senderName:     c.sender || '',
+        replyTo:        '',
+      }
+
+      const patchBody = {
+        status: 'PAUSED',
+        schedule_config: {
+          ...sc,
+          paused_at:     Date.now(),
+          pending_count: unsent.length,
+          batch_pause:   false,
+          cap_pause:     false,
+          resume_config: builtResumeConfig,
+        },
+      }
+
+      // If no resume_config (old campaign before the architecture change), warn but still patch
+      if (!rc.senderProfiles?.length) {
+        if (activeProfiles.length) {
+          toast(`ℹ No saved sender config — will use your ${activeProfiles.length} active profile(s). Check sender name after resuming.`, 'info')
+        } else {
+          toast(`⚠ ${unsent.length} leads requeued but no active sender profiles found. Add senders in Settings first.`, 'warn')
+        }
+      }
+
+      await fetch(`/api/crm?type=campaigns&id=${c.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(patchBody),
+      })
+
+      // Reload campaign list to reflect PAUSED status
+      setCampaigns(prev => prev.map(x => x.id === c.id ? {
+        ...x,
+        status: 'PAUSED',
+        schedule_config: { ...sc, paused_at: Date.now(), pending_count: unsent.length, batch_pause: false, cap_pause: false, resume_config: builtResumeConfig },
+      } : x))
+
+      toast(`✅ ${unsent.length} leads requeued — campaign is now PAUSED. Click Resume to send.`, 'success')
+    } catch(e) {
+      toast('Requeue failed: ' + e.message, 'error')
+    }
+    if (mountedRef.current) setRequeueing(null)
   }
 
   async function cancelSchedule(c, e) {
@@ -677,7 +814,7 @@ export default function CampaignHistory() {
                     expanded={expanded} detail={expanded === c.id ? detail : null} trackingData={trackingData}
                     onExpand={expand} onEdit={setEditingCamp} onCancel={cancelSchedule}
                     onDelete={deleteCampaign} onViewEmail={openEmailModal}
-                    onResume={resumeCampaign} runnerState={runnerState}
+                    onResume={resumeCampaign} onRequeue={requeueUnsent} requeueing={requeueing} runnerState={runnerState}
                   />
                 ))}
               </div>
@@ -700,7 +837,7 @@ export default function CampaignHistory() {
                     expanded={expanded} detail={expanded === c.id ? detail : null} trackingData={trackingData}
                     onExpand={expand} onEdit={setEditingCamp} onCancel={cancelSchedule}
                     onDelete={deleteCampaign} onViewEmail={openEmailModal}
-                    onResume={resumeCampaign} runnerState={runnerState}
+                    onResume={resumeCampaign} onRequeue={requeueUnsent} requeueing={requeueing} runnerState={runnerState}
                   />
                 ))}
               </div>
@@ -723,7 +860,7 @@ export default function CampaignHistory() {
                     expanded={expanded} detail={expanded === c.id ? detail : null} trackingData={trackingData}
                     onExpand={expand} onEdit={setEditingCamp} onCancel={cancelSchedule}
                     onDelete={deleteCampaign} onViewEmail={openEmailModal}
-                    onResume={resumeCampaign} runnerState={runnerState}
+                    onResume={resumeCampaign} onRequeue={requeueUnsent} requeueing={requeueing} runnerState={runnerState}
                   />
                 ))}
               </div>
@@ -746,7 +883,7 @@ export default function CampaignHistory() {
                     expanded={expanded} detail={expanded === c.id ? detail : null} trackingData={trackingData}
                     onExpand={expand} onEdit={setEditingCamp} onCancel={cancelSchedule}
                     onDelete={deleteCampaign} onViewEmail={openEmailModal}
-                    onResume={resumeCampaign} runnerState={runnerState}
+                    onResume={resumeCampaign} onRequeue={requeueUnsent} requeueing={requeueing} runnerState={runnerState}
                   />
                 ))}
               </div>

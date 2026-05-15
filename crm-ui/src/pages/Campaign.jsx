@@ -288,7 +288,7 @@ export default function Campaign() {
 
   async function runCampaign() {
     const senderProfiles = activeProfiles.filter(p => selectedSenders.has(p.user||p.email||''))
-    const targets = getTargets().slice(0, cfg.batch)
+    const targets = getTargets()
     if (!senderProfiles.length || !targets.length) { toast('Missing senders or leads', 'error'); return }
 
     // ── Deliverability pre-check ──
@@ -345,7 +345,7 @@ export default function Campaign() {
               mode,
               customSubj,
               customBody:        htmlToPlain(customBodyHtml),
-              cfg:               { rate: cfg.rate },
+              cfg:               { rate: cfg.rate, batch: cfg.batch },
               selectedAtts,
               usePersonalization,
               attachmentText,
@@ -371,17 +371,21 @@ export default function Campaign() {
       mode,
       customSubj,
       customBody:         htmlToPlain(customBodyHtml),
-      cfg:                { rate: cfg.rate },
+      cfg:                { rate: cfg.rate, batch: cfg.batch },
       senderName:         cfg.sender,
       replyTo:            cfg.replyTo,
       selectedAtts,
       usePersonalization,
       attachmentText,
       token,
-      preInsertLeads: true,  // pre-log all leads as PENDING before sending starts
+      preInsertLeads: true,  // pre-log ALL leads as PENDING before sending starts
+      batchSize:      cfg.batch || undefined,  // send cfg.batch leads then pause
     })
 
-    toast(`🚀 Campaign started — ${targets.length} emails sending in background`, 'success')
+    const batchMsg = cfg.batch && cfg.batch < targets.length
+      ? `${cfg.batch} sending now, ${targets.length - cfg.batch} queued`
+      : `${targets.length} emails`
+    toast(`🚀 Campaign started — ${batchMsg} sending in background`, 'success')
     // Client-side navigation — preserves the module-level runner singleton
     setTimeout(() => navigate('/history'), 600)
   }
@@ -727,7 +731,7 @@ export default function Campaign() {
 
               {variants.length > 0 && (
                 <div className="mt-2 p-2 bg-emerald-50 rounded-lg border border-emerald-100 text-[11px] text-emerald-700">
-                  ✓ {variants.length} variants ready — will rotate across all {getTargets().slice(0,cfg.batch).length} leads
+                  ✓ {variants.length} variants ready — will rotate across all {getTargets().length} leads{cfg.batch && cfg.batch < getTargets().length ? ` (${cfg.batch} per batch)` : ''}
                 </div>
               )}
             </div>
