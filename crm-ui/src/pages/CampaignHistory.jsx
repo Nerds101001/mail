@@ -157,9 +157,9 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
 
   // Live runner stats for this campaign (if it's the one currently running)
   const isLive = runnerState?.status === 'RUNNING' && runnerState.campaignId === c.id
-  const liveSent   = isLive ? runnerState.sent   : c.total_sent
-  const liveFailed = isLive ? runnerState.failed  : c.total_failed
-  const liveSkip   = isLive ? runnerState.skipped : c.total_skipped
+  const liveSent   = isLive ? runnerState.sent    : (c.total_sent    || 0)
+  const liveFailed = isLive ? runnerState.failed  : (c.total_failed  || 0)
+  const liveSkip   = isLive ? runnerState.skipped : (c.total_skipped || 0)
 
   // Resume button logic
   // Cap-paused (daily limit hit) → 24 h gate so limits actually reset
@@ -553,10 +553,12 @@ export default function CampaignHistory() {
     }
     const sc = c.schedule_config || {}
     const isInterrupted = c.status === 'RUNNING'
-    if (!sc.resume_config?.targets_remaining?.length) {
+    const rc = sc.resume_config || {}
+    const hasLeads = rc.targets_remaining?.length || rc.remaining_lead_ids?.length
+    if (!hasLeads) {
       toast(
         isInterrupted
-          ? 'No checkpoint found — campaign started before crash-recovery was added. Please create a new campaign for the remaining leads.'
+          ? 'No checkpoint found — campaign was created before crash-recovery. Please create a new campaign for the remaining leads.'
           : 'No pending leads found for this campaign',
         'error'
       )
@@ -566,7 +568,7 @@ export default function CampaignHistory() {
     setResuming(c.id)
     // Optimistically update the local list
     setCampaigns(prev => prev.map(x => x.id === c.id ? { ...x, status: 'RUNNING' } : x))
-    const pendingCount = sc.resume_config.targets_remaining.length
+    const pendingCount = rc.remaining_lead_ids?.length || rc.targets_remaining?.length || '?'
     toast(`▶ Resuming "${c.name}" — ${pendingCount} leads remaining`, 'info')
     try {
       await campaignRunner.resume(c, localStorage.getItem('crm_token') || '')

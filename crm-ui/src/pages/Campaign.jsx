@@ -324,13 +324,6 @@ export default function Campaign() {
       .filter(a => selectedAttachments.includes(a.id))
       .map(a => ({ id: a.id, name: a.label }))
 
-    // Compact lead shape — only fields needed for sending / resume
-    const resumeTargets = targets.map(l => ({
-      id: l.id, email: l.email, name: l.name || '', company: l.company || '',
-      notes: l.notes || '', role: l.role || '', category: l.category || '',
-      tags: l.tags || [], group: l.group || '',
-    }))
-
     try {
       const res = await fetch('/api/campaigns', {
         method:  'POST',
@@ -344,10 +337,9 @@ export default function Campaign() {
           variants,
           stats:   { sent: 0, failed: 0, skipped: 0 },
           status:  'RUNNING',
-          // Stored so the campaign is resumable after a crash / page refresh
+          // Store send config (no target list — first checkpoint will write lead IDs)
           schedule_config: {
             resume_config: {
-              targets_remaining: resumeTargets,
               senderProfiles,
               variants,
               mode,

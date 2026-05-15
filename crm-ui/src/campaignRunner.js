@@ -159,17 +159,36 @@ async function _saveLeads(campaignId, leads, token) {
   }
 }
 
+// ─── Fetch leads by IDs from the CRM store (used on resume) ─────────────────
+async function _fetchLeadsByIds(ids, token) {
+  if (!ids?.length) return []
+  try {
+    // Batch in groups of 200 to stay well under URL length limits
+    const leads = []
+    for (let i = 0; i < ids.length; i += 200) {
+      const batch = ids.slice(i, i + 200)
+      const res = await fetch(`/api/crm?type=leads_by_ids&ids=${batch.join(',')}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) { console.warn('[Runner] leads_by_ids batch failed:', res.status); continue }
+      const data = await res.json()
+      leads.push(...(Array.isArray(data) ? data : []))
+    }
+    return leads
+  } catch(e) {
+    console.warn('[Runner] _fetchLeadsByIds failed:', e.message)
+    return []
+  }
+}
+
 // ─── Pause handler ────────────────────────────────────────────────────────────
 
 async function _handlePause(fromIndex, config, doneLeads, reason) {
-  // Leads not yet sent — stored in resume config, NOT in campaign_leads
-  // (saving them as PENDING would create duplicate rows when resume re-inserts them as SENT)
-  const resumeTargets = config.targets.slice(fromIndex).map(l => ({
-    id: l.id, email: l.email, name: l.name || '', company: l.company || '',
-    notes: l.notes || '', role: l.role || '', category: l.category || '',
-    tags: l.tags || [], group: l.group || '',
-  }))
-  const pendingCount = resumeTargets.length
+  // Store only lead IDs for remaining targets — full objects bloat the PATCH body
+  // (can be 200+ KB for 1000 leads and triggers nginx 413 errors).
+  // On resume, _fetchLeadsByIds re-hydrates leads from the CRM store.
+  const remainingIds = config.targets.slice(fromIndex).map(l => l.id)
+  const pendingCount = remainingIds.length
 
   _state.status   = 'PAUSED'
   _state.pending  = pendingCount
@@ -188,7 +207,7 @@ async function _handlePause(fromIndex, config, doneLeads, reason) {
   // re-inserts the same leads as SENT.
   await _saveLeads(config.campaignId, doneLeads, config.token)
 
-  // Patch campaign with PAUSED status + resume config
+  // Patch campaign with PAUSED status + resume config (compact IDs only for leads)
   await _patchCampaign(config.campaignId, {
     status:        'PAUSED',
     total_sent:    _state.sent,
@@ -196,10 +215,10 @@ async function _handlePause(fromIndex, config, doneLeads, reason) {
     total_skipped: _state.skipped,
     schedule_config: {
       paused_at:     _state.pausedAt,
-      pending_count: resumeTargets.length,
+      pending_count: remainingIds.length,
       cap_pause:     reason === 'cap',
       resume_config: {
-        targets_remaining: resumeTargets,
+        remaining_lead_ids: remainingIds,    // ← compact: IDs only (not full objects)
         senderProfiles:    config.senderProfiles,
         variants:          config.variants,
         mode:              config.mode,
@@ -228,21 +247,17 @@ async function _checkpoint(nextIndex, config, batch) {
   // 1. Save the just-completed batch of leads
   if (batch.length) await _saveLeads(config.campaignId, batch, config.token)
 
-  // 2. Compute what's still left (everything from nextIndex onward)
-  const remaining = config.targets.slice(nextIndex).map(l => ({
-    id: l.id, email: l.email, name: l.name || '', company: l.company || '',
-    notes: l.notes || '', role: l.role || '', category: l.category || '',
-    tags: l.tags || [], group: l.group || '',
-  }))
+  // 2. Compute remaining lead IDs (compact — avoids nginx 413 on large campaigns)
+  const remainingIds = config.targets.slice(nextIndex).map(l => l.id)
 
-  // 3. Update DB: current stats + resume_config with remaining targets
+  // 3. Update DB: current stats + compact resume_config
   await _patchCampaign(config.campaignId, {
     total_sent:    _state.sent,
     total_failed:  _state.failed,
     total_skipped: _state.skipped,
     schedule_config: {
       resume_config: {
-        targets_remaining: remaining,
+        remaining_lead_ids: remainingIds,    // ← IDs only, full data fetched on resume
         senderProfiles:    config.senderProfiles,
         variants:          config.variants,
         mode:              config.mode,
@@ -383,14 +398,33 @@ export async function start(config) {
 export async function resume(campaign, token) {
   /**
    * campaign = full campaign object from DB.
-   * Works for both manual/cap pauses AND interrupted (crashed) campaigns —
-   * as long as schedule_config.resume_config.targets_remaining is set.
+   * Works for both manual/cap pauses AND interrupted (crashed) campaigns.
+   * Supports two resume_config formats:
+   *   - Legacy: targets_remaining (full lead objects) — kept for backward compat
+   *   - Compact: remaining_lead_ids (just IDs) — fetched from CRM store on resume
    */
   const sc = campaign.schedule_config || {}
   const rc = sc.resume_config || {}
 
-  if (!rc.targets_remaining?.length) {
-    console.warn('[Runner] resume called but no targets_remaining found')
+  // ── Resolve targets ──────────────────────────────────────────────────────────
+  let targets = []
+
+  if (rc.targets_remaining?.length) {
+    // Legacy format — full lead objects already in the DB record
+    targets = rc.targets_remaining
+  } else if (rc.remaining_lead_ids?.length) {
+    // Compact format — fetch full lead data from CRM store by IDs
+    console.log(`[Runner] Fetching ${rc.remaining_lead_ids.length} leads by ID for resume…`)
+    targets = await _fetchLeadsByIds(rc.remaining_lead_ids, token)
+    if (!targets.length) {
+      console.warn('[Runner] resume: fetchLeadsByIds returned no leads')
+      throw new Error('Could not load leads for this campaign — they may have been deleted')
+    }
+    console.log(`[Runner] Loaded ${targets.length} leads for resume`)
+  }
+
+  if (!targets.length) {
+    console.warn('[Runner] resume called but no targets found in resume_config')
     return
   }
 
@@ -399,7 +433,7 @@ export async function resume(campaign, token) {
   const config = {
     campaignId:        campaign.id,
     campaignName:      campaign.name,
-    targets:           rc.targets_remaining,
+    targets,
     senderProfiles:    rc.senderProfiles    || [],
     variants:          rc.variants          || [],
     mode:              rc.mode              || 'ai',

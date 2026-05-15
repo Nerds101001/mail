@@ -159,6 +159,15 @@ module.exports = async (req, res) => {
     return res.json({ leads, profiles, settings: mergedSettings, activity, clients, deals });
   }
 
+  // ── LEADS BY IDs (used by campaignRunner resume to re-hydrate compact checkpoints) ──
+  if (type === "leads_by_ids" && req.method === "GET") {
+    const idList = (req.query.ids || "").split(",").filter(Boolean);
+    if (!idList.length) return res.json([]);
+    const idSet = new Set(idList);
+    const allLeads = await safeGet(ns("crm:leads", userId), []);
+    return res.json(allLeads.filter(l => idSet.has(String(l.id))));
+  }
+
   // ── SAVE ALL ─────────────────────────────────────────────────────────
   if (type === "save" && req.method === "POST") {
     const { leads, profiles, settings, activity, clients, deals } = req.body;
