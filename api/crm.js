@@ -299,21 +299,35 @@ module.exports = async (req, res) => {
         const { name, scheduled_at, schedule_config, variants, status: newStatus,
                 total_sent, total_failed, total_skipped, update_lead } = req.body;
 
-        // update_lead: update a single campaign_lead row from PENDING → final status
-        // Called by campaignRunner after each individual send.
+        // update_lead: update a single campaign_lead row PENDING → final status
+        // AND atomically increment the campaign's running totals.
+        // Called by campaignRunner after each individual send so stats are live.
         if (update_lead) {
           const { leadId, status: ls, subject, body, sentAt, variantIndex } = update_lead;
+          const finalStatus = ls || 'SENT';
+
+          // Update the individual lead row
           await sql`
             UPDATE campaign_leads
-            SET status       = ${ls        || 'sent'},
-                subject      = ${subject   || ''},
-                body         = ${body      || ''},
-                sent_at      = ${sentAt    || Date.now()},
-                variant_index= ${variantIndex || 0}
+            SET status        = ${finalStatus},
+                subject       = ${subject   || ''},
+                body          = ${body      || ''},
+                sent_at       = ${sentAt    || Date.now()},
+                variant_index = ${variantIndex || 0}
             WHERE campaign_id = ${id}
               AND lead_id     = ${leadId}
               AND status      = 'PENDING'
           `;
+
+          // Atomically increment campaign-level counters so history shows live stats
+          if (finalStatus === 'SENT') {
+            await sql`UPDATE campaigns SET total_sent    = COALESCE(total_sent,0)    + 1 WHERE id = ${id}`.catch(()=>{});
+          } else if (finalStatus === 'FAILED' || finalStatus === 'BOUNCED') {
+            await sql`UPDATE campaigns SET total_failed  = COALESCE(total_failed,0)  + 1 WHERE id = ${id}`.catch(()=>{});
+          } else if (finalStatus === 'SKIPPED') {
+            await sql`UPDATE campaigns SET total_skipped = COALESCE(total_skipped,0) + 1 WHERE id = ${id}`.catch(()=>{});
+          }
+
           return res.json({ ok: true });
         }
 
