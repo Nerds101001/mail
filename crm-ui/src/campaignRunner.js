@@ -232,12 +232,10 @@ async function _handlePause(fromIndex, config, reason) {
   _state.pending  = pendingCount
   _state.pausedAt = Date.now()
   _state.capPause = reason === 'cap'
-  _state.batchPause = reason === 'batch'
+  _state.batchPause = false
 
   const msg = reason === 'cap'
     ? `🚫 All senders hit daily limit — ${pendingCount} leads pending.`
-    : reason === 'batch'
-    ? `⏸ Batch of ${fromIndex} sent — ${pendingCount} leads still queued. Resume to send next batch.`
     : `⏸ Paused — ${pendingCount} leads pending.`
   _addLog(msg, 'warn')
   _notify()
@@ -252,14 +250,13 @@ async function _handlePause(fromIndex, config, reason) {
       paused_at:     _state.pausedAt,
       pending_count: pendingCount,
       cap_pause:     reason === 'cap',
-      batch_pause:   reason === 'batch',
       resume_config: {
         senderProfiles:     config.senderProfiles,
         variants:           config.variants,
         mode:               config.mode,
         customSubj:         config.customSubj,
         customBody:         config.customBody,
-        cfg:                { ...(config.cfg || {}), batch: config.batchSize || config.cfg?.batch },
+        cfg:                config.cfg || {},
         selectedAtts:       config.selectedAtts,
         usePersonalization: config.usePersonalization,
         attachmentText:     config.attachmentText,
@@ -330,17 +327,10 @@ export async function start(config) {
     _notify()
   }
 
-  // ── Batch size: how many to send this run ─────────────────────────────────
-  // If batchSize < targets.length, we send batchSize leads then PAUSE so the
-  // remaining PENDING rows can be picked up by the next resume.
-  const batchSize = (config.batchSize && config.batchSize < config.targets.length)
-    ? config.batchSize
-    : config.targets.length
-
   const exhaustedProfiles = new Set()
 
   let i = 0
-  while (i < batchSize) {
+  while (i < config.targets.length) {
     // ── Manual pause ──
     if (_state._abortFlag) {
       await _handlePause(i, config, 'manual')
@@ -400,7 +390,7 @@ export async function start(config) {
       body: vData.body, variantIndex: varIdx, sentAt,
     }, config.token)
 
-    if (i < batchSize - 1 && config.cfg?.rate > 0) {
+    if (i < config.targets.length - 1 && config.cfg?.rate > 0) {
       // Parallel: both must finish before the next send
       await Promise.all([
         updatePromise,
@@ -411,12 +401,6 @@ export async function start(config) {
     }
 
     i++
-  }
-
-  // ── Batch limit reached — more PENDING leads remain in DB ─────────────────
-  if (batchSize < config.targets.length) {
-    await _handlePause(batchSize, config, 'batch')
-    return
   }
 
   // ── Completed ──────────────────────────────────────────────────────────────
@@ -504,11 +488,6 @@ export async function resume(campaign, token, fallbackProfiles = []) {
     _notify()
   }
 
-  // Restore batchSize from saved cfg so each resume sends the same batch limit
-  const savedBatch = rc.cfg?.batch
-  _addLog(savedBatch ? `📦 Batch size: ${savedBatch} per run` : `📦 No batch limit`, 'info')
-  _notify()
-
   // Use campaign-level variants as fallback if resume_config has none
   const variants = rc.variants?.length ? rc.variants : (campaign.variants || [])
   if (variants.length) {
@@ -535,7 +514,6 @@ export async function resume(campaign, token, fallbackProfiles = []) {
     attachmentText:     rc.attachmentText     || '',
     token,
     preInsertLeads: false,   // ← PENDING rows already exist from initial insert
-    batchSize:      savedBatch || undefined,  // send next N then pause again
     resumeOffset: {
       sent:    campaign.total_sent    || 0,
       failed:  campaign.total_failed  || 0,
