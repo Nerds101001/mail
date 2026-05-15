@@ -284,8 +284,28 @@ module.exports = async (req, res) => {
       body: JSON.stringify({ raw }),
     });
 
+    // Catch rate-limiting BEFORE parsing as a generic error
+    if (sendRes.status === 429) {
+      const rl = await sendRes.json().catch(() => ({}))
+      const reason = rl.error?.message || 'Gmail daily sending quota exceeded'
+      console.warn("send-email: Gmail rate limited —", reason)
+      return res.json({ success: false, rateLimited: true, reason })
+    }
+
     const result = await sendRes.json();
-    if (result.error) throw new Error(result.error.message || "Gmail send failed");
+    if (result.error) {
+      const gmailMsg  = result.error.message || 'Gmail send failed'
+      const gmailCode = result.error.code || 0
+      // Quota / rate-limit errors from the Gmail API
+      const isRateLimit =
+        gmailCode === 429 ||
+        /rateLimitExceeded|userRateLimitExceeded|User-rate-limit|quota.*exceeded|daily.*limit|too many/i.test(gmailMsg)
+      if (isRateLimit) {
+        console.warn("send-email: Gmail quota —", gmailMsg)
+        return res.json({ success: false, rateLimited: true, reason: gmailMsg })
+      }
+      throw new Error(gmailMsg)
+    }
 
     res.json({ success: true, messageId: result.id });
   } catch (err) {

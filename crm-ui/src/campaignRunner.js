@@ -98,13 +98,13 @@ function _getContent(lead, config, index) {
   }
 }
 
-/** Returns the first uncapped sender profile for this round-robin slot, or null if all capped */
-function _getUncappedProfile(senderProfiles, today, slot) {
-  const uncapped = senderProfiles.filter(p => {
-    const sent = parseInt(localStorage.getItem(`warmup:${p.id}:${today}`) || '0')
-    return sent < (p.dailyCap || 50)
-  })
-  return uncapped.length === 0 ? null : uncapped[slot % uncapped.length]
+/**
+ * Returns a round-robin profile from those NOT in exhaustedIds.
+ * Returns null when every profile has hit its server-side daily limit.
+ */
+function _getAvailableProfile(senderProfiles, exhaustedIds, slot) {
+  const available = senderProfiles.filter(p => !exhaustedIds.has(p.id))
+  return available.length === 0 ? null : available[slot % available.length]
 }
 
 async function _sendOne(lead, subject, body, profile, campaignId, config) {
@@ -127,8 +127,9 @@ async function _sendOne(lead, subject, body, profile, campaignId, config) {
     }
     const res  = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     const data = await res.json().catch(() => ({}))
-    if (data.bounced) return { ok: false, bounced: true }
-    if (data.skipped) return { ok: false, skipped: true }
+    if (data.rateLimited) return { ok: false, rateLimited: true }
+    if (data.bounced)     return { ok: false, bounced: true }
+    if (data.skipped)     return { ok: false, skipped: true }
     return { ok: res.ok }
   } catch { return { ok: false } }
 }
@@ -245,10 +246,13 @@ export async function start(config) {
   _state._abortFlag   = false
   _notify()
 
-  const today = new Date().toISOString().split('T')[0]
   const doneLeads = []
+  // Profiles that returned a server-side rate-limit error this run.
+  // Cleared on each fresh start() call so resume picks up with a clean slate.
+  const exhaustedProfiles = new Set()
 
-  for (let i = 0; i < config.targets.length; i++) {
+  let i = 0
+  while (i < config.targets.length) {
     // ── Manual pause ──
     if (_state._abortFlag) {
       await _handlePause(i, config, doneLeads, 'manual')
@@ -260,9 +264,10 @@ export async function start(config) {
     _state.progress    = Math.round(((i + 1) / config.targets.length) * 100)
     _notify()
 
-    // ── Daily cap check ──
-    const profile = _getUncappedProfile(config.senderProfiles, today, i)
+    // ── Pick a sender that hasn't hit its daily limit yet ──
+    const profile = _getAvailableProfile(config.senderProfiles, exhaustedProfiles, i)
     if (!profile) {
+      // Every sender returned a rate-limit error — pause until limits reset (24 h)
       await _handlePause(i, config, doneLeads, 'cap')
       return
     }
@@ -271,10 +276,12 @@ export async function start(config) {
     const varIdx = i % (config.variants?.length || 1)
     const result = await _sendOne(l, vData.subject, vData.body, profile, config.campaignId, config)
 
-    // Increment cap counter
-    if (result.ok) {
-      const capKey = `warmup:${profile.id}:${today}`
-      localStorage.setItem(capKey, String((parseInt(localStorage.getItem(capKey) || '0')) + 1))
+    // ── Sender hit its daily limit — mark exhausted, retry same lead ──
+    if (result.rateLimited) {
+      _addLog(`🚫 ${profile.name} hit daily limit — switching to next sender`, 'warn')
+      exhaustedProfiles.add(profile.id)
+      _notify()
+      continue   // i stays the same; next iteration picks a different profile
     }
 
     const sentAt = Date.now()
@@ -299,6 +306,7 @@ export async function start(config) {
     if (i < config.targets.length - 1 && config.cfg?.rate > 0) {
       await new Promise(r => setTimeout(r, config.cfg.rate * 1000))
     }
+    i++
   }
 
   // ── Completed ──

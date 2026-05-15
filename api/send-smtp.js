@@ -92,8 +92,10 @@ module.exports = async (req, res) => {
       auth:    { user, pass },
       tls:     { rejectUnauthorized: false }, // allow self-signed certs on custom SMTP
       pool:    false,
-      connectionTimeout: 10000,
-      greetingTimeout:   10000,
+      // Vercel Hobby functions time out at 10 s — keep all SMTP phases well under that.
+      connectionTimeout: 4000,  // TCP connect
+      greetingTimeout:   3000,  // server banner after connect
+      socketTimeout:     8000,  // any idle period during send
     });
 
     const htmlBody       = buildHtmlBody(body, leadId, to, appUrl, campaignId || null);
@@ -134,10 +136,31 @@ module.exports = async (req, res) => {
     res.json({ success: true, messageId: info.messageId });
   } catch (err) {
     console.error("send-smtp error:", err.message);
-    // Detect hard bounces (permanent delivery failures)
-    const isBounce = (err.responseCode >= 550) || err.code === 'EENVELOPE' ||
-                     /does not exist|no such user|user unknown|invalid address/i.test(err.message);
-    if (isBounce) return res.json({ success: false, bounced: true, reason: err.message });
-    res.status(500).json({ error: err.message });
+
+    const msg  = err.message || ''
+    const code = err.responseCode || 0
+
+    // Daily / rate-limit errors — sender quota exhausted for today
+    // Common codes: 452 (too many messages), 421 (service temporarily unavailable)
+    // Hostinger returns 452 with "Daily sending quota exceeded" or similar wording
+    const isRateLimit =
+      code === 452 || code === 421 ||
+      /daily|quota|limit.*exceed|too many.*message|sending limit|rate.*limit|blocked.*sending/i.test(msg)
+    if (isRateLimit) return res.json({ success: false, rateLimited: true, reason: msg })
+
+    // Hard bounces — permanent delivery failure
+    const isBounce = code >= 550 || err.code === 'EENVELOPE' ||
+                     /does not exist|no such user|user unknown|invalid address/i.test(msg)
+    if (isBounce) return res.json({ success: false, bounced: true, reason: msg })
+
+    // Timeout — likely Vercel's 10s limit; treat as transient failure (not a bounce)
+    const isTimeout = err.code === 'ETIMEDOUT' || err.code === 'ESOCKET' ||
+                      /timeout|ECONNREFUSED|ECONNRESET/i.test(msg)
+    if (isTimeout) {
+      console.error("send-smtp: timeout — SMTP took too long for Vercel Hobby (10s limit)")
+      return res.status(504).json({ error: "SMTP timeout — connection too slow", timeout: true })
+    }
+
+    res.status(500).json({ error: msg })
   }
 };
