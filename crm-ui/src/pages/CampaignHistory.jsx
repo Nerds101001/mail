@@ -446,70 +446,95 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
                   </div>
                 )}
 
-                {/* Pending summary banner */}
-                {pendingLeads.length > 0 && (
-                  <div className="mx-5 mt-4 mb-2 flex items-center gap-2 bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-2.5 text-xs">
-                    <span className="text-yellow-600 font-bold text-sm">⏳</span>
-                    <span className="text-yellow-800 font-semibold">{pendingLeads.length} leads queued</span>
-                    <span className="text-yellow-600">— waiting to be sent</span>
-                    <div className="ml-auto text-yellow-500 font-mono text-[10px]">
-                      {pendingLeads.slice(0, 3).map(l => l.lead_email).join(', ')}
-                      {pendingLeads.length > 3 ? ` +${pendingLeads.length - 3} more` : ''}
-                    </div>
-                  </div>
-                )}
+                {/* Combined table: sent rows first, then pending/queued rows */}
+                {(sentLeads.length > 0 || pendingLeads.length > 0) && (
+                  <>
+                    {/* Summary counts */}
+                    {sentLeads.length > 0 && pendingLeads.length > 0 && (
+                      <div className="mx-5 mt-4 mb-1 flex items-center gap-3 text-xs">
+                        <span className="font-semibold text-blue-600">✉ {sentLeads.length} sent</span>
+                        <span className="text-slate-300">·</span>
+                        <span className="font-semibold text-yellow-600">⏳ {pendingLeads.length} queued (not yet sent)</span>
+                        <span className="text-slate-400 text-[10px]">— queued leads will not be re-sent to already-sent contacts</span>
+                      </div>
+                    )}
 
-                {/* Sent / failed / skipped table */}
-                {sentLeads.length > 0 && (
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200">
-                        {['Name','Email','Company','Status','Variant #','Subject','Sent At',''].map(h => (
-                          <th key={h} className="px-4 py-2 text-left font-bold text-slate-500 uppercase tracking-wide">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sentLeads.map((l, i) => {
-                        const td     = trackingData[l.lead_id]
-                        const status = td?.clicks > 0 ? { key:'clicked', label:`clicked ${td.clicks}×` }
-                                     : td?.opens  > 0 ? { key:'opened',  label:`opened ${td.opens}×`  }
-                                     : { key: l.status, label: STATUS_LABEL[l.status] || l.status?.toLowerCase() || '?' }
-                        const varNum = (l.variant_index ?? 0) + 1
-                        const sentTime = l.sent_at
-                          ? new Date(parseInt(l.sent_at)).toLocaleString('en-IN', { dateStyle:'short', timeStyle:'short' })
-                          : '—'
-                        return (
-                          <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
-                            <td className="px-4 py-2 font-semibold text-slate-800">{l.lead_name||'—'}</td>
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          {['Name','Email','Company','Status','Variant #','Subject','Sent At',''].map(h => (
+                            <th key={h} className="px-4 py-2 text-left font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {/* ── Sent / failed / bounced rows ── */}
+                        {sentLeads.map((l, i) => {
+                          const td     = trackingData[l.lead_id]
+                          const status = td?.clicks > 0 ? { key:'clicked', label:`clicked ${td.clicks}×` }
+                                       : td?.opens  > 0 ? { key:'opened',  label:`opened ${td.opens}×`  }
+                                       : { key: l.status, label: STATUS_LABEL[l.status] || l.status?.toLowerCase() || '?' }
+                          const varNum = (l.variant_index ?? 0) + 1
+                          const sentTime = l.sent_at
+                            ? new Date(parseInt(l.sent_at)).toLocaleString('en-IN', { dateStyle:'short', timeStyle:'short' })
+                            : '—'
+                          return (
+                            <tr key={`s${i}`} className="border-b border-slate-100 hover:bg-slate-50">
+                              <td className="px-4 py-2 font-semibold text-slate-800">{l.lead_name||'—'}</td>
+                              <td className="px-4 py-2 text-slate-500 font-mono text-[11px]">{l.lead_email||'—'}</td>
+                              <td className="px-4 py-2 text-slate-600">{l.lead_company||'—'}</td>
+                              <td className="px-4 py-2">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className={`badge text-[10px] ${STATUS_COLOR[status.key] || 'bg-slate-100 text-slate-600'}`}>{status.label}</span>
+                                  {td && (td.opens > 0 || td.clicks > 0) && (
+                                    <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                                      {td.opens  > 0 && <span className="flex items-center gap-0.5"><Eye size={9}/>{td.opens}</span>}
+                                      {td.clicks > 0 && <span className="flex items-center gap-0.5"><MousePointer size={9}/>{td.clicks}</span>}
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-2 text-center">
+                                <span className="w-5 h-5 inline-flex items-center justify-center bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold">{varNum}</span>
+                              </td>
+                              <td className="px-4 py-2 text-slate-500 max-w-[200px] truncate" title={l.subject||''}>{l.subject||'—'}</td>
+                              <td className="px-4 py-2 text-slate-400 whitespace-nowrap">{sentTime}</td>
+                              <td className="px-4 py-2">
+                                <button onClick={() => onViewEmail(l)} className="text-blue-600 hover:text-blue-700 text-xs font-medium flex items-center gap-1">
+                                  <Eye size={12}/> View
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+
+                        {/* ── Divider between sent and queued ── */}
+                        {sentLeads.length > 0 && pendingLeads.length > 0 && (
+                          <tr>
+                            <td colSpan={8} className="px-4 py-2 bg-yellow-50 border-y border-yellow-200">
+                              <span className="text-yellow-700 font-semibold text-[11px]">⏳ {pendingLeads.length} leads queued below — will be sent on Resume (not re-sent to the {sentLeads.length} above)</span>
+                            </td>
+                          </tr>
+                        )}
+
+                        {/* ── Pending / queued rows ── */}
+                        {pendingLeads.map((l, i) => (
+                          <tr key={`p${i}`} className="border-b border-yellow-100 bg-yellow-50/40 hover:bg-yellow-50">
+                            <td className="px-4 py-2 font-semibold text-slate-700">{l.lead_name||'—'}</td>
                             <td className="px-4 py-2 text-slate-500 font-mono text-[11px]">{l.lead_email||'—'}</td>
                             <td className="px-4 py-2 text-slate-600">{l.lead_company||'—'}</td>
                             <td className="px-4 py-2">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className={`badge text-[10px] ${STATUS_COLOR[status.key] || 'bg-slate-100 text-slate-600'}`}>{status.label}</span>
-                                {td && (td.opens > 0 || td.clicks > 0) && (
-                                  <div className="flex items-center gap-1 text-[10px] text-slate-400">
-                                    {td.opens  > 0 && <span className="flex items-center gap-0.5"><Eye size={9}/>{td.opens}</span>}
-                                    {td.clicks > 0 && <span className="flex items-center gap-0.5"><MousePointer size={9}/>{td.clicks}</span>}
-                                  </div>
-                                )}
-                              </div>
+                              <span className="badge text-[10px] bg-yellow-100 text-yellow-700">⏳ queued</span>
                             </td>
-                            <td className="px-4 py-2 text-center">
-                              <span className="w-5 h-5 inline-flex items-center justify-center bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold">{varNum}</span>
-                            </td>
-                            <td className="px-4 py-2 text-slate-500 max-w-[200px] truncate" title={l.subject||''}>{l.subject||'—'}</td>
-                            <td className="px-4 py-2 text-slate-400 whitespace-nowrap">{sentTime}</td>
-                            <td className="px-4 py-2">
-                              <button onClick={() => onViewEmail(l)} className="text-blue-600 hover:text-blue-700 text-xs font-medium flex items-center gap-1">
-                                <Eye size={12}/> View
-                              </button>
-                            </td>
+                            <td className="px-4 py-2 text-slate-300 text-center">—</td>
+                            <td className="px-4 py-2 text-slate-300">—</td>
+                            <td className="px-4 py-2 text-slate-300">—</td>
+                            <td className="px-4 py-2 text-slate-300">—</td>
                           </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
                 )}
               </>
             )
