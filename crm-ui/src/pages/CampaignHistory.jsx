@@ -694,28 +694,53 @@ export default function CampaignHistory() {
       const { lead_ids: alreadyQueued } = await res.json()
       const alreadySet = new Set(alreadyQueued || [])
 
-      // 2. Get leads in the same target group (same logic as getTargets() in Campaign.jsx)
-      let pool = []
+      // 2. Build the pool — same target group as the original campaign
+      //    c.target stores the TYPE ('valid','group','category','tag','all','hot','followup')
+      //    For group/category/tag we also need the actual filter VALUE.
+      //    Check saved cfg first; if missing (old campaign), derive it from the
+      //    already-sent leads by looking them up in the local CRM leads array.
       const tgt = c.target || 'valid'
-      if (tgt === 'all')      pool = leads.slice()
+      let filterVal = rc.cfg?.filterVal || ''
+
+      if (!filterVal && (tgt === 'group' || tgt === 'category' || tgt === 'tag')) {
+        // Derive the filter value from the leads that were already sent
+        const sentCrmLeads = leads.filter(l => alreadySet.has(String(l.id)))
+        if (sentCrmLeads.length > 0) {
+          const sample = sentCrmLeads[0]
+          if (tgt === 'group')    filterVal = sample.group    || ''
+          if (tgt === 'category') filterVal = sample.category || ''
+          if (tgt === 'tag')      filterVal = (sample.tags || [])[0] || ''
+        }
+      }
+
+      let pool = []
+      if (tgt === 'all')           pool = leads.slice()
       else if (tgt === 'valid')    pool = leads.filter(l => l.status === 'VALID')
       else if (tgt === 'followup') pool = leads.filter(l => l.status === 'FOLLOW-UP')
       else if (tgt === 'hot')      pool = leads.filter(l => l.pipelineStage === 'HOT' || l.opens >= 2 || l.clicks >= 1)
-      else                         pool = leads.filter(l =>
-        (l.group||'').toLowerCase()    === tgt.toLowerCase() ||
-        (l.category||'').toLowerCase() === tgt.toLowerCase()
-      )
+      else if (tgt === 'group')    pool = filterVal
+        ? leads.filter(l => (l.group||'').toLowerCase() === filterVal.toLowerCase())
+        : leads.filter(l => alreadySet.has(String(l.id))) // fallback: use only already-known set
+      else if (tgt === 'category') pool = filterVal
+        ? leads.filter(l => (l.category||'').toLowerCase() === filterVal.toLowerCase())
+        : leads.filter(l => alreadySet.has(String(l.id)))
+      else if (tgt === 'tag')      pool = filterVal
+        ? leads.filter(l => (l.tags||[]).some(t => t.toLowerCase() === filterVal.toLowerCase()))
+        : leads.filter(l => alreadySet.has(String(l.id)))
+      else pool = leads.slice() // unknown target type — use all leads
 
-      // 3. Filter to only those not yet in campaign_leads
+      // 3. Filter to only those not yet in campaign_leads (excludes the 30 already sent)
       const unsent = pool.filter(l => !alreadySet.has(String(l.id)))
 
       if (!unsent.length) {
-        toast(`All leads in the "${tgt}" group are already queued or sent — nothing to requeue`, 'info')
+        const poolDesc = filterVal ? `"${filterVal}" (${tgt})` : tgt
+        toast(`All ${pool.length} leads in the ${poolDesc} group are already queued or sent — nothing to requeue`, 'info')
         setRequeueing(null)
         return
       }
 
-      if (!confirm(`Found ${unsent.length} leads in the "${tgt}" group that were never sent to.\n\nRequeue them into this campaign and mark it as PAUSED so you can Resume?\n\nNote: You can then click Resume to send them.`)) {
+      const groupLabel = filterVal ? `"${filterVal}"` : tgt
+      if (!confirm(`Found ${unsent.length} leads in the ${groupLabel} group that were never sent to.\n\nThe ${alreadySet.size} already-sent leads will be skipped.\n\nRequeue ${unsent.length} leads into this campaign and mark it PAUSED so you can Resume?`)) {
         setRequeueing(null)
         return
       }
