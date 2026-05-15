@@ -316,7 +316,21 @@ export default function Campaign() {
 
     // ── Create campaign in DB immediately as RUNNING ──
     const campaignId = `camp_${Date.now()}`
-    const token = localStorage.getItem('crm_token') || ''
+    const token      = localStorage.getItem('crm_token') || ''
+
+    // ── Build send config now (needed both for DB and for runner) ──
+    const attachmentText = buildAttachmentText()
+    const selectedAtts   = fileAttachments
+      .filter(a => selectedAttachments.includes(a.id))
+      .map(a => ({ id: a.id, name: a.label }))
+
+    // Compact lead shape — only fields needed for sending / resume
+    const resumeTargets = targets.map(l => ({
+      id: l.id, email: l.email, name: l.name || '', company: l.company || '',
+      notes: l.notes || '', role: l.role || '', category: l.category || '',
+      tags: l.tags || [], group: l.group || '',
+    }))
+
     try {
       const res = await fetch('/api/campaigns', {
         method:  'POST',
@@ -330,6 +344,23 @@ export default function Campaign() {
           variants,
           stats:   { sent: 0, failed: 0, skipped: 0 },
           status:  'RUNNING',
+          // Stored so the campaign is resumable after a crash / page refresh
+          schedule_config: {
+            resume_config: {
+              targets_remaining: resumeTargets,
+              senderProfiles,
+              variants,
+              mode,
+              customSubj,
+              customBody:        htmlToPlain(customBodyHtml),
+              cfg:               { rate: cfg.rate },
+              selectedAtts,
+              usePersonalization,
+              attachmentText,
+              senderName:        cfg.sender,
+              replyTo:           cfg.replyTo,
+            },
+          },
         }),
       })
       if (!res.ok) throw new Error(`Server error ${res.status}`)
@@ -337,14 +368,6 @@ export default function Campaign() {
       toast('Could not create campaign record: ' + e.message, 'error')
       return
     }
-
-    // ── Build pre-computed attachment text (link attachments) ──
-    const attachmentText = buildAttachmentText()
-
-    // ── Build selected file attachments ──
-    const selectedAtts = fileAttachments
-      .filter(a => selectedAttachments.includes(a.id))
-      .map(a => ({ id: a.id, name: a.label }))
 
     // ── Start background runner ──
     campaignRunner.start({

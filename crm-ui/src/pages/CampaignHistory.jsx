@@ -4,7 +4,7 @@ import { PageHeader, Empty, Btn, Card, toast } from '../components/ui'
 import { fmtDate } from '../utils'
 import {
   History, ChevronDown, ChevronRight, Send, Eye, MousePointer,
-  AlertCircle, Trash2, Calendar, Clock, Pencil, Check, Pause, Play,
+  AlertCircle, Trash2, Calendar, Clock, Pencil, Check, Pause, Play, Zap,
 } from 'lucide-react'
 import * as campaignRunner from '../campaignRunner'
 
@@ -149,7 +149,7 @@ function EditScheduledModal({ campaign, onClose, onSaved }) {
 }
 
 // ── Campaign row — defined outside to avoid Fast Refresh issues ───────────────
-function CampaignRow({ c, isScheduled, isPaused, expanded, detail, trackingData, onExpand, onEdit, onCancel, onDelete, onViewEmail, onResume, runnerState }) {
+function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail, trackingData, onExpand, onEdit, onCancel, onDelete, onViewEmail, onResume, runnerState }) {
   const scheduledDate = c.scheduled_at
     ? new Date(parseInt(c.scheduled_at)).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'short' })
     : null
@@ -176,14 +176,16 @@ function CampaignRow({ c, isScheduled, isPaused, expanded, detail, trackingData,
 
   return (
     <div className={`card overflow-hidden ${
-      isScheduled && !isPaused ? 'border-2 border-amber-300 bg-amber-50/40'
+      isInterrupted ? 'border-2 border-purple-300 bg-purple-50/40'
+      : isScheduled && !isPaused ? 'border-2 border-amber-300 bg-amber-50/40'
       : isPaused ? 'border-2 border-orange-300 bg-orange-50/40'
       : ''
     }`}>
       {/* Header row */}
       <div
         className={`flex items-center gap-4 px-5 py-4 cursor-pointer transition-colors ${
-          isScheduled && !isPaused ? 'hover:bg-amber-50/80'
+          isInterrupted ? 'hover:bg-purple-50/80'
+          : isScheduled && !isPaused ? 'hover:bg-amber-50/80'
           : isPaused ? 'hover:bg-orange-50/80'
           : 'hover:bg-slate-50'
         }`}
@@ -201,9 +203,14 @@ function CampaignRow({ c, isScheduled, isPaused, expanded, detail, trackingData,
                 <Clock size={9}/> SCHEDULED
               </span>
             )}
-            {c.status === 'RUNNING' && (
+            {c.status === 'RUNNING' && !isInterrupted && (
               <span className="flex items-center gap-1 text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full whitespace-nowrap animate-pulse">
                 ▶ RUNNING {isLive && `· ${runnerState.progress}%`}
+              </span>
+            )}
+            {isInterrupted && (
+              <span className="flex items-center gap-1 text-[10px] font-bold bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full whitespace-nowrap">
+                <Zap size={9}/> INTERRUPTED
               </span>
             )}
             {isPaused && (
@@ -218,7 +225,11 @@ function CampaignRow({ c, isScheduled, isPaused, expanded, detail, trackingData,
               <span className="text-[10px] font-bold bg-red-100 text-red-600 px-2 py-0.5 rounded-full">FAILED</span>
             )}
           </div>
-          {isScheduled && !isPaused && scheduledDate ? (
+          {isInterrupted ? (
+            <p className="text-xs text-purple-700 font-medium mt-0.5">
+              ⚡ Crashed or page was refreshed mid-send · {c.total_sent || 0} sent so far · {c.target} · {c.sender}
+            </p>
+          ) : isScheduled && !isPaused && scheduledDate ? (
             <p className="text-xs text-amber-700 font-medium mt-0.5">
               🕐 Runs at {scheduledDate} · Target: {c.target} · Sender: {c.sender}
             </p>
@@ -237,6 +248,13 @@ function CampaignRow({ c, isScheduled, isPaused, expanded, detail, trackingData,
 
         {/* Action buttons */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {isInterrupted && (
+            <Btn variant="primary" size="sm"
+              onClick={e => { e.stopPropagation(); onResume(c) }}
+              title="Resume from last checkpoint">
+              <Play size={12}/> Resume
+            </Btn>
+          )}
           {isScheduled && c.status === 'SCHEDULED' && (
             <>
               <Btn variant="ghost" size="sm" onClick={e => { e.stopPropagation(); onEdit(c) }} title="Edit schedule time or content">
@@ -263,7 +281,7 @@ function CampaignRow({ c, isScheduled, isPaused, expanded, detail, trackingData,
               )}
             </>
           )}
-          {!isScheduled && !isPaused && (
+          {!isScheduled && !isPaused && !isInterrupted && (
             <Btn variant="ghost" size="sm" onClick={e => { e.stopPropagation(); window.location.href = `/campaign?followup=${c.id}` }}
               title="Re-target zero-open leads">
               ↩ Follow Up
@@ -534,20 +552,28 @@ export default function CampaignHistory() {
       return
     }
     const sc = c.schedule_config || {}
+    const isInterrupted = c.status === 'RUNNING'
     if (!sc.resume_config?.targets_remaining?.length) {
-      toast('No pending leads found for this campaign', 'error')
+      toast(
+        isInterrupted
+          ? 'No checkpoint found — campaign started before crash-recovery was added. Please create a new campaign for the remaining leads.'
+          : 'No pending leads found for this campaign',
+        'error'
+      )
       return
     }
+    const originalStatus = c.status  // 'PAUSED' or 'RUNNING' (interrupted)
     setResuming(c.id)
     // Optimistically update the local list
     setCampaigns(prev => prev.map(x => x.id === c.id ? { ...x, status: 'RUNNING' } : x))
-    toast(`▶ Resuming "${c.name}" — ${sc.pending_count || '?'} pending leads`, 'info')
+    const pendingCount = sc.resume_config.targets_remaining.length
+    toast(`▶ Resuming "${c.name}" — ${pendingCount} leads remaining`, 'info')
     try {
       await campaignRunner.resume(c, localStorage.getItem('crm_token') || '')
     } catch(e) {
       if (mountedRef.current) {
         toast('Resume failed: ' + e.message, 'error')
-        setCampaigns(prev => prev.map(x => x.id === c.id ? { ...x, status: 'PAUSED' } : x))
+        setCampaigns(prev => prev.map(x => x.id === c.id ? { ...x, status: originalStatus } : x))
       }
     }
     if (mountedRef.current) setResuming(null)
@@ -580,9 +606,13 @@ export default function CampaignHistory() {
     setModalEventsLoading(false)
   }
 
-  const scheduledCamps = campaigns.filter(c => c.status === 'SCHEDULED' || c.status === 'RUNNING')
-  const pausedCamps    = campaigns.filter(c => c.status === 'PAUSED')
-  const completedCamps = campaigns.filter(c => c.status !== 'SCHEDULED' && c.status !== 'RUNNING' && c.status !== 'PAUSED')
+  // A campaign is "actively running" only if the in-memory runner holds it.
+  // Any RUNNING campaign NOT held by the runner was interrupted (crash / page refresh).
+  const activelyRunningId = runnerState.status === 'RUNNING' ? runnerState.campaignId : null
+  const scheduledCamps    = campaigns.filter(c => c.status === 'SCHEDULED' || (c.status === 'RUNNING' && c.id === activelyRunningId))
+  const interruptedCamps  = campaigns.filter(c => c.status === 'RUNNING' && c.id !== activelyRunningId)
+  const pausedCamps       = campaigns.filter(c => c.status === 'PAUSED')
+  const completedCamps    = campaigns.filter(c => !['SCHEDULED','RUNNING','PAUSED'].includes(c.status))
 
   return (
     <div>
@@ -621,6 +651,29 @@ export default function CampaignHistory() {
             </div>
           )}
 
+          {/* Interrupted campaigns (crashed / page-refreshed mid-run) */}
+          {interruptedCamps.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Zap size={15} className="text-purple-500" />
+                <h2 className="text-sm font-bold text-purple-700 uppercase tracking-wide">Interrupted</h2>
+                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-semibold">{interruptedCamps.length}</span>
+                <span className="text-[10px] text-purple-500 ml-1">— Stopped by a crash or page refresh · Resume to continue from last checkpoint</span>
+              </div>
+              <div className="space-y-3">
+                {interruptedCamps.map(c => (
+                  <CampaignRow
+                    key={c.id} c={c} isScheduled={false} isPaused={false} isInterrupted={true}
+                    expanded={expanded} detail={expanded === c.id ? detail : null} trackingData={trackingData}
+                    onExpand={expand} onEdit={setEditingCamp} onCancel={cancelSchedule}
+                    onDelete={deleteCampaign} onViewEmail={openEmailModal}
+                    onResume={resumeCampaign} runnerState={runnerState}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Paused campaigns */}
           {pausedCamps.length > 0 && (
             <div>
@@ -628,7 +681,7 @@ export default function CampaignHistory() {
                 <Pause size={15} className="text-orange-500" />
                 <h2 className="text-sm font-bold text-orange-700 uppercase tracking-wide">Paused</h2>
                 <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-semibold">{pausedCamps.length}</span>
-                <span className="text-[10px] text-orange-500 ml-1">— Resume after 24h when daily limits reset</span>
+                <span className="text-[10px] text-orange-500 ml-1">— Cap-paused campaigns resume after 24 h · Manually paused resume immediately</span>
               </div>
               <div className="space-y-3">
                 {pausedCamps.map(c => (

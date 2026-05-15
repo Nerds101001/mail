@@ -218,6 +218,47 @@ async function _handlePause(fromIndex, config, doneLeads, reason) {
   _notify()
 }
 
+// ─── Checkpoint (save progress to DB every N leads) ──────────────────────────
+// Flushes the in-memory doneLeads buffer to DB and updates targets_remaining so
+// the campaign is resumable after a page refresh / network drop.
+
+const CHECKPOINT_EVERY = 10   // save to DB after every 10 sends
+
+async function _checkpoint(nextIndex, config, batch) {
+  // 1. Save the just-completed batch of leads
+  if (batch.length) await _saveLeads(config.campaignId, batch, config.token)
+
+  // 2. Compute what's still left (everything from nextIndex onward)
+  const remaining = config.targets.slice(nextIndex).map(l => ({
+    id: l.id, email: l.email, name: l.name || '', company: l.company || '',
+    notes: l.notes || '', role: l.role || '', category: l.category || '',
+    tags: l.tags || [], group: l.group || '',
+  }))
+
+  // 3. Update DB: current stats + resume_config with remaining targets
+  await _patchCampaign(config.campaignId, {
+    total_sent:    _state.sent,
+    total_failed:  _state.failed,
+    total_skipped: _state.skipped,
+    schedule_config: {
+      resume_config: {
+        targets_remaining: remaining,
+        senderProfiles:    config.senderProfiles,
+        variants:          config.variants,
+        mode:              config.mode,
+        customSubj:        config.customSubj,
+        customBody:        config.customBody,
+        cfg:               config.cfg,
+        selectedAtts:      config.selectedAtts,
+        usePersonalization: config.usePersonalization,
+        attachmentText:    config.attachmentText,
+        senderName:        config.senderName,
+        replyTo:           config.replyTo,
+      },
+    },
+  }, config.token)
+}
+
 // ─── Main run loop ────────────────────────────────────────────────────────────
 
 export async function start(config) {
@@ -225,30 +266,34 @@ export async function start(config) {
    * config shape:
    *   campaignId, campaignName, targets[], senderProfiles[], variants[],
    *   mode, customSubj, customBody,
-   *   cfg: { rate, senderName, replyTo }  ← kept for compat; also flat senderName/replyTo
+   *   cfg: { rate }
    *   senderName, replyTo,
    *   selectedAtts[], usePersonalization, attachmentText,
-   *   token
+   *   token,
+   *   resumeOffset?: { sent, failed, skipped }  ← carries over stats from a previous
+   *                                                 partial run (crash recovery / resume)
    */
   _state.status       = 'RUNNING'
   _state.campaignId   = config.campaignId
   _state.campaignName = config.campaignName
-  _state.total        = config.targets.length
-  _state.sent         = 0
-  _state.failed       = 0
-  _state.skipped      = 0
+  // For resumes: total includes leads already sent in prior runs so progress is accurate
+  const priorSent    = config.resumeOffset?.sent    || 0
+  const priorFailed  = config.resumeOffset?.failed  || 0
+  const priorSkipped = config.resumeOffset?.skipped || 0
+  _state.total        = config.targets.length + priorSent + priorFailed + priorSkipped
+  _state.sent         = priorSent
+  _state.failed       = priorFailed
+  _state.skipped      = priorSkipped
   _state.pending      = 0
   _state.currentLead  = ''
-  _state.progress     = 0
+  _state.progress     = _state.total > 0 ? Math.round(((priorSent + priorFailed + priorSkipped) / _state.total) * 100) : 0
   _state.log          = []
   _state.pausedAt     = null
   _state.capPause     = false
   _state._abortFlag   = false
   _notify()
 
-  const doneLeads = []
-  // Profiles that returned a server-side rate-limit error this run.
-  // Cleared on each fresh start() call so resume picks up with a clean slate.
+  const doneLeads = []          // buffer — flushed every CHECKPOINT_EVERY leads
   const exhaustedProfiles = new Set()
 
   let i = 0
@@ -261,13 +306,12 @@ export async function start(config) {
 
     const l = config.targets[i]
     _state.currentLead = l.name || l.email
-    _state.progress    = Math.round(((i + 1) / config.targets.length) * 100)
+    _state.progress    = Math.round(((priorSent + priorFailed + priorSkipped + i + 1) / _state.total) * 100)
     _notify()
 
     // ── Pick a sender that hasn't hit its daily limit yet ──
     const profile = _getAvailableProfile(config.senderProfiles, exhaustedProfiles, i)
     if (!profile) {
-      // Every sender returned a rate-limit error — pause until limits reset (24 h)
       await _handlePause(i, config, doneLeads, 'cap')
       return
     }
@@ -281,7 +325,7 @@ export async function start(config) {
       _addLog(`🚫 ${profile.name} hit daily limit — switching to next sender`, 'warn')
       exhaustedProfiles.add(profile.id)
       _notify()
-      continue   // i stays the same; next iteration picks a different profile
+      continue
     }
 
     const sentAt = Date.now()
@@ -303,13 +347,20 @@ export async function start(config) {
     }
     _notify()
 
+    // ── Checkpoint every CHECKPOINT_EVERY leads ──
+    // Drains the buffer to DB so progress survives a page refresh or network drop.
+    if (doneLeads.length >= CHECKPOINT_EVERY) {
+      const batch = doneLeads.splice(0)   // drain buffer in-place
+      await _checkpoint(i + 1, config, batch).catch(e => console.warn('[Runner] checkpoint failed:', e.message))
+    }
+
     if (i < config.targets.length - 1 && config.cfg?.rate > 0) {
       await new Promise(r => setTimeout(r, config.cfg.rate * 1000))
     }
     i++
   }
 
-  // ── Completed ──
+  // ── Completed — flush any remaining buffered leads ──
   _state.status      = 'DONE'
   _state.progress    = 100
   _state.currentLead = ''
@@ -322,6 +373,7 @@ export async function start(config) {
     total_sent:    _state.sent,
     total_failed:  _state.failed,
     total_skipped: _state.skipped,
+    schedule_config: {},   // clear resume config — campaign is done
   }, config.token)
   _notify()
 }
@@ -330,7 +382,9 @@ export async function start(config) {
 
 export async function resume(campaign, token) {
   /**
-   * campaign = the full campaign object from DB (has schedule_config.resume_config)
+   * campaign = full campaign object from DB.
+   * Works for both manual/cap pauses AND interrupted (crashed) campaigns —
+   * as long as schedule_config.resume_config.targets_remaining is set.
    */
   const sc = campaign.schedule_config || {}
   const rc = sc.resume_config || {}
@@ -340,7 +394,6 @@ export async function resume(campaign, token) {
     return
   }
 
-  // Mark RUNNING in DB immediately
   await _patchCampaign(campaign.id, { status: 'RUNNING' }, token)
 
   const config = {
@@ -359,6 +412,12 @@ export async function resume(campaign, token) {
     usePersonalization: rc.usePersonalization || false,
     attachmentText:    rc.attachmentText    || '',
     token,
+    // Carry forward stats so progress bar and final totals accumulate correctly
+    resumeOffset: {
+      sent:    campaign.total_sent    || 0,
+      failed:  campaign.total_failed  || 0,
+      skipped: campaign.total_skipped || 0,
+    },
   }
 
   await start(config)
