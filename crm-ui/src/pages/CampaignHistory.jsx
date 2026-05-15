@@ -161,11 +161,18 @@ function CampaignRow({ c, isScheduled, isPaused, expanded, detail, trackingData,
   const liveFailed = isLive ? runnerState.failed  : c.total_failed
   const liveSkip   = isLive ? runnerState.skipped : c.total_skipped
 
-  // Resume button logic — enabled 24h after pause
+  // Resume button logic
+  // Cap-paused (daily limit hit) → 24 h gate so limits actually reset
+  // Manually paused → resume available immediately, no waiting
+  const capPause    = c.schedule_config?.cap_pause || false
   const pausedAt    = c.schedule_config?.paused_at
-  const resumeReady = pausedAt && (Date.now() - pausedAt >= 24 * 60 * 60 * 1000)
   const pendingCount = c.schedule_config?.pending_count || 0
-  const hoursLeft   = pausedAt ? Math.max(0, Math.ceil((24 * 60 * 60 * 1000 - (Date.now() - pausedAt)) / (60 * 60 * 1000))) : 0
+  const resumeReady = capPause
+    ? (pausedAt && Date.now() - pausedAt >= 24 * 60 * 60 * 1000)
+    : true   // manual pause → always resumable
+  const hoursLeft = (capPause && pausedAt)
+    ? Math.max(0, Math.ceil((24 * 60 * 60 * 1000 - (Date.now() - pausedAt)) / (60 * 60 * 1000)))
+    : 0
 
   return (
     <div className={`card overflow-hidden ${
@@ -250,8 +257,8 @@ function CampaignRow({ c, isScheduled, isPaused, expanded, detail, trackingData,
                   <Play size={12}/> Resume
                 </Btn>
               ) : (
-                <span className="text-[10px] text-orange-600 bg-orange-100 px-2 py-1 rounded-lg font-medium" title={`Available after 24h from pause time`}>
-                  Resume in {hoursLeft}h
+                <span className="text-[10px] text-orange-600 bg-orange-100 px-2 py-1 rounded-lg font-medium" title="Available after daily limits reset (24 h)">
+                  Limit reset in {hoursLeft}h
                 </span>
               )}
             </>

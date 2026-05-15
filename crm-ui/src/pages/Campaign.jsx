@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCRM } from '../store'
 import { Btn, Card, PageHeader, toast } from '../components/ui'
-import RichEditor, { htmlToPlain } from '../components/RichEditor'
+import RichEditor, { htmlToPlain, plainToHtml } from '../components/RichEditor'
 import { Play, Zap, RefreshCw, ChevronLeft, ChevronRight, Plus, X, Calendar, Pencil, Check } from 'lucide-react'
 import * as campaignRunner from '../campaignRunner'
 
@@ -41,8 +41,8 @@ export default function Campaign() {
   const [variants, setVariants]         = useState([])
   const [variantIdx, setVariantIdx]     = useState(0)
   const [editingVariant, setEditingVariant] = useState(false)
-  const [customSubj, setCustomSubj]     = useState('')
-  const [customBody, setCustomBody]     = useState('')
+  const [customSubj,    setCustomSubj]    = useState('')
+  const [customBodyHtml, setCustomBodyHtml] = useState('')   // stores raw HTML
 
   // Link attachments (legacy — appear as plain text in email body)
   const [attachments, setAttachments]   = useState([{ type:'link', label:'', url:'' }])
@@ -271,7 +271,7 @@ export default function Campaign() {
 
   async function checkDeliverability() {
     const subject = mode === 'custom' ? customSubj : (currentVariant.subject || '')
-    const body    = mode === 'custom' ? customBody  : (currentVariant.body    || '')
+    const body    = mode === 'custom' ? htmlToPlain(customBodyHtml) : (currentVariant.body || '')
     if (!subject && !body) { toast('Generate or write an email first', 'info'); return }
     setDelivLoading(true)
     try {
@@ -293,7 +293,7 @@ export default function Campaign() {
 
     // ── Deliverability pre-check ──
     const checkSubject = mode === 'custom' ? customSubj : (currentVariant.subject || '')
-    const checkBody    = mode === 'custom' ? customBody  : (currentVariant.body    || '')
+    const checkBody    = mode === 'custom' ? htmlToPlain(customBodyHtml) : (currentVariant.body || '')
     if (checkSubject || checkBody) {
       try {
         const dr = await fetch('/api/ops?type=deliverability', {
@@ -355,7 +355,7 @@ export default function Campaign() {
       variants,
       mode,
       customSubj,
-      customBody,
+      customBody: htmlToPlain(customBodyHtml),
       cfg:              { rate: cfg.rate },
       senderName:       cfg.sender,
       replyTo:          cfg.replyTo,
@@ -718,7 +718,7 @@ export default function Campaign() {
           ) : (
             <div className="space-y-3">
               <input className="input" placeholder="Subject" value={customSubj} onChange={e=>setCustomSubj(e.target.value)} />
-              <RichEditor value={customBody} onChange={h=>setCustomBody(htmlToPlain(h))} minHeight={150} />
+              <RichEditor value={customBodyHtml} onChange={setCustomBodyHtml} minHeight={150} />
             </div>
           )}
 
@@ -760,7 +760,7 @@ export default function Campaign() {
               </div>
 
               {editingVariant && mode === 'ai' ? (
-                // Editable mode — plain textarea keeps \n intact, no HTML conversion
+                // Editable mode — rich editor with full formatting toolbar
                 <div className="space-y-2">
                   <div>
                     <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1 block">Subject Line</label>
@@ -785,9 +785,10 @@ export default function Campaign() {
                             const sig = e.target.value
                             setVariants(vs => vs.map((v, i) => {
                               if (i !== variantIdx) return v
-                              // Replace existing signature block or append
-                              const body = v.body.replace(/\n+Best,[\s\S]*$/i, '').trimEnd()
-                              return { ...v, body: body + '\n\n' + sig }
+                              // Strip existing signature from plain text, append new one
+                              const plain = v.body.replace(/\n+Best,[\s\S]*$/i, '').trimEnd()
+                              const newBody = plain + '\n\n' + sig
+                              return { ...v, body: newBody, bodyHtml: plainToHtml(newBody) }
                             }))
                             e.target.value = ''
                           }}
@@ -801,12 +802,14 @@ export default function Campaign() {
                         </select>
                       </div>
                     </div>
-                    <textarea
-                      rows={12}
-                      className="w-full text-sm border border-blue-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/30 resize-y leading-relaxed"
-                      value={currentVariant.body}
-                      onChange={e => setVariants(vs => vs.map((v, i) => i === variantIdx ? { ...v, body: e.target.value } : v))}
-                      placeholder="Email body..."
+                    {/* Rich editor — value is HTML; stores both html and plain versions */}
+                    <RichEditor
+                      value={currentVariant.bodyHtml || plainToHtml(currentVariant.body || '')}
+                      onChange={html => setVariants(vs => vs.map((v, i) =>
+                        i === variantIdx ? { ...v, body: htmlToPlain(html), bodyHtml: html } : v
+                      ))}
+                      minHeight={260}
+                      placeholder="Email body…"
                     />
                   </div>
                   <p className="text-[10px] text-slate-400">✏️ Changes are live — this exact content will be sent.</p>
@@ -826,22 +829,29 @@ export default function Campaign() {
                       </span>
                     )}
                   </div>
-                  {/* Email body rendered as paragraphs */}
-                  <div className="px-4 py-3 text-sm text-slate-700 leading-relaxed space-y-3 font-sans">
-                    {(mode === 'custom' ? customBody : currentVariant.body)
-                      .split(/\n{2,}/)
-                      .map((para, idx) => (
-                        <p key={idx} className="m-0">
-                          {para.split('\n').map((line, li) => (
-                            <span key={li}>
-                              {line}
-                              {li < para.split('\n').length - 1 && <br/>}
-                            </span>
-                          ))}
-                        </p>
-                      ))
-                    }
-                  </div>
+                  {/* Email body — custom mode renders HTML, AI mode renders plain text */}
+                  {mode === 'custom' ? (
+                    <div
+                      className="px-4 py-3 text-sm text-slate-700 leading-relaxed font-sans rich-preview"
+                      dangerouslySetInnerHTML={{ __html: customBodyHtml || '<p class="text-slate-400">Write your email above…</p>' }}
+                    />
+                  ) : (
+                    <div className="px-4 py-3 text-sm text-slate-700 leading-relaxed space-y-3 font-sans">
+                      {(currentVariant.body || '')
+                        .split(/\n{2,}/)
+                        .map((para, idx) => (
+                          <p key={idx} className="m-0">
+                            {para.split('\n').map((line, li) => (
+                              <span key={li}>
+                                {line}
+                                {li < para.split('\n').length - 1 && <br/>}
+                              </span>
+                            ))}
+                          </p>
+                        ))
+                      }
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1122,6 +1132,17 @@ export default function Campaign() {
           </div>
         </Card>
       )}
+
+      {/* Rich-preview styles for the custom email preview panel */}
+      <style>{`
+        .rich-preview p  { margin: 0 0 10px 0; }
+        .rich-preview ul { margin: 0 0 10px 0; padding-left: 22px; list-style-type: disc; }
+        .rich-preview ol { margin: 0 0 10px 0; padding-left: 22px; list-style-type: decimal; }
+        .rich-preview li { margin: 0 0 3px 0; }
+        .rich-preview b, .rich-preview strong { font-weight: 700; }
+        .rich-preview i, .rich-preview em     { font-style: italic; }
+        .rich-preview a  { color: #1a73e8; text-decoration: underline; }
+      `}</style>
     </div>
   )
 }
