@@ -361,6 +361,24 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
       {/* Expanded detail */}
       {isExpanded && detail && (
         <div className="border-t border-slate-100">
+
+          {/* Requeue unsent banner — shown for non-paused, non-scheduled completed campaigns */}
+          {!isScheduled && !isPaused && !isInterrupted && (
+            <div className="px-5 py-3 bg-violet-50 border-b border-violet-100 flex items-center justify-between gap-4">
+              <div className="text-xs text-violet-700">
+                <span className="font-semibold">🔁 Requeue Unsent Leads</span>
+                <span className="text-violet-500 ml-2">— Find leads in the "{c.target}" group that were never sent to and queue them for sending</span>
+              </div>
+              <button
+                onClick={e => { e.stopPropagation(); onRequeue(c) }}
+                disabled={requeueing === c.id}
+                className="shrink-0 px-4 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+              >
+                {requeueing === c.id ? '⏳ Requeueing…' : '🔁 Requeue Unsent'}
+              </button>
+            </div>
+          )}
+
           {/* Brief + Variants summary */}
           {(detail.brief?.product || detail.variants?.length > 0) && (
             <div className="px-5 py-4 bg-slate-50 border-b border-slate-100 grid grid-cols-2 gap-6">
