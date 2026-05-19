@@ -42,6 +42,32 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   const { type, id } = req.query;
 
+  // ── TEMP DIAGNOSTIC — remove after investigation ──────────────────────
+  if (type === "diag" && req.query.key === "diag_check_2024") {
+    const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+    if (!dbUrl) return res.json({ ok: false, error: "No DATABASE_URL or POSTGRES_URL set", env_keys: Object.keys(process.env).filter(k => k.includes("DATABASE") || k.includes("POSTGRES") || k.includes("NEON")) });
+    try {
+      const { neon: neonDiag } = require("@neondatabase/serverless");
+      const sqlD = neonDiag(dbUrl);
+      const tables = await sqlD`SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename`;
+      const kvCount = await sqlD`SELECT COUNT(*) as cnt FROM kv_store`.catch(() => [{ cnt: "TABLE_MISSING" }]);
+      const kvKeys = await sqlD`SELECT key, LENGTH(value) as bytes FROM kv_store ORDER BY key LIMIT 100`.catch(() => []);
+      const activeSessions = await sqlD`SELECT COUNT(*) as cnt FROM sessions WHERE expires_at > ${Date.now()}`.catch(() => [{ cnt: "TABLE_MISSING" }]);
+      const campaignCount = await sqlD`SELECT COUNT(*) as cnt FROM campaign_leads`.catch(() => [{ cnt: "TABLE_MISSING" }]);
+      return res.json({
+        ok: true,
+        db_url_host: dbUrl.match(/@([^/]+)\//)?.[1] || "unknown",
+        tables: tables.map(t => t.tablename),
+        kv_total_rows: kvCount[0]?.cnt,
+        kv_keys: kvKeys.map(r => ({ key: r.key, bytes: r.bytes })),
+        active_sessions: activeSessions[0]?.cnt,
+        campaign_leads_total: campaignCount[0]?.cnt,
+        ts: new Date().toISOString()
+      });
+    } catch(e) { return res.json({ ok: false, error: e.message }); }
+  }
+  // ── END TEMP DIAGNOSTIC ───────────────────────────────────────────────
+
   // Get userId from Authorization header or query param
   const token = req.headers.authorization?.replace("Bearer ", "") || req.query.token;
   let userId = await getUserIdFromToken(token);
