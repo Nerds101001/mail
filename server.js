@@ -83,9 +83,10 @@ app.all("/api/unsubscribe", unsubscribe);
 app.all("/api/db-check", dbCheck);
 
 // ── React frontend (must be LAST — catches all non-api routes) ────────────────
-app.use(express.static(path.join(__dirname, "crm-ui/dist")));
+// Vite builds to ../public (relative to crm-ui/) = /public at project root
+app.use(express.static(path.join(__dirname, "public")));
 app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "crm-ui/dist/index.html"));
+  res.sendFile(path.join(__dirname, "public/index.html"));
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
