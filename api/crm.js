@@ -3,7 +3,7 @@
 // Admin (userId=admin) can see all users' data
 
 const { get, set } = require("./_redis");
-const { neon } = require("@neondatabase/serverless");
+const { getSql } = require("./_db");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 async function safeGet(key, fallback) {
@@ -26,7 +26,7 @@ async function getUserIdFromToken(token) {
   if (!token) return "admin";
   if (/^sess_\d+_[a-z0-9]+$/.test(token) && token.length < 40) return "admin";
   try {
-    const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+    const sql = getSql();
     const rows = await sql`SELECT user_id FROM sessions WHERE token = ${token} AND expires_at > ${Date.now()} LIMIT 1`;
     return rows[0]?.user_id || "admin";
   } catch { return "admin"; }
@@ -47,8 +47,7 @@ module.exports = async (req, res) => {
     const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
     if (!dbUrl) return res.json({ ok: false, error: "No DATABASE_URL or POSTGRES_URL set", env_keys: Object.keys(process.env).filter(k => k.includes("DATABASE") || k.includes("POSTGRES") || k.includes("NEON")) });
     try {
-      const { neon: neonDiag } = require("@neondatabase/serverless");
-      const sqlD = neonDiag(dbUrl);
+      const sqlD = getSql();
       const tables = await sqlD`SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename`;
       const kvCount = await sqlD`SELECT COUNT(*) as cnt FROM kv_store`.catch(() => [{ cnt: "TABLE_MISSING" }]);
       const kvKeys = await sqlD`SELECT key, LENGTH(value) as bytes FROM kv_store ORDER BY key LIMIT 100`.catch(() => []);
@@ -99,7 +98,7 @@ module.exports = async (req, res) => {
     // Never downgrades — terminal stages (WON/LOST/DEMO/QUOTED/UNSUBSCRIBED) are never touched.
     let leads = leadsRaw;
     try {
-      const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+      const sql = getSql();
       const tracking = await sql`SELECT lead_id, opens, clicks FROM simple_tracking WHERE opens > 0 OR clicks > 0`;
       if (tracking.length > 0) {
         const STAGE_ORDER = { COLD:0, CONTACTED:1, OPENED:2, HOT:3 };
@@ -257,7 +256,7 @@ module.exports = async (req, res) => {
   if (type === "campaigns") {
     try {
       const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
-      const sql = neon(dbUrl);
+      const sql = getSql();
 
       await sql`CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, created_at BIGINT, target TEXT, sender TEXT, total_sent INT DEFAULT 0, total_failed INT DEFAULT 0, total_skipped INT DEFAULT 0, stats JSONB DEFAULT '{}', brief JSONB DEFAULT '{}', variants JSONB DEFAULT '[]')`;
       await sql`CREATE TABLE IF NOT EXISTS campaign_leads (id SERIAL PRIMARY KEY, campaign_id TEXT, user_id TEXT, lead_id TEXT, lead_name TEXT, lead_email TEXT, lead_company TEXT, status TEXT DEFAULT 'sent', subject TEXT, body TEXT, sent_at BIGINT, opens INT DEFAULT 0, clicks INT DEFAULT 0, last_open BIGINT, last_click BIGINT, variant_index INT DEFAULT 0)`;
@@ -420,7 +419,7 @@ module.exports = async (req, res) => {
   // ── LEAD TRACKING SUMMARY (for pipeline table) ───────────────────────
   if (type === "lead-tracking" && req.method === "GET") {
     try {
-      const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+      const sql = getSql();
 
       // Only return tracking for leads that belong to the calling user.
       const userLeads = await safeGet(ns("crm:leads", userId), []);
@@ -479,7 +478,7 @@ module.exports = async (req, res) => {
       const { leadId } = req.body;
       if (!leadId) return res.status(400).json({ error: "Missing leadId" });
       const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
-      const sql = neon(dbUrl);
+      const sql = getSql();
       await sql`UPDATE campaign_leads SET status='replied' WHERE lead_id=${leadId} AND status='sent'`;
       return res.json({ ok: true });
     } catch(err) {

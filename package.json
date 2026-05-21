@@ -1,17 +1,20 @@
 {
   "name": "enginerds-lead-engine",
   "version": "2.1.0",
-  "description": "AI Lead Engine CRM with Gmail OAuth and tracking - Pure Neon Postgres",
+  "description": "AI Lead Engine CRM with Gmail OAuth and tracking",
   "scripts": {
+    "start": "node server.js",
     "dev": "node server.js",
     "deploy": "vercel --prod",
     "build": "cd crm-ui && npm install && npm run build"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.0.2",
+    "postgres": "^3.4.4",
+    "express": "^4.19.2",
+    "dotenv": "^16.4.5",
     "nodemailer": "^6.9.13"
   },
   "engines": {
-    "node": "24.x"
+    "node": "20.x"
   }
 }

@@ -7,13 +7,11 @@
 // PUT  /api/auth?type=users&id=...  → update user (admin only)
 // DELETE /api/auth?type=users&id=...→ delete user (admin only)
 
-const { neon } = require("@neondatabase/serverless");
+const { getSql } = require("./_db");
 const crypto = require("crypto");
 
 function getDb() {
-  const url = process.env.POSTGRES_URL || process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL not configured");
-  return neon(url);
+  return getSql();
 }
 
 async function ensureTables(sql) {

@@ -1,10 +1,8 @@
-// api/_redis.js — Simplified Neon Postgres database helper
-const { neon } = require("@neondatabase/serverless");
+// api/_redis.js — Postgres database helper (works with AWS RDS, Supabase, Neon, etc.)
+const { getSql } = require("./_db");
 
 function getDb() {
-  const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
-  if (!url) throw new Error("DATABASE_URL not configured");
-  return neon(url);
+  return getSql();
 }
 
 // Simplified retry wrapper

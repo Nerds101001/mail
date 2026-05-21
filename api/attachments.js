@@ -10,7 +10,7 @@
 //   DELETE ?id=xxx                                     → delete own file (admin: any)
 //   GET  ?type=download&id=xxx&leadId=xxx&cid=xxx      → track + serve file
 
-const { neon } = require("@neondatabase/serverless");
+const { getSql } = require("./_db");
 const { trackClick } = require("./_redis");
 
 // ── Auth helper (same pattern as crm.js / ops.js) ─────────────────────────────
@@ -18,14 +18,14 @@ async function getUserIdFromToken(token) {
   if (!token) return "admin";
   if (/^sess_\d+_[a-z0-9]+$/.test(token) && token.length < 40) return "admin";
   try {
-    const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+    const sql = getSql();
     const rows = await sql`SELECT user_id FROM sessions WHERE token = ${token} AND expires_at > ${Date.now()} LIMIT 1`;
     return rows[0]?.user_id || "admin";
   } catch { return "admin"; }
 }
 
 async function getDb() {
-  const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+  const sql = getSql();
   await sql`
     CREATE TABLE IF NOT EXISTS attachments (
       id            TEXT PRIMARY KEY,

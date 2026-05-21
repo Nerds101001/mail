@@ -12,7 +12,7 @@
 
 const dns        = require("dns").promises;
 const { get, set, del, getTrackingStats, getTrackingEvents, ensureTable } = require("./_redis");
-const { neon } = require("@neondatabase/serverless");
+const { getSql } = require("./_db");
 const nodemailer = require("nodemailer");
 
 async function safeGet(key, fallback) {
@@ -23,7 +23,7 @@ async function getUserIdFromToken(token) {
   if (!token) return "admin";
   if (/^sess_\d+_[a-z0-9]+$/.test(token) && token.length < 40) return "admin";
   try {
-    const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+    const sql = getSql();
     const rows = await sql`SELECT user_id FROM sessions WHERE token = ${token} AND expires_at > ${Date.now()} LIMIT 1`;
     return rows[0]?.user_id || "admin";
   } catch { return "admin"; }
@@ -61,7 +61,7 @@ module.exports = async (req, res) => {
 
       if (campaignId) {
         await ensureTable();
-        const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+        const sql = getSql();
         const rows = await sql`
           SELECT lead_id,
             COUNT(*) FILTER (WHERE event_type = 'open')  AS opens,
@@ -106,7 +106,7 @@ module.exports = async (req, res) => {
       // Must run BEFORE the subqueries below reference tracking_events.
       await ensureTable();
 
-      const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+      const sql = getSql();
       const campFilter = req.query.campaign || null;
       const rowLimit   = Math.min(parseInt(req.query.limit) || 1000, 2000);
 
@@ -603,7 +603,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       if (!ids) return res.json({});
       const leadIds = ids.split(",").filter(Boolean);
       await ensureTable();
-      const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+      const sql = getSql();
       const rows = await sql`
         SELECT lead_id,
           COUNT(*) FILTER (WHERE event_type = 'open')  AS opens,
@@ -661,7 +661,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       const campaignId = req.query.campaignId;
       if (!campaignId) return res.json({ variantIndex: 0, reason: "no campaignId" });
       await ensureTable();
-      const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+      const sql = getSql();
       // For each variant_index, compute open rate = opens / sends
       const rows = await sql`
         SELECT cl.variant_index,
@@ -703,7 +703,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
   // Called client-side from CampaignHistory when scheduled_at <= now.
   if (type === "run-scheduled" && (req.method === "POST" || req.method === "GET")) {
     const appUrl = process.env.APP_URL || "https://enginerdsmail.vercel.app";
-    const sql2   = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+    const sql2   = getSql();
     const now2   = Date.now();
     try {
       const due = await sql2`

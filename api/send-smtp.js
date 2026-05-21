@@ -6,8 +6,8 @@ const { get, set } = require("./_redis");
 async function fetchAttachmentData(attachments) {
   if (!attachments || !attachments.length) return [];
   try {
-    const { neon } = require("@neondatabase/serverless");
-    const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+    const { getSql } = require("./_db");
+    const sql = getSql();
     const ids = attachments.map(a => a.id);
     const rows = await sql`SELECT id, original_name, content_type, data FROM attachments WHERE id = ANY(${ids})`;
     return rows;

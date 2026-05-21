@@ -5,14 +5,14 @@
 // POST /api/gmail?type=disconnect    → Disconnect a Gmail account for the calling user
 
 const { get, set } = require("./_redis");
-const { neon } = require("@neondatabase/serverless");
+const { getSql } = require("./_db");
 
 // ── Shared helpers (same as crm.js) ──────────────────────────────────────────
 async function getUserIdFromToken(token) {
   if (!token) return "admin";
   if (/^sess_\d+_[a-z0-9]+$/.test(token) && token.length < 40) return "admin";
   try {
-    const sql = neon(process.env.POSTGRES_URL || process.env.DATABASE_URL);
+    const sql = getSql();
     const rows = await sql`SELECT user_id FROM sessions WHERE token = ${token} AND expires_at > ${Date.now()} LIMIT 1`;
     return rows[0]?.user_id || "admin";
   } catch { return "admin"; }

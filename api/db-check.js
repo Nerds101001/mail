@@ -2,7 +2,7 @@
 // Checks database health and CRM data status
 // DELETE THIS FILE after diagnosis is complete
 
-const { neon } = require("@neondatabase/serverless");
+const { getSql } = require("./_db");
 
 module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
@@ -22,7 +22,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const sql = neon(url);
+    const sql = getSql();
 
     // Check which tables exist
     const tables = await sql`
