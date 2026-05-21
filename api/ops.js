@@ -298,7 +298,8 @@ module.exports = async (req, res) => {
   // ── AI EMAIL GENERATION ───────────────────────────────────────────────
   if (type === "generate-ai" && req.method === "POST") {
     try {
-      const { name, company, role, category, apiKey, customPrompt, count = 1, brief = {}, notes = "" } = req.body;
+      const { name, company, role, category, apiKey: bodyKey, customPrompt, count = 1, brief = {}, notes = "" } = req.body;
+      const apiKey = bodyKey || process.env.NVIDIA_API_KEY;
 
       if (!apiKey) return res.status(400).json({ error: 'NVIDIA API key is required' });
 
@@ -632,7 +633,8 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
 
   // ── TEST NVIDIA API KEY ───────────────────────────────────────────────
   if (type === "test-nvidia" && req.method === "POST") {
-    const { apiKey } = req.body || {};
+    const { apiKey: bodyKey } = req.body || {};
+    const apiKey = bodyKey || process.env.NVIDIA_API_KEY;
     if (!apiKey) return res.status(400).json({ ok: false, error: "No API key provided" });
     try {
       const r = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
