@@ -420,6 +420,7 @@ export default function Campaign() {
             selectedSenders:    [...selectedSenders],
             selectedAttachments,
             usePersonalization,
+            attachmentText:     buildAttachmentText(),
           },
         }),
       })

@@ -44,8 +44,8 @@ module.exports = async (req, res) => {
         ? `✅ [OPEN] Counted lead ${id}, total: ${result.count}`
         : `⏭️  [OPEN] Skipped (${result.reason})`);
 
-      // Delivery scanner = blocked by 5s timing guard
-      deliveryScan = (!result.counted && result.reason === 'scanner guard (5s)');
+      // Delivery scanner = blocked by timing guard
+      deliveryScan = (!result.counted && (result.reason === 'scanner guard (30s)' || result.reason === 'scanner guard (5s)'));
     } catch (e) {
       console.error(`❌ [OPEN] Lead ${id}:`, e.message);
     }

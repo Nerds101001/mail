@@ -729,7 +729,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
           const cfgRaw = typeof camp.schedule_config === 'string'
             ? JSON.parse(camp.schedule_config || '{}')
             : (camp.schedule_config || {});
-          const { cfg = {}, variants = [], selectedSenders = [], selectedAttachments = [], usePersonalization = false } = cfgRaw;
+          const { cfg = {}, variants = [], selectedSenders = [], selectedAttachments = [], usePersonalization = false, attachmentText = '' } = cfgRaw;
           const uid = camp.user_id;
           if (!uid) throw new Error("campaign.user_id missing");
 
@@ -774,6 +774,8 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
               subject = `Question for ${l.company||'your business'}`;
               body    = `Hi ${nameT},\n\nI noticed ${compT} and thought we could help.\n\nBest,\nPawan Kumar\nEnginerds Tech Solution`;
             }
+            // Append link attachments (legacy text links) if any were configured
+            if (attachmentText) body = body + attachmentText;
 
             const ep = profile.type === 'gmail' ? `${appUrl}/api/send-email` : `${appUrl}/api/send-smtp`;
             const pl = { leadId:l.id, to:l.email, subject, body, senderName:cfg.sender||'Enginerds Tech', replyTo:cfg.replyTo||'', campaignId:camp.id, attachments:(selectedAttachments||[]).map(id=>({id})) };
