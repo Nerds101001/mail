@@ -347,28 +347,33 @@ async function getTrackingEvents(leadId, campaignId = null, limit = 100) {
 // 3. ALL OTHER IPs — real user opens from their own IP
 //    Apply timing guard (blocks delivery scanners within 12s of send)
 
+// Hard-blocked IPs — scanners that should NEVER be counted regardless of timing.
+// Apple MPP and Microsoft SafeLinks fire automatically on delivery, not on user open.
+// Google/Amazon infrastructure scanners are server-side crawlers, not real users.
 function isBotIp(ip) {
   if (!ip || ip === 'unknown') return false;
   return /^17\./.test(ip)         ||   // Apple MPP — auto-prefetch on delivery
          /^40\.94\./.test(ip)     ||   // Microsoft SafeLinks
          /^40\.107\./.test(ip)    ||   // Microsoft SafeLinks
          /^52\.100\./.test(ip)    ||   // Microsoft SafeLinks
-         /^66\.249\./.test(ip)    ||   // Google delivery scanner / Googlebot
-         /^66\.102\./.test(ip)    ||   // Google image/content scanner
          /^104\.47\./.test(ip)    ||   // Microsoft email scanner
          /^172\.253\./.test(ip)   ||   // Google Safe Browsing / link scanner
-         /^130\.211\./.test(ip)   ||   // Google Cloud load balancer scanner
+         /^130\.211\./.test(ip)   ||   // Google Cloud scanner
          /^35\.190\./.test(ip)    ||   // Google Cloud scanner
          /^23\.21\./.test(ip)     ||   // Amazon SES content scanner
          /^54\.240\./.test(ip);        // Amazon SES scanner
+  // NOTE: 66.249.x (Google delivery scanner) is NOT here — it fires at delivery
+  // (caught by 5s guard → 204) AND at real user opens (counted after 5s guard).
+  // Hard-blocking it would miss real opens from Google IPs.
 }
 
-// Gmail proxy IPs — fire when a real Gmail user opens the email.
-// NOT hard-blocked. The 15s timing guard still applies so Gmail's delivery
-// pre-fetch (fires at ~3s) is caught, while real opens at 16s+ are counted.
+// Gmail / Google proxy IPs — fire ONLY on real user opens (not delivery).
+// These bypass the 5s timing guard entirely and are always counted.
+// Strategy matches the working Vercel version: 66.249.x goes through the 5s guard
+// (204 on delivery scan → Gmail re-requests on real open → 74.125.x fires → counted).
 function isMailProxyIp(ip) {
   if (!ip || ip === 'unknown') return false;
-  return /^74\.125\./.test(ip)  ||   // Gmail / Google proxy
+  return /^74\.125\./.test(ip)  ||   // Gmail image proxy — real user opens only
          /^64\.233\./.test(ip)  ||
          /^209\.85\./.test(ip)  ||
          /^216\.58\./.test(ip)  ||
@@ -380,10 +385,10 @@ function isMailProxyIp(ip) {
 // User-agent based bot detection — catches corporate scanners by UA string
 function isBotUA(ua) {
   if (!ua || ua === 'unknown') return false;
-  return /proofpoint|barracuda|mimecast|symantec\.cloud|trend\s*micro|sophos|forcepoint|ironport|postmaster|previewer|prefetch|link.*checker|url.*checker|safety.*checker|zgrab|python-urllib|python-requests|java\/[0-9]|curl\/|wget\/|go-http-client|nessus|scanner|googleimageproxy/i.test(ua);
+  return /proofpoint|barracuda|mimecast|symantec\.cloud|trend\s*micro|sophos|forcepoint|ironport|postmaster|previewer|prefetch|link.*checker|url.*checker|safety.*checker|zgrab|python-urllib|python-requests|java\/[0-9]|curl\/|wget\/|go-http-client|nessus|scanner/i.test(ua);
 }
 
-// Combined: is this request from a bot/scanner that should never be counted?
+// Combined: is this request from a hard-blocked bot?
 function isBot(ip, ua) {
   return isBotIp(ip) || isBotUA(ua);
 }
@@ -521,13 +526,14 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       }
     }
 
-    // ── Step 3: Timing guard — 5s for non-Gmail-proxy IPs only ──────────────
-    // Gmail proxy (74.125.x, 209.85.x etc.) is a special case:
-    //   • Gmail pre-fetches images at delivery AND caches on their CDN
-    //   • If we block the delivery hit → Gmail caches nothing → real open also missed
-    //   • So we MUST count the first Gmail proxy hit (it's the only open signal Gmail gives)
-    //   • The flood of false opens in the past was from 66.249.x (hard-blocked above), NOT 74.125.x
-    // For all other IPs: 5s guard catches unknown delivery scanners.
+    // ── Step 3: Timing guard — 5s for non-Gmail-proxy IPs ───────────────────
+    // Matches the working Vercel strategy exactly:
+    //   • Gmail proxy (74.125.x etc.) → bypass guard → always counted
+    //     These only fire on real user opens, never at delivery.
+    //   • 66.249.x (Google delivery scanner) → goes through 5s guard
+    //     Within 5s → NOT counted → 204 returned → Gmail has nothing cached
+    //     → Gmail proxy (74.125.x) re-requests on real open → counted correctly
+    //   • All other unknown IPs → 5s guard catches delivery scanners
     if (!isMailProxyIp(ip)) {
       const guardRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
