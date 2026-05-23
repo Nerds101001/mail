@@ -44,8 +44,18 @@ module.exports = async (req, res) => {
         ? `✅ [OPEN] Counted lead ${id}, total: ${result.count}`
         : `⏭️  [OPEN] Skipped (${result.reason})`);
 
-      // Delivery scanner = blocked by timing guard
-      deliveryScan = (!result.counted && (result.reason === 'scanner guard (12s)' || result.reason === 'scanner guard (30s)' || result.reason === 'scanner guard (5s)'));
+      // Delivery scanner = blocked by timing guard OR hard-blocked as bot
+      // Return 204 in both cases so Gmail has nothing to cache
+      deliveryScan = (!result.counted && (
+        result.reason === 'scanner guard (12s)' ||
+        result.reason === 'scanner guard (30s)' ||
+        result.reason === 'scanner guard (5s)'  ||
+        result.reason === 'Apple MPP'           ||
+        result.reason === 'Google Scanner'      ||
+        result.reason === 'Microsoft Scanner'   ||
+        result.reason === 'attachment scanner guard (10s)' ||
+        result.reason === 'Bot UA'
+      ));
     } catch (e) {
       console.error(`❌ [OPEN] Lead ${id}:`, e.message);
     }

@@ -92,6 +92,7 @@ async function ensureTable() {
     await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS device_client TEXT`.catch(() => {});
     await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS country TEXT`.catch(() => {});
     await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS city TEXT`.catch(() => {});
+    await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS is_bot BOOLEAN DEFAULT FALSE`.catch(() => {});
     await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_lead ON tracking_events(lead_id, event_type, created_at)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_campaign ON tracking_events(campaign_id)`.catch(() => {});
     // Composite index powers the per-campaign COUNT(*) subqueries in all-sends
@@ -309,13 +310,13 @@ async function getTrackingEvents(leadId, campaignId = null, limit = 100) {
     const sql = getDb();
     const rows = campaignId
       ? await sql`
-          SELECT event_type, ip, user_agent, target_url, campaign_id, created_at
+          SELECT event_type, ip, user_agent, target_url, campaign_id, device_type, device_client, country, city, is_bot, created_at
           FROM tracking_events
           WHERE lead_id = ${leadId} AND campaign_id = ${campaignId}
           ORDER BY created_at DESC LIMIT ${limit}
         `
       : await sql`
-          SELECT event_type, ip, user_agent, target_url, campaign_id, created_at
+          SELECT event_type, ip, user_agent, target_url, campaign_id, device_type, device_client, country, city, is_bot, created_at
           FROM tracking_events
           WHERE lead_id = ${leadId}
           ORDER BY created_at DESC LIMIT ${limit}
@@ -327,27 +328,55 @@ async function getTrackingEvents(leadId, campaignId = null, limit = 100) {
   }
 }
 
-// ── IP classification ─────────────────────────────────────────────────────────
-// These IPs are KNOWN to only fire on real user interaction (never at delivery).
-// They bypass the 5-second timing guard entirely — no need to wait.
+// ── IP / UA classification ────────────────────────────────────────────────────
 //
-// Ranges covered:
-//   74.125, 64.233, 209.85, 216.58, 216.239, 142.250, 108.177 — Google infra (Gmail proxy user opens)
-//   17.x                                                        — Apple MPP (Mail Privacy Protection)
-//   40.94, 40.107, 52.100                                       — Microsoft SafeLinks
+// THREE categories:
 //
-// NOTE: 66.249.x.x (Google delivery scanner) is NOT listed here because it fires
-// at BOTH delivery time (false open, within 5s) AND real user opens (after 5s).
-// It is handled correctly by the 5-second timing guard below.
-function isUserProxyIp(ip) {
+// 1. BOT IPs — fire automatically, NEVER count, log as is_bot=true
+//    17.x.x.x        Apple MPP — pre-fetches ALL images on delivery, not on read
+//    40.94/40.107    Microsoft SafeLinks scanner — scans every link automatically
+//    52.100.x        Microsoft SafeLinks scanner
+//    66.249.x        Google delivery scanner (also caught by timing guard)
+//    104.47.x        Microsoft email scanner
+//
+// 2. MAIL PROXY IPs — real user opens routed through mail provider's proxy
+//    74.125, 64.233, 209.85, 216.58, 216.239, 142.250, 108.177 — Gmail/Google proxy
+//    These fire ONLY when a real user opens — bypass timing guard, count normally
+//    (Geo will show Google datacenter, not user's real city — that's expected)
+//
+// 3. ALL OTHER IPs — real user opens from their own IP
+//    Apply timing guard (blocks delivery scanners within 12s of send)
+
+function isBotIp(ip) {
   if (!ip || ip === 'unknown') return false;
-  return /^74\.125\./.test(ip)  || /^64\.233\./.test(ip)  ||
-         /^209\.85\./.test(ip)  || /^216\.58\./.test(ip)  ||
-         /^216\.239\./.test(ip) || /^142\.250\./.test(ip) ||
-         /^108\.177\./.test(ip) ||
-         /^17\./.test(ip)       ||
-         /^40\.94\./.test(ip)   || /^40\.107\./.test(ip)  ||
-         /^52\.100\./.test(ip);
+  return /^17\./.test(ip)       ||   // Apple MPP — auto-prefetch on delivery
+         /^40\.94\./.test(ip)   ||   // Microsoft SafeLinks
+         /^40\.107\./.test(ip)  ||   // Microsoft SafeLinks
+         /^52\.100\./.test(ip)  ||   // Microsoft SafeLinks
+         /^66\.249\./.test(ip)  ||   // Google delivery scanner
+         /^104\.47\./.test(ip);      // Microsoft email scanner
+}
+
+function isMailProxyIp(ip) {
+  if (!ip || ip === 'unknown') return false;
+  return /^74\.125\./.test(ip)  ||   // Gmail / Google proxy (real user open)
+         /^64\.233\./.test(ip)  ||
+         /^209\.85\./.test(ip)  ||
+         /^216\.58\./.test(ip)  ||
+         /^216\.239\./.test(ip) ||
+         /^142\.250\./.test(ip) ||
+         /^108\.177\./.test(ip);
+}
+
+// User-agent based bot detection — catches corporate scanners by UA string
+function isBotUA(ua) {
+  if (!ua || ua === 'unknown') return false;
+  return /proofpoint|barracuda|mimecast|symantec\.cloud|trend\s*micro|sophos|forcepoint|ironport|postmaster|previewer|prefetch|link.*checker|url.*checker|safety.*checker|zgrab|python-urllib|python-requests|java\/[0-9]|curl\/|wget\/|go-http-client|nessus|scanner/i.test(ua);
+}
+
+// Combined: is this request from a bot/scanner that should never be counted?
+function isBot(ip, ua) {
+  return isBotIp(ip) || isBotUA(ua);
 }
 
 // ── Auto pipeline stage advancement ──────────────────────────────────────────
@@ -405,11 +434,31 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
 
     const now = Date.now();
 
-    // ── Attachment guard — applies to ALL IPs including user-proxy ranges ─────
-    // Gmail's attachment content scanner fires from Google infrastructure IPs
-    // (74.125.x.x etc.) that are normally whitelisted as "real user" opens.
-    // When an email had attachments we write a separate key so we can block
-    // even those IPs within the first 10s of delivery.
+    const device = parseDevice(userAgent);
+    const geo    = getGeo(ip);
+
+    // ── Step 1: Hard-block known bots/proxies ────────────────────────────────
+    // Apple MPP (17.x), Microsoft SafeLinks (40.94/40.107/52.100),
+    // Google delivery scanner (66.249.x), corporate scanner UAs.
+    // Log these so they're visible in UI (greyed out) but NEVER count or stage-advance.
+    if (isBot(ip, userAgent)) {
+      const botReason = isBotIp(ip)
+        ? (/^17\./.test(ip) ? 'Apple MPP' : /^66\.249\./.test(ip) ? 'Google Scanner' : 'Microsoft Scanner')
+        : 'Bot UA';
+      console.log(`🤖 [BOT-BLOCK] ${botReason} blocked for lead ${leadId} IP:${ip}`);
+      try {
+        await sql`
+          INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, device_type, device_client, country, city, is_bot, created_at)
+          VALUES (${leadId}, 'open', ${ip}, ${userAgent}, ${campaignId ? `campaign:${campaignId}` : null}, ${campaignId || null},
+                  ${device.type}, ${device.client}, ${geo.country || null}, ${geo.city || null}, ${true}, ${now})
+        `;
+      } catch {}
+      return { counted: false, reason: botReason, count: 0 };
+    }
+
+    // ── Step 2: Attachment scanner guard — extra window after sends with files ─
+    // Gmail's attachment content scanner can fire from Gmail proxy IPs too.
+    // Block ANY IP within 10s of an attachment send.
     const attGuardRaw = await sql`
       SELECT value FROM kv_store WHERE key = ${'email:att-guard:' + leadId}
         AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
@@ -422,15 +471,10 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       }
     }
 
-    // ── Timing guard (ALL IPs including 66.249.x.x) ──────────────────────────
-    // Gmail delivery scanner fires within 1-5s of send from 66.249.x.x.
-    // Real user opens also come from Google IPs (66.249, 74.125, etc.) but
-    // always AFTER the user taps/clicks — never within 5s of delivery.
-    // Blocking 66.249.x.x outright would also block real user opens from that range.
-    // Instead: block ALL IPs only within the first 5s window after send.
-    // Known user-proxy IPs (74.125, Apple MPP, Microsoft) bypass even this guard
-    // because they ONLY fire on real user interaction — never at delivery.
-    if (!isUserProxyIp(ip)) {
+    // ── Step 3: Timing guard — only for non-Gmail-proxy IPs ──────────────────
+    // Gmail proxy IPs (74.125, etc.) only fire on real user opens — skip guard.
+    // All other IPs: block if within 12s of send (catches delivery scanners).
+    if (!isMailProxyIp(ip)) {
       const guardRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
           AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
@@ -444,8 +488,7 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       }
     }
 
-    // Dedup: block same IP within 30s to prevent double-counting a single open
-    // that triggers multiple proxy requests, but allow re-opens after 30s.
+    // ── Step 4: 30s dedup — same IP can't double-count within 30s ────────────
     const thirtySecondsAgo = now - (30 * 1000);
     const existing = await sql`
       SELECT created_at FROM tracking_events
@@ -456,12 +499,11 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
         AND created_at > ${thirtySecondsAgo}
       LIMIT 1
     `;
-
     if (existing.length > 0) {
       return { counted: false, reason: '30s dedup', count: 0 };
     }
 
-    // Count this open
+    // ── Step 5: Count the real open ───────────────────────────────────────────
     const rows = await sql`
       INSERT INTO simple_tracking (lead_id, opens, last_open)
       VALUES (${leadId}, 1, ${now})
@@ -472,29 +514,25 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
     `;
     const count = parseInt(rows[0].opens);
 
-    // Parse device + geo
-    const device = parseDevice(userAgent);
-    const geo    = getGeo(ip);
-
-    // Log event with device + geo
+    // Log event
     try {
       await sql`
-        INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, device_type, device_client, country, city, created_at)
+        INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, device_type, device_client, country, city, is_bot, created_at)
         VALUES (${leadId}, 'open', ${ip}, ${userAgent}, ${campaignId ? `campaign:${campaignId}` : null}, ${campaignId || null},
-                ${device.type}, ${device.client}, ${geo.country || null}, ${geo.city || null}, ${now})
+                ${device.type}, ${device.client}, ${geo.country || null}, ${geo.city || null}, ${false}, ${now})
       `;
       console.log(`✅ [EVENT LOGGED] OPEN lead:${leadId} camp:${campaignId || '—'} device:${device.type}/${device.client} geo:${geo.country||'?'}/${geo.city||'?'}`);
     } catch (e) {
       console.error(`❌ [EVENT LOG FAILED] open lead:${leadId}:`, e.message);
     }
 
-    // Auto-advance pipeline stage (non-blocking)
+    // Auto-advance pipeline stage (only on real opens)
     const newStage = await autoUpdateStage(leadId, campaignId, count, false, sql).catch(() => null);
 
     // Real-time SSE notification to all connected CRM browsers
     sseEmit('open_event', { leadId, opens: count, newStage, device, geo, campaignId, ts: now });
 
-    console.log(`✅ [TRACK OPEN] Unique open counted for ${leadId}, total: ${count}`);
+    console.log(`✅ [TRACK OPEN] Real open counted for ${leadId}, total: ${count}`);
     return { counted: true, count };
   } catch (e) {
     console.error(`❌ [TRACK OPEN] Failed for ${leadId}:`, e.message);
@@ -509,9 +547,27 @@ async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
     const sql = getDb();
 
     const now = Date.now();
-    const fiveMinutesAgo = now - (5 * 60 * 1000); // 5 minute window
+    const device = parseDevice(userAgent);
+    const geo    = getGeo(ip);
 
-    // Check if this exact click was already tracked recently
+    // ── Block known bots / scanners ───────────────────────────────────────────
+    // Microsoft SafeLinks scans ALL links — fires from 40.94/40.107/52.100.
+    // Log but never count or advance stage.
+    if (isBot(ip, userAgent)) {
+      const botReason = isBotIp(ip) ? 'Microsoft SafeLinks' : 'Bot UA';
+      console.log(`🤖 [BOT-CLICK] ${botReason} blocked for lead ${leadId} IP:${ip}`);
+      try {
+        await sql`
+          INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, device_type, device_client, country, city, is_bot, created_at)
+          VALUES (${leadId}, 'click', ${ip}, ${userAgent}, ${targetUrl}, ${campaignId || null},
+                  ${device.type}, ${device.client}, ${geo.country || null}, ${geo.city || null}, ${true}, ${now})
+        `;
+      } catch {}
+      return { counted: false, reason: botReason, count: 0 };
+    }
+
+    // ── 5-minute dedup — same IP + URL ───────────────────────────────────────
+    const fiveMinutesAgo = now - (5 * 60 * 1000);
     const existing = await sql`
       SELECT created_at FROM tracking_events
       WHERE lead_id = ${leadId}
@@ -521,13 +577,11 @@ async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
         AND created_at > ${fiveMinutesAgo}
       LIMIT 1
     `;
-    
     if (existing.length > 0) {
-      // Duplicate within 5 minutes - don't count
       return { counted: false, reason: '5 minute window', count: 0 };
     }
-    
-    // This is a unique click - count it
+
+    // ── Count the real click ──────────────────────────────────────────────────
     const rows = await sql`
       INSERT INTO simple_tracking (lead_id, clicks, last_click)
       VALUES (${leadId}, 1, ${now})
@@ -538,29 +592,24 @@ async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
     `;
     const count = parseInt(rows[0].clicks);
 
-    // Parse device + geo
-    const device = parseDevice(userAgent);
-    const geo    = getGeo(ip);
-
-    // Log event with device + geo
     try {
       await sql`
-        INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, device_type, device_client, country, city, created_at)
+        INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, device_type, device_client, country, city, is_bot, created_at)
         VALUES (${leadId}, 'click', ${ip}, ${userAgent}, ${targetUrl}, ${campaignId || null},
-                ${device.type}, ${device.client}, ${geo.country || null}, ${geo.city || null}, ${now})
+                ${device.type}, ${device.client}, ${geo.country || null}, ${geo.city || null}, ${false}, ${now})
       `;
       console.log(`✅ [EVENT LOGGED] CLICK lead:${leadId} camp:${campaignId || '—'} device:${device.type}/${device.client}`);
     } catch (e) {
       console.error(`❌ [EVENT LOG FAILED] click lead:${leadId}:`, e.message);
     }
 
-    // Click = high intent → auto-advance to HOT
+    // Real click = high intent → auto-advance to HOT
     const newStage = await autoUpdateStage(leadId, campaignId, 0, true, sql).catch(() => null);
 
     // Real-time SSE notification
     sseEmit('click_event', { leadId, clicks: count, newStage, device, geo, targetUrl, campaignId, ts: now });
 
-    console.log(`✅ [TRACK CLICK] Unique click counted for ${leadId}, total: ${count}`);
+    console.log(`✅ [TRACK CLICK] Real click counted for ${leadId}, total: ${count}`);
     return { counted: true, count };
   } catch (e) {
     console.error(`❌ [TRACK CLICK] Failed for ${leadId}:`, e.message);
