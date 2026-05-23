@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useCRM } from '../store'
 import { enrichLead, isValidEmail, PIPELINE_STAGES, STAGE_COLORS, STATUS_COLORS, fmtDate } from '../utils'
 import { Modal, Btn, Input, Select, Textarea, Badge, Empty, PageHeader, toast } from '../components/ui'
-import { Plus, Upload, CheckCircle, Zap, Trash2, UserCheck, Search, Filter, Flame, Users, Download } from 'lucide-react'
+import { Plus, Upload, CheckCircle, Zap, Trash2, UserCheck, Search, Filter, Flame, Users, Download, MessageSquare, RefreshCw } from 'lucide-react'
 
 export default function Leads() {
   const { leads, setLeads, profiles, settings, logActivity, pushToRedis, saveLeads } = useCRM()
@@ -29,6 +29,13 @@ export default function Leads() {
   const [verifying, setVerifying] = useState(false)
   const [scores, setScores] = useState({})
   const [researchingId, setResearchingId] = useState(null)
+  const [notesOpen,  setNotesOpen]  = useState(false)
+  const [notesLead,  setNotesLead]  = useState(null)
+  const [notesList,  setNotesList]  = useState([])
+  const [noteText,   setNoteText]   = useState('')
+  const [notesSaving,setNotesSaving]= useState(false)
+  const [bulkStage,  setBulkStage]  = useState('')
+  const [checkReplies, setCheckReplies] = useState(false)
   const PAGE_SIZE = 75
   const [page, setPage] = useState(0)
 
@@ -356,6 +363,56 @@ export default function Leads() {
   const toggleSelect = (id) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const toggleAll = () => setSelected(selected.size === filtered.length ? new Set() : new Set(filtered.map(l => l.id)))
 
+  function bulkChangeStage() {
+    if (!selected.size || !bulkStage) { toast('Select leads and a stage', 'info'); return }
+    const newLeads = leads.map(l => selected.has(l.id) ? { ...l, pipelineStage: bulkStage } : l)
+    save(newLeads); setSelected(new Set()); setBulkStage('')
+    toast(`Updated ${selected.size} leads → ${bulkStage}`, 'success')
+  }
+
+  async function openNotes(lead) {
+    setNotesLead(lead); setNotesList([]); setNoteText(''); setNotesOpen(true)
+    try {
+      const r = await fetch(`/api/notes?leadId=${lead.id}`, { headers: { Authorization: `Bearer ${localStorage.getItem('crm_token')||''}` } })
+      setNotesList(await r.json())
+    } catch {}
+  }
+
+  async function addNote() {
+    if (!noteText.trim()) return
+    setNotesSaving(true)
+    try {
+      const r = await fetch('/api/notes', { method:'POST', headers:{ Authorization:`Bearer ${localStorage.getItem('crm_token')||''}`, 'Content-Type':'application/json' },
+        body: JSON.stringify({ leadId: notesLead.id, content: noteText.trim(), note_type:'note' }) })
+      const d = await r.json()
+      if (d.note) { setNotesList(prev => [d.note, ...prev]); setNoteText('') }
+    } catch { toast('Failed to save note', 'error') }
+    setNotesSaving(false)
+  }
+
+  async function deleteNote(noteId) {
+    await fetch(`/api/notes?noteId=${noteId}`, { method:'DELETE', headers:{ Authorization:`Bearer ${localStorage.getItem('crm_token')||''}` } })
+    setNotesList(prev => prev.filter(n => n.id !== noteId))
+  }
+
+  async function doCheckReplies() {
+    setCheckReplies(true)
+    try {
+      const r = await fetch('/api/check-replies', { headers:{ Authorization:`Bearer ${localStorage.getItem('crm_token')||''}` } })
+      const d = await r.json()
+      if (d.repliesFound > 0) {
+        toast(`🚨 ${d.repliesFound} new repl${d.repliesFound===1?'y':'ies'} detected!`, 'success')
+        // Refresh leads
+        const lr = await fetch('/api/get-crm-data', { headers:{ Authorization:`Bearer ${localStorage.getItem('crm_token')||''}` } })
+        const ld = await lr.json()
+        if (ld.leads) { setLeads(ld.leads); saveLeads(ld.leads) }
+      } else {
+        toast('No new replies found', 'info')
+      }
+    } catch { toast('Check failed', 'error') }
+    setCheckReplies(false)
+  }
+
   return (
     <div>
       <PageHeader title="Lead Management" subtitle={`${leads.length} total leads`}>
@@ -366,6 +423,7 @@ export default function Leads() {
           </Btn>
         )}
         <Btn variant="secondary" size="sm" onClick={verifyAllEmails} disabled={verifying}>{verifying ? 'Verifying...' : <><CheckCircle size={14}/> Re-Verify</>}</Btn>
+        <Btn variant="secondary" size="sm" onClick={doCheckReplies} disabled={checkReplies}><RefreshCw size={14}/>{checkReplies?'Checking…':'Check Replies'}</Btn>
         <Btn variant="primary" onClick={() => setAddOpen(true)}><Plus size={14} /> Add Lead</Btn>
       </PageHeader>
 
@@ -424,7 +482,16 @@ export default function Leads() {
           {uniqueGroups.map(g => <option key={g} value={g}>{g}</option>)}
         </select>
         {selected.size > 0 && (
-          <Btn variant="danger" size="sm" onClick={bulkDelete}><Trash2 size={13} /> Delete {selected.size}</Btn>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-indigo-600">{selected.size} selected</span>
+            <select className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              value={bulkStage} onChange={e => setBulkStage(e.target.value)}>
+              <option value="">→ Change stage</option>
+              {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            {bulkStage && <Btn variant="secondary" size="sm" onClick={bulkChangeStage}>Apply</Btn>}
+            <Btn variant="danger" size="sm" onClick={bulkDelete}><Trash2 size={13} /> Delete</Btn>
+          </div>
         )}
       </div>
 
@@ -514,6 +581,9 @@ export default function Leads() {
                         <option value="">Stage</option>
                         {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                       </select>
+                      <button className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-500 transition-colors" title="Notes & Activity" onClick={() => openNotes(l)}>
+                        <MessageSquare size={13} />
+                      </button>
                       <button className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition-colors" onClick={() => deleteLead(l.id)}>
                         <Trash2 size={13} />
                       </button>
@@ -706,6 +776,52 @@ export default function Leads() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Notes & Activity Modal */}
+      <Modal open={notesOpen} onClose={() => setNotesOpen(false)} title={`Notes — ${notesLead?.name || ''}`} width="max-w-lg">
+        <div className="space-y-4">
+          {/* Lead summary */}
+          {notesLead && (
+            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+              <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center text-sm font-bold text-indigo-700">{(notesLead.name||'?')[0]}</div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-slate-900 text-sm">{notesLead.name}</p>
+                <p className="text-xs text-slate-400 truncate">{notesLead.company} · {notesLead.pipelineStage}</p>
+              </div>
+            </div>
+          )}
+          {/* Add note */}
+          <div className="flex gap-2">
+            <textarea className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+              rows={2} value={noteText} onChange={e => setNoteText(e.target.value)}
+              placeholder="Add a note… e.g. 'Spoke to John, interested in ERP module. Follow up next week.'"
+              onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addNote() }}/>
+            <Btn variant="primary" onClick={addNote} disabled={notesSaving || !noteText.trim()}>
+              {notesSaving ? '…' : 'Add'}
+            </Btn>
+          </div>
+          {/* Notes list */}
+          <div className="space-y-2 max-h-72 overflow-y-auto">
+            {notesList.length === 0 ? (
+              <p className="text-center text-slate-400 text-sm py-6">No notes yet. Add your first note above.</p>
+            ) : notesList.map(note => (
+              <div key={note.id} className="flex gap-3 p-3 bg-slate-50 rounded-xl group">
+                <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-600 flex-shrink-0 mt-0.5">
+                  {note.note_type === 'call' ? '📞' : note.note_type === 'meeting' ? '🤝' : '📝'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-slate-800 whitespace-pre-wrap">{note.content}</p>
+                  <p className="text-xs text-slate-400 mt-1">{new Date(parseInt(note.created_at)).toLocaleString('en-IN')}</p>
+                </div>
+                <button onClick={() => deleteNote(note.id)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-400 flex-shrink-0">
+                  <Trash2 size={12}/>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       </Modal>
     </div>
   )

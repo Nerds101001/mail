@@ -477,13 +477,247 @@ module.exports = async (req, res) => {
     try {
       const { leadId } = req.body;
       if (!leadId) return res.status(400).json({ error: "Missing leadId" });
-      const dbUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
       const sql = getSql();
       await sql`UPDATE campaign_leads SET status='replied' WHERE lead_id=${leadId} AND status='sent'`;
       return res.json({ ok: true });
     } catch(err) {
       return res.status(500).json({ error: err.message });
     }
+  }
+
+  // ── LEAD NOTES (activity timeline per lead) ───────────────────────────
+  if (type === "notes") {
+    try {
+      const sql = getSql();
+      await sql`CREATE TABLE IF NOT EXISTS lead_notes (
+        id SERIAL PRIMARY KEY,
+        lead_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        note_type TEXT DEFAULT 'note',
+        created_at BIGINT NOT NULL
+      )`.catch(()=>{});
+      await sql`CREATE INDEX IF NOT EXISTS idx_lead_notes_lead ON lead_notes(lead_id, created_at DESC)`.catch(()=>{});
+
+      const leadId = req.query.leadId || req.body?.leadId;
+
+      if (req.method === "GET") {
+        if (!leadId) return res.status(400).json({ error: "Missing leadId" });
+        const notes = await sql`SELECT * FROM lead_notes WHERE lead_id=${leadId} ORDER BY created_at DESC LIMIT 100`;
+        return res.json(notes);
+      }
+      if (req.method === "POST") {
+        const { content, note_type = 'note' } = req.body;
+        if (!leadId || !content) return res.status(400).json({ error: "Missing leadId or content" });
+        const [note] = await sql`INSERT INTO lead_notes (lead_id, user_id, content, note_type, created_at) VALUES (${leadId}, ${userId}, ${content}, ${note_type}, ${Date.now()}) RETURNING *`;
+        return res.json({ ok: true, note });
+      }
+      if (req.method === "DELETE") {
+        const noteId = req.query.noteId;
+        if (!noteId) return res.status(400).json({ error: "Missing noteId" });
+        await sql`DELETE FROM lead_notes WHERE id=${noteId} AND (user_id=${userId} OR ${userId}='admin')`;
+        return res.json({ ok: true });
+      }
+    } catch(err) { return res.status(500).json({ error: err.message }); }
+  }
+
+  // ── CSV EXPORT ────────────────────────────────────────────────────────
+  if (type === "csv-export" && req.method === "GET") {
+    try {
+      const leads = await safeGet(ns("crm:leads", userId), []);
+      const stageF  = req.query.stage  || '';
+      const statusF = req.query.status || '';
+      const groupF  = req.query.group  || '';
+      const filtered = leads.filter(l =>
+        (!stageF  || l.pipelineStage === stageF)  &&
+        (!statusF || l.status        === statusF) &&
+        (!groupF  || l.group         === groupF)
+      );
+      const headers = ['name','email','company','phone','role','pipelineStage','status','priority','group','tags','notes','createdAt'];
+      const rows = filtered.map(l => headers.map(h => {
+        const v = l[h] ?? '';
+        return `"${String(v).replace(/"/g,'""')}"`;
+      }).join(','));
+      const csv = [headers.join(','), ...rows].join('\r\n');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="leads-export-${Date.now()}.csv"`);
+      return res.send(csv);
+    } catch(err) { return res.status(500).json({ error: err.message }); }
+  }
+
+  // ── INVOICES ──────────────────────────────────────────────────────────
+  if (type === "invoices") {
+    try {
+      const sql = getSql();
+      await sql`CREATE TABLE IF NOT EXISTS invoices (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        client_id TEXT,
+        client_name TEXT,
+        client_email TEXT,
+        number TEXT,
+        items JSONB DEFAULT '[]',
+        subtotal NUMERIC DEFAULT 0,
+        tax NUMERIC DEFAULT 0,
+        total NUMERIC DEFAULT 0,
+        status TEXT DEFAULT 'DRAFT',
+        due_date TEXT,
+        notes TEXT,
+        created_at BIGINT NOT NULL
+      )`.catch(()=>{});
+
+      if (req.method === "GET" && id) {
+        const [inv] = await sql`SELECT * FROM invoices WHERE id=${id} AND (user_id=${userId} OR ${userId}='admin')`;
+        if (!inv) return res.status(404).json({ error: "Not found" });
+        return res.json({ ...inv, items: typeof inv.items === 'string' ? JSON.parse(inv.items||'[]') : inv.items });
+      }
+      if (req.method === "GET") {
+        const rows = userId === 'admin'
+          ? await sql`SELECT * FROM invoices ORDER BY created_at DESC`
+          : await sql`SELECT * FROM invoices WHERE user_id=${userId} ORDER BY created_at DESC`;
+        return res.json(rows.map(r => ({ ...r, items: typeof r.items === 'string' ? JSON.parse(r.items||'[]') : r.items })));
+      }
+      if (req.method === "POST") {
+        const { client_id, client_name, client_email, items=[], subtotal=0, tax=0, total=0, due_date, notes='', status='DRAFT' } = req.body;
+        const invId = `inv_${Date.now()}`;
+        // Auto-increment invoice number
+        const [last] = await sql`SELECT number FROM invoices WHERE user_id=${userId} ORDER BY created_at DESC LIMIT 1`.catch(()=>[]);
+        const lastNum = parseInt((last?.number||'INV-000').replace(/\D/g,'')) || 0;
+        const number = `INV-${String(lastNum + 1).padStart(3,'0')}`;
+        const [inv] = await sql`INSERT INTO invoices (id,user_id,client_id,client_name,client_email,number,items,subtotal,tax,total,status,due_date,notes,created_at)
+          VALUES (${invId},${userId},${client_id||null},${client_name||''},${client_email||''},${number},${JSON.stringify(items)},${subtotal},${tax},${total},${status},${due_date||null},${notes},${Date.now()}) RETURNING *`;
+        return res.json({ ok: true, invoice: { ...inv, items } });
+      }
+      if (req.method === "PUT" && id) {
+        const { client_name, client_email, items, subtotal, tax, total, due_date, notes, status } = req.body;
+        await sql`UPDATE invoices SET
+          client_name  = COALESCE(${client_name  ?? null}, client_name),
+          client_email = COALESCE(${client_email ?? null}, client_email),
+          items        = COALESCE(${items        ? JSON.stringify(items) : null}::jsonb, items),
+          subtotal     = COALESCE(${subtotal     ?? null}, subtotal),
+          tax          = COALESCE(${tax          ?? null}, tax),
+          total        = COALESCE(${total        ?? null}, total),
+          due_date     = COALESCE(${due_date     ?? null}, due_date),
+          notes        = COALESCE(${notes        ?? null}, notes),
+          status       = COALESCE(${status       ?? null}, status)
+          WHERE id=${id} AND (user_id=${userId} OR ${userId}='admin')`;
+        return res.json({ ok: true });
+      }
+      if (req.method === "DELETE" && id) {
+        await sql`DELETE FROM invoices WHERE id=${id} AND (user_id=${userId} OR ${userId}='admin')`;
+        return res.json({ ok: true });
+      }
+    } catch(err) { return res.status(500).json({ error: err.message }); }
+  }
+
+  // ── REVENUE STATS (pipeline + invoices) ──────────────────────────────
+  if (type === "revenue" && req.method === "GET") {
+    try {
+      const sql = getSql();
+      const [clients, deals] = await Promise.all([
+        safeGet(ns("crm:clients", userId), []),
+        safeGet(ns("crm:deals",   userId), []),
+      ]);
+      // Invoice revenue
+      const invRows = await sql`SELECT status, SUM(total) as total FROM invoices WHERE user_id=${userId} OR ${userId}='admin' GROUP BY status`.catch(()=>[]);
+      const invByStatus = {};
+      invRows.forEach(r => { invByStatus[r.status] = parseFloat(r.total)||0; });
+
+      // Pipeline value by stage
+      const stageValue = {};
+      deals.forEach(d => {
+        const stage = d.stage || d.status || 'OPEN';
+        stageValue[stage] = (stageValue[stage]||0) + (parseFloat(d.value)||0);
+      });
+
+      // Clients revenue
+      const clientRevenue = clients.reduce((s,c) => s + (parseFloat(c.amount)||0), 0);
+      const overdueRevenue = clients.filter(c=>c.paymentStatus==='OVERDUE').reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+
+      return res.json({
+        clientRevenue,
+        overdueRevenue,
+        invoices: invByStatus,
+        pipeline: stageValue,
+        totalInvoiced: Object.values(invByStatus).reduce((a,b)=>a+b,0),
+        totalPaid: invByStatus['PAID']||0,
+        totalPending: (invByStatus['SENT']||0) + (invByStatus['DRAFT']||0),
+      });
+    } catch(err) { return res.status(500).json({ error: err.message }); }
+  }
+
+  // ── DRIP SEQUENCES ────────────────────────────────────────────────────
+  if (type === "drip-sequences") {
+    try {
+      const sql = getSql();
+      await sql`CREATE TABLE IF NOT EXISTS drip_sequences (
+        id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL,
+        steps JSONB DEFAULT '[]', active BOOLEAN DEFAULT TRUE, created_at BIGINT NOT NULL
+      )`.catch(()=>{});
+      await sql`CREATE TABLE IF NOT EXISTS drip_enrollments (
+        id SERIAL PRIMARY KEY, sequence_id TEXT NOT NULL, lead_id TEXT NOT NULL,
+        lead_email TEXT, lead_name TEXT, user_id TEXT NOT NULL,
+        step_index INT DEFAULT 0, next_send_at BIGINT, status TEXT DEFAULT 'active',
+        created_at BIGINT NOT NULL,
+        UNIQUE(sequence_id, lead_id)
+      )`.catch(()=>{});
+
+      if (req.method === "GET" && id) {
+        const [seq] = await sql`SELECT * FROM drip_sequences WHERE id=${id} AND (user_id=${userId} OR ${userId}='admin')`.catch(()=>[]);
+        if (!seq) return res.status(404).json({ error:"Not found" });
+        const enrollments = await sql`SELECT * FROM drip_enrollments WHERE sequence_id=${id} ORDER BY created_at DESC`.catch(()=>[]);
+        return res.json({ ...seq, steps: typeof seq.steps==='string'?JSON.parse(seq.steps||'[]'):seq.steps, enrollments });
+      }
+      if (req.method === "GET") {
+        const rows = userId==='admin'
+          ? await sql`SELECT * FROM drip_sequences ORDER BY created_at DESC`
+          : await sql`SELECT * FROM drip_sequences WHERE user_id=${userId} ORDER BY created_at DESC`;
+        return res.json(rows.map(r=>({ ...r, steps: typeof r.steps==='string'?JSON.parse(r.steps||'[]'):r.steps })));
+      }
+      if (req.method === "POST" && !id) {
+        const { name, steps=[] } = req.body;
+        if (!name) return res.status(400).json({ error: "Name required" });
+        const seqId = `drip_${Date.now()}`;
+        const [seq] = await sql`INSERT INTO drip_sequences (id,user_id,name,steps,created_at) VALUES (${seqId},${userId},${name},${JSON.stringify(steps)},${Date.now()}) RETURNING *`;
+        return res.json({ ok:true, sequence: { ...seq, steps } });
+      }
+      if (req.method === "PUT" && id) {
+        const { name, steps, active } = req.body;
+        await sql`UPDATE drip_sequences SET
+          name   = COALESCE(${name   ?? null}, name),
+          steps  = COALESCE(${steps  ? JSON.stringify(steps) : null}::jsonb, steps),
+          active = COALESCE(${active ?? null}, active)
+          WHERE id=${id} AND (user_id=${userId} OR ${userId}='admin')`;
+        return res.json({ ok:true });
+      }
+      if (req.method === "DELETE" && id) {
+        await sql`DELETE FROM drip_enrollments WHERE sequence_id=${id}`;
+        await sql`DELETE FROM drip_sequences WHERE id=${id} AND (user_id=${userId} OR ${userId}='admin')`;
+        return res.json({ ok:true });
+      }
+    } catch(err) { return res.status(500).json({ error: err.message }); }
+  }
+
+  // ── DRIP ENROLL ───────────────────────────────────────────────────────
+  if (type === "drip-enroll" && req.method === "POST") {
+    try {
+      const sql = getSql();
+      const { sequenceId, leads: enrollLeads = [] } = req.body;
+      if (!sequenceId || !enrollLeads.length) return res.status(400).json({ error: "Missing sequenceId or leads" });
+      const [seq] = await sql`SELECT * FROM drip_sequences WHERE id=${sequenceId}`.catch(()=>[]);
+      if (!seq) return res.status(404).json({ error: "Sequence not found" });
+      const steps = typeof seq.steps==='string' ? JSON.parse(seq.steps||'[]') : seq.steps;
+      const firstDelay = steps[0]?.delayDays || 0;
+      const nextSendAt = Date.now() + firstDelay * 86400000;
+      let enrolled = 0;
+      for (const l of enrollLeads) {
+        await sql`INSERT INTO drip_enrollments (sequence_id,lead_id,lead_email,lead_name,user_id,step_index,next_send_at,created_at)
+          VALUES (${sequenceId},${l.id},${l.email||''},${l.name||''},${userId},0,${nextSendAt},${Date.now()})
+          ON CONFLICT (sequence_id,lead_id) DO NOTHING`.catch(()=>{});
+        enrolled++;
+      }
+      return res.json({ ok:true, enrolled });
+    } catch(err) { return res.status(500).json({ error: err.message }); }
   }
 
   res.status(400).json({ error: "Invalid type parameter" });

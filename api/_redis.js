@@ -414,6 +414,39 @@ async function autoUpdateStage(leadId, campaignId, opens, isClick, sql) {
     const updated = leads.map(l => l.id === leadId ? { ...l, pipelineStage: next } : l);
     await sql`UPDATE kv_store SET value = ${JSON.stringify(updated)} WHERE key = ${lKey}`.catch(() => {});
     console.log(`🔄 [AUTO-STAGE] ${leadId}: ${cur} → ${next}`);
+
+    // ── Auto follow-up task when lead goes HOT ───────────────────────────
+    if (next === 'HOT') {
+      try {
+        const tKey    = userId === 'admin' ? 'crm:activity' : `crm:activity:${userId}`;
+        const actRaw  = await sql`SELECT value FROM kv_store WHERE key = ${tKey} AND (expires_at IS NULL OR expires_at > ${Date.now()}) LIMIT 1`.catch(() => []);
+        const activity = actRaw.length ? JSON.parse(actRaw[0].value) : [];
+        const name     = lead.name || lead.email || leadId;
+        const company  = lead.company ? ` (${lead.company})` : '';
+        const trigger  = isClick ? 'clicked a link' : `opened ${opens}x`;
+        // Only create if no existing open follow-up task for this lead
+        const exists = activity.some(a => a.type === 'follow-up' && a.leadId === leadId && !a.done);
+        if (!exists) {
+          activity.unshift({
+            id: `task_${Date.now()}_${leadId.slice(-4)}`,
+            type: 'follow-up',
+            leadId,
+            title: `Follow up with ${name}${company}`,
+            detail: `Lead went HOT — ${trigger}. High buying intent.`,
+            priority: 'HIGH',
+            dueDate: new Date(Date.now() + 86400000).toISOString().split('T')[0],
+            done: false,
+            createdAt: Date.now(),
+            autoCreated: true,
+          });
+          await sql`UPDATE kv_store SET value = ${JSON.stringify(activity)} WHERE key = ${tKey}`.catch(async () => {
+            await sql`INSERT INTO kv_store (key, value, expires_at) VALUES (${tKey}, ${JSON.stringify(activity)}, NULL) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`.catch(() => {});
+          });
+          console.log(`📋 [AUTO-TASK] Created follow-up task for HOT lead ${leadId}`);
+        }
+      } catch (e) { console.error('[AUTO-TASK] Error:', e.message); }
+    }
+
     return next;
   } catch (e) {
     console.error('[AUTO-STAGE] Error:', e.message);

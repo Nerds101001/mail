@@ -53,6 +53,12 @@ app.all("/api/gmail",          gmail);
 app.all("/api/get-crm-data",   withQuery(crm, { type: "load" }));
 app.all("/api/save-crm-data",  withQuery(crm, { type: "save" }));
 app.all("/api/campaigns",      withQuery(crm, { type: "campaigns" }));
+app.all("/api/notes",          withQuery(crm, { type: "notes" }));
+app.all("/api/invoices",       withQuery(crm, { type: "invoices" }));
+app.all("/api/csv-export",     withQuery(crm, { type: "csv-export" }));
+app.all("/api/revenue",        withQuery(crm, { type: "revenue" }));
+app.all("/api/drip-sequences", withQuery(crm, { type: "drip-sequences" }));
+app.all("/api/drip-enroll",    withQuery(crm, { type: "drip-enroll" }));
 app.all("/api/crm",            crm);
 
 // Ops / tasks / scheduling
@@ -60,6 +66,8 @@ app.all("/api/tasks",          withQuery(ops, { type: "tasks" }));
 app.all("/api/send-reminder",  withQuery(ops, { type: "reminder" }));
 app.all("/api/run-scheduled",  withQuery(ops, { type: "run-scheduled" }));
 app.all("/api/events",         withQuery(ops, { type: "events" }));
+app.all("/api/check-replies",  withQuery(ops, { type: "check-replies" }));
+app.all("/api/run-drip",       withQuery(ops, { type: "run-drip" }));
 app.all("/api/ops",            ops);
 
 // Auth

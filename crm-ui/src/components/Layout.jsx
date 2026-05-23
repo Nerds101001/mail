@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   LayoutDashboard, CheckSquare, Users, GitBranch, Send,
   UserCheck, FileText, BarChart2, Settings, LogOut, Zap, Mail, UserX, History, Paperclip,
-  Eye, Pause, X as XIcon, ChevronRight,
+  Eye, Pause, X as XIcon, ChevronRight, Receipt, Layers,
 } from 'lucide-react'
 import * as campaignRunner from '../campaignRunner'
 
@@ -17,12 +17,14 @@ const NAV = [
     { to: '/leads',       icon: Users,       label: 'Leads' },
     { to: '/pipeline',    icon: GitBranch,   label: 'Pipeline' },
     { to: '/campaign',    icon: Send,        label: 'Campaign' },
+    { to: '/drip',        icon: Layers,      label: 'Drip Sequences' },
     { to: '/history',     icon: History,     label: 'Cam. History' },
     { to: '/attachments', icon: Paperclip,   label: 'Attachments' },
   ]},
   { label: 'Business', items: [
     { to: '/clients',  icon: UserCheck,   label: 'Clients' },
     { to: '/deals',    icon: FileText,    label: 'Deals' },
+    { to: '/invoices', icon: Receipt,     label: 'Invoices' },
   ]},
   { label: 'Analytics', items: [
     { to: '/tracking',     icon: BarChart2, label: 'Tracking' },
@@ -86,8 +88,33 @@ export default function Layout({ children, taskCount = 0 }) {
       } catch {}
     }
 
+    function handleReply(e) {
+      try {
+        const { leadId, leadName, email, ts } = JSON.parse(e.data)
+        const name = leadName || email || leadId
+        const alertId = Date.now()
+        setLiveAlerts(prev => [{
+          id: alertId,
+          msg: `🚨 ${name} replied to your email! Follow up now.`,
+          isClick: false,
+          isReply: true,
+          newStage: 'REPLIED',
+          leadName: name,
+        }, ...prev].slice(0, 5))
+        setTimeout(() => setLiveAlerts(prev => prev.filter(a => a.id !== alertId)), 12000)
+        // Update stage locally
+        const lead = leadsRef.current.find(l => l.id === leadId)
+        if (lead && lead.pipelineStage !== 'REPLIED') {
+          const updated = leadsRef.current.map(l => l.id === leadId ? { ...l, pipelineStage: 'REPLIED' } : l)
+          setLeadsRef.current(updated)
+          saveLeadsRef.current(updated)
+        }
+      } catch {}
+    }
+
     es.addEventListener('open_event',  handleOpen)
     es.addEventListener('click_event', handleOpen)
+    es.addEventListener('reply_event', handleReply)
     es.onerror = () => {}  // silent reconnect
     return () => es.close()
   }, []) // connect once — uses refs for live data
@@ -280,10 +307,12 @@ export default function Layout({ children, taskCount = 0 }) {
               key={alert.id}
               className="pointer-events-auto flex items-start gap-3 rounded-2xl px-4 py-3 shadow-2xl border animate-fade-in"
               style={{
-                background: alert.isClick
+                background: alert.isReply
+                  ? 'linear-gradient(135deg, #fef2f2, #fff1f2)'
+                  : alert.isClick
                   ? 'linear-gradient(135deg, #fef3c7, #fffbeb)'
                   : 'linear-gradient(135deg, #eff6ff, #f0fdf4)',
-                borderColor: alert.isClick ? '#fcd34d' : '#86efac',
+                borderColor: alert.isReply ? '#fca5a5' : alert.isClick ? '#fcd34d' : '#86efac',
                 boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
               }}
             >

@@ -823,5 +823,172 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
     }
   }
 
+  // ── REPLY DETECTION (polls Gmail for replies to sent campaigns) ──────
+  if (type === "check-replies" && (req.method === "GET" || req.method === "POST")) {
+    try {
+      const { get: redisGet, set: redisSet } = require('./_redis');
+      const sql = getSql();
+      const appUrl = process.env.APP_URL || "https://enginerdsmail.vercel.app";
+
+      // Get access token
+      const expiresAt = parseInt(await redisGet('gmail:expires_at') || '0');
+      let accessToken = await redisGet('gmail:access_token');
+      if (Date.now() > expiresAt - 60000) {
+        const refreshToken = await redisGet('gmail:refresh_token');
+        if (!refreshToken) return res.json({ ok: false, reason: 'Gmail not connected' });
+        const tr = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, refresh_token: refreshToken, grant_type: 'refresh_token' }),
+        });
+        const td = await tr.json();
+        if (td.access_token) {
+          accessToken = td.access_token;
+          await redisSet('gmail:access_token', accessToken);
+          await redisSet('gmail:expires_at', String(Date.now() + td.expires_in * 1000));
+        }
+      }
+      if (!accessToken) return res.json({ ok: false, reason: 'No access token' });
+
+      // Search Gmail INBOX for messages with Re: subject
+      const sinceTs  = Math.floor((Date.now() - 7 * 86400000) / 1000); // last 7 days
+      const query    = `in:inbox subject:Re: after:${sinceTs}`;
+      const listRes  = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=50`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const listData = await listRes.json();
+      const messages = listData.messages || [];
+
+      // Get all sent lead emails to match against
+      const sentLeads = await sql`
+        SELECT DISTINCT lead_email, lead_id, lead_name FROM campaign_leads
+        WHERE status = 'SENT' AND sent_at > ${Date.now() - 30 * 86400000}
+      `.catch(() => []);
+      const emailToLeadMap = {};
+      sentLeads.forEach(l => { if (l.lead_email) emailToLeadMap[l.lead_email.toLowerCase()] = l; });
+
+      let repliesFound = 0;
+      const repliedLeads = [];
+
+      for (const msg of messages.slice(0, 20)) {
+        try {
+          const msgRes  = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=Reply-To`, {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          });
+          const msgData = await msgRes.json();
+          const fromHeader = msgData.payload?.headers?.find(h => h.name === 'From')?.value || '';
+          const emailMatch = fromHeader.match(/<([^>]+)>/) || [null, fromHeader];
+          const senderEmail = emailMatch[1]?.toLowerCase()?.trim();
+          if (!senderEmail || !emailToLeadMap[senderEmail]) continue;
+
+          const lead = emailToLeadMap[senderEmail];
+          // Check if already marked as replied
+          const already = await sql`SELECT id FROM campaign_leads WHERE lead_id=${lead.lead_id} AND status='REPLIED' LIMIT 1`.catch(()=>[]);
+          if (already.length) continue;
+
+          // Mark as replied
+          await sql`UPDATE campaign_leads SET status='REPLIED' WHERE lead_id=${lead.lead_id} AND status='SENT'`.catch(()=>{});
+
+          // Update lead pipeline stage to REPLIED
+          const lKey   = userId === 'admin' ? 'crm:leads' : `crm:leads:${userId}`;
+          const lRaw   = await sql`SELECT value FROM kv_store WHERE key=${lKey} LIMIT 1`.catch(()=>[]);
+          if (lRaw.length) {
+            const leads = JSON.parse(lRaw[0].value);
+            const updated = leads.map(l => l.id === lead.lead_id ? { ...l, pipelineStage: 'REPLIED' } : l);
+            await sql`UPDATE kv_store SET value=${JSON.stringify(updated)} WHERE key=${lKey}`.catch(()=>{});
+          }
+
+          // Auto-create HIGH priority follow-up task
+          const tKey   = userId === 'admin' ? 'crm:activity' : `crm:activity:${userId}`;
+          const actRaw = await sql`SELECT value FROM kv_store WHERE key=${tKey} LIMIT 1`.catch(()=>[]);
+          const activity = actRaw.length ? JSON.parse(actRaw[0].value) : [];
+          const exists = activity.some(a => a.type === 'reply-followup' && a.leadId === lead.lead_id && !a.done);
+          if (!exists) {
+            activity.unshift({
+              id: `task_reply_${Date.now()}_${lead.lead_id.slice(-4)}`,
+              type: 'reply-followup',
+              leadId: lead.lead_id,
+              title: `🚨 ${lead.lead_name || lead.lead_email} replied to your email!`,
+              detail: 'They replied — this is a hot lead. Follow up NOW.',
+              priority: 'HIGH',
+              dueDate: new Date().toISOString().split('T')[0],
+              done: false,
+              createdAt: Date.now(),
+              autoCreated: true,
+            });
+            await sql`UPDATE kv_store SET value=${JSON.stringify(activity)} WHERE key=${tKey}`.catch(async () => {
+              await sql`INSERT INTO kv_store (key,value,expires_at) VALUES (${tKey},${JSON.stringify(activity)},NULL) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`.catch(()=>{});
+            });
+          }
+
+          // SSE alert
+          try { require('./sse').emit('reply_event', { leadId: lead.lead_id, leadName: lead.lead_name, email: senderEmail, ts: Date.now() }); } catch {}
+
+          repliesFound++;
+          repliedLeads.push({ leadId: lead.lead_id, email: senderEmail, name: lead.lead_name });
+        } catch {}
+      }
+
+      return res.json({ ok: true, checked: messages.length, repliesFound, repliedLeads });
+    } catch(err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // ── DRIP RUNNER (send due drip sequence steps) ────────────────────────
+  if (type === "run-drip" && (req.method === "GET" || req.method === "POST")) {
+    try {
+      const sql = getSql();
+      const appUrl = process.env.APP_URL || "https://enginerdsmail.vercel.app";
+      const now2   = Date.now();
+
+      // Find due enrollments
+      const due = await sql`
+        SELECT e.*, s.steps, s.name as seq_name, s.user_id as seq_user_id
+        FROM drip_enrollments e
+        JOIN drip_sequences s ON s.id = e.sequence_id
+        WHERE e.status = 'active' AND e.next_send_at <= ${now2}
+        LIMIT 50
+      `.catch(()=>[]);
+
+      let sent = 0;
+      for (const enroll of due) {
+        try {
+          const steps = typeof enroll.steps === 'string' ? JSON.parse(enroll.steps||'[]') : (enroll.steps||[]);
+          const step  = steps[enroll.step_index];
+          if (!step) {
+            await sql`UPDATE drip_enrollments SET status='completed' WHERE id=${enroll.id}`.catch(()=>{});
+            continue;
+          }
+
+          // Send the email
+          const gmailUser = await require('./_redis').get('gmail:email');
+          const payload   = {
+            leadId: enroll.lead_id, to: enroll.lead_email,
+            subject: step.subject || `Follow-up from ${enroll.seq_name}`,
+            body:    step.body    || 'Hi, just following up!',
+            senderName: step.senderName || 'EnginErds',
+            gmailUser,
+          };
+          const sendRes = await fetch(`${appUrl}/api/send-email`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+          });
+          const sendData = await sendRes.json().catch(()=>({}));
+
+          const nextStepIdx = enroll.step_index + 1;
+          const nextStep    = steps[nextStepIdx];
+          if (nextStep) {
+            const nextSendAt = now2 + (nextStep.delayDays || 1) * 86400000;
+            await sql`UPDATE drip_enrollments SET step_index=${nextStepIdx}, next_send_at=${nextSendAt} WHERE id=${enroll.id}`.catch(()=>{});
+          } else {
+            await sql`UPDATE drip_enrollments SET status='completed' WHERE id=${enroll.id}`.catch(()=>{});
+          }
+          sent++;
+        } catch(e) { console.error('[DRIP] Step error:', e.message); }
+      }
+      return res.json({ ok: true, processed: due.length, sent });
+    } catch(err) { return res.status(500).json({ error: err.message }); }
+  }
+
   res.status(400).json({ error: "Invalid type" });
 };
