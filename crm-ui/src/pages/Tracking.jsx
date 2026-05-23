@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import { useCRM } from '../store'
 import { StatCard, Empty, PageHeader, Btn, toast } from '../components/ui'
-import { Send, Eye, MousePointer, MessageSquare, RefreshCw, Clock, Search, Filter, ChevronDown, ChevronUp } from 'lucide-react'
+import { Send, Eye, MousePointer, MessageSquare, RefreshCw, Clock, Search, Filter, ChevronDown, ChevronUp, ShieldOff, Globe } from 'lucide-react'
 
 const AUTO_REFRESH_SECS = 60
 
@@ -61,6 +61,20 @@ export default function Tracking() {
 
   // Inline accordion events: { rowKey -> { loading, events[] } }
   const [expandedRows, setExpandedRows] = useState({})
+
+  const [purging, setPurging] = useState(false)
+
+  async function purgeBotsOld() {
+    if (!confirm('Purge all historical bot opens from database and recalculate open counts?')) return
+    setPurging(true)
+    try {
+      const res = await fetch('/api/purge-bot-opens', { method: 'POST', headers: authHeader() })
+      const d = await res.json()
+      toast(`Purged ${d.marked || 0} bot events — ${d.recalculated || 0} leads recalculated`, 'success')
+      loadData()
+    } catch { toast('Purge failed', 'error') }
+    setPurging(false)
+  }
 
   const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
   const vaParam    = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
@@ -147,6 +161,9 @@ export default function Tracking() {
           <span className="text-xs text-slate-400 flex items-center gap-1">
             <Clock size={11}/> auto-refresh in {countdown}s
           </span>
+          <Btn variant="secondary" size="sm" onClick={purgeBotsOld} disabled={purging || syncing}>
+            <ShieldOff size={13}/> {purging ? 'Purging…' : 'Purge Bot Opens'}
+          </Btn>
           <Btn variant="secondary" size="sm" onClick={() => loadData()} disabled={syncing}>
             <RefreshCw size={13} className={syncing ? 'animate-spin' : ''}/> Sync Now
           </Btn>
@@ -298,39 +315,58 @@ export default function Tracking() {
                             ) : (
                               <div>
                                 {/* Mini summary */}
-                                <div className="px-6 py-2 flex gap-5 text-xs text-slate-500 border-b border-slate-200">
-                                  <span className="font-semibold text-slate-700">{expanded.events.length} events</span>
-                                  <span className="text-blue-600 font-medium">{expanded.events.filter(e=>e.event_type==='open').length} opens</span>
-                                  <span className="text-amber-600 font-medium">{expanded.events.filter(e=>e.event_type==='click').length} clicks</span>
-                                  <span>First: {fmtTs(String(Math.min(...expanded.events.map(e=>parseInt(e.created_at)))))}</span>
-                                  <span>Last: {fmtTs(String(Math.max(...expanded.events.map(e=>parseInt(e.created_at)))))}</span>
-                                </div>
+                                {(() => {
+                                  const realEvents = expanded.events.filter(e => !e.is_bot)
+                                  const botEvents  = expanded.events.filter(e => e.is_bot)
+                                  return (
+                                    <div className="px-6 py-2 flex gap-5 text-xs text-slate-500 border-b border-slate-200 flex-wrap">
+                                      <span className="font-semibold text-slate-700">{expanded.events.length} events</span>
+                                      <span className="text-blue-600 font-medium">{realEvents.filter(e=>e.event_type==='open').length} real opens</span>
+                                      <span className="text-amber-600 font-medium">{realEvents.filter(e=>e.event_type==='click').length} real clicks</span>
+                                      {botEvents.length > 0 && <span className="text-red-500 font-medium">🤖 {botEvents.length} bot/scanner</span>}
+                                      {expanded.events.length > 0 && <>
+                                        <span>First: {fmtTs(String(Math.min(...expanded.events.map(e=>parseInt(e.created_at)))))}</span>
+                                        <span>Last: {fmtTs(String(Math.max(...expanded.events.map(e=>parseInt(e.created_at)))))}</span>
+                                      </>}
+                                    </div>
+                                  )
+                                })()}
                                 <table className="w-full text-xs">
                                   <thead>
                                     <tr className="border-b border-slate-200 bg-white/60">
-                                      {['Event','Timestamp','IP Address','Device / Browser','URL'].map(h => (
-                                        <th key={h} className="px-6 py-2 text-left font-bold text-slate-400 uppercase tracking-wide">{h}</th>
+                                      {['Event','Timestamp','IP','Location','Device','Client','URL/Note'].map(h => (
+                                        <th key={h} className="px-4 py-2 text-left font-bold text-slate-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                                       ))}
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {expanded.events.map((e, ei) => {
-                                      const isClick = e.event_type === 'click'
+                                      const isClick  = e.event_type === 'click'
+                                      const isBot    = !!e.is_bot
                                       const clickUrl = isClick && e.target_url && !e.target_url.startsWith('campaign:') ? e.target_url : null
+                                      const geo      = [e.city, e.country].filter(Boolean).join(', ') || '—'
                                       return (
-                                        <tr key={ei} className="border-b border-slate-100 hover:bg-white/80">
-                                          <td className="px-6 py-2">
-                                            <span className={`badge text-[10px] ${isClick ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
-                                              {isClick ? '🖱 Clicked' : '👁 Opened'}
-                                            </span>
+                                        <tr key={ei} className={`border-b border-slate-100 hover:bg-white/80 ${isBot ? 'opacity-50' : ''}`}>
+                                          <td className="px-4 py-2">
+                                            {isBot ? (
+                                              <span className="badge text-[10px] bg-red-50 text-red-400 border border-red-200">🤖 Scanner</span>
+                                            ) : (
+                                              <span className={`badge text-[10px] ${isClick ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                {isClick ? '🖱 Clicked' : '👁 Opened'}
+                                              </span>
+                                            )}
                                           </td>
-                                          <td className="px-6 py-2 text-slate-600 font-mono whitespace-nowrap">{fmtTs(e.created_at)}</td>
-                                          <td className="px-6 py-2 text-slate-500 font-mono">{e.ip || '—'}</td>
-                                          <td className="px-6 py-2 text-slate-600">{parseBrowser(e.user_agent)}</td>
-                                          <td className="px-6 py-2 max-w-[240px]">
+                                          <td className="px-4 py-2 text-slate-600 font-mono whitespace-nowrap">{fmtTs(e.created_at)}</td>
+                                          <td className="px-4 py-2 text-slate-500 font-mono text-[11px]">{e.ip || '—'}</td>
+                                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap">
+                                            {geo !== '—' ? <span className="flex items-center gap-1"><Globe size={10}/>{geo}</span> : '—'}
+                                          </td>
+                                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{e.device_type || parseBrowser(e.user_agent).split('/')[1]?.trim() || '—'}</td>
+                                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{e.device_client || parseBrowser(e.user_agent).split('/')[0]?.trim() || '—'}</td>
+                                          <td className="px-4 py-2 max-w-[200px]">
                                             {clickUrl
                                               ? <a href={clickUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate block" title={clickUrl}>
-                                                  {clickUrl.replace(/^https?:\/\//,'').substring(0,50)}{clickUrl.length>53?'…':''}
+                                                  {clickUrl.replace(/^https?:\/\//,'').substring(0,45)}{clickUrl.length>48?'…':''}
                                                 </a>
                                               : <span className="text-slate-300">—</span>}
                                           </td>
