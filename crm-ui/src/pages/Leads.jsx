@@ -29,10 +29,15 @@ export default function Leads() {
   const [verifying, setVerifying] = useState(false)
   const [scores, setScores] = useState({})
   const [researchingId, setResearchingId] = useState(null)
+  const PAGE_SIZE = 75
+  const [page, setPage] = useState(0)
 
-  // Auto-load engagement scores on mount
+  // Reset page when filters change
+  useEffect(() => { setPage(0) }, [search, stageF, statusF, priF, groupF]) // eslint-disable-line
+
+  // Auto-load engagement scores on mount (only first page for speed)
   useEffect(() => {
-    if (leads.length > 0) fetchScores(leads)
+    if (leads.length > 0) fetchScores(leads.slice(0, PAGE_SIZE))
   }, []) // eslint-disable-line
 
   // Get unique groups for filter
@@ -54,6 +59,9 @@ export default function Leads() {
       && (!priF    || l.priority === priF)
       && (!groupF  || l.group === groupF)
   })
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginated  = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   function save(newLeads) {
     setLeads(newLeads)
@@ -441,7 +449,7 @@ export default function Leads() {
           <tbody>
             {filtered.length === 0 ? (
               <tr><td colSpan={11}><Empty icon={Users} title="No leads found" sub="Try adjusting your filters" /></td></tr>
-            ) : filtered.map(l => {
+            ) : paginated.map(l => {
               const sc = STAGE_COLORS[l.pipelineStage] || STAGE_COLORS.COLD
               const stc = STATUS_COLORS[l.status] || 'bg-slate-100 text-slate-600'
               const isHot = (l.opens >= 2 || l.clicks >= 1) && !['WON','LOST','UNSUBSCRIBED'].includes(l.pipelineStage)
@@ -516,8 +524,23 @@ export default function Leads() {
             })}
           </tbody>
         </table>
-        <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
-          Showing {filtered.length} of {leads.length} leads{groupF ? ` in group "${groupF}"` : ''}
+        <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between flex-wrap gap-2">
+          <span className="text-xs text-slate-500">
+            Showing {filtered.length === 0 ? 0 : page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}{filtered.length !== leads.length ? ` filtered` : ''} leads (total: {leads.length}){groupF ? ` in "${groupF}"` : ''}
+          </span>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => setPage(0)} disabled={page === 0}
+                className="px-2 py-1 text-xs rounded-lg bg-white border border-slate-200 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">«</button>
+              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+                className="px-2.5 py-1 text-xs rounded-lg bg-white border border-slate-200 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">‹</button>
+              <span className="text-xs font-semibold text-slate-700 px-2">Page {page + 1} of {totalPages}</span>
+              <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
+                className="px-2.5 py-1 text-xs rounded-lg bg-white border border-slate-200 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">›</button>
+              <button onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1}
+                className="px-2 py-1 text-xs rounded-lg bg-white border border-slate-200 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">»</button>
+            </div>
+          )}
         </div>
       </div>
 

@@ -155,6 +155,8 @@ export default function Pipeline() {
   const [expandedBody,   setExpandedBody]   = useState(null)
   const [dealLead,       setDealLead]       = useState(null) // lead pending deal modal
   const [dealSaving,     setDealSaving]     = useState(false)
+  const PAGE_SIZE = 75
+  const [page,           setPage]           = useState(0)
 
   const token    = () => localStorage.getItem('crm_token') || ''
   const vaParam  = () => viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''
@@ -254,6 +256,9 @@ export default function Pipeline() {
     }
     return true
   }), [baseFiltered, activeTab, search])
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginated  = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   function changeStage(id, stage) {
     if (stage === 'WON') {
@@ -361,6 +366,9 @@ export default function Pipeline() {
   }
 
   const hasFilters = groupF || campF || search || activeTab !== 'ALL'
+
+  // Reset page when any filter or tab changes
+  useEffect(() => { setPage(0) }, [activeTab, search, groupF, campF, campLeadIds]) // eslint-disable-line
 
   const fmtDate = (ts) => {
     if (!ts) return '—'
@@ -546,7 +554,7 @@ export default function Pipeline() {
                   </td>
                 </tr>
               )}
-              {filtered.map(l => {
+              {paginated.map(l => {
                 const stage    = l.pipelineStage || 'COLD'
                 const sc       = STAGE_COLORS[stage] || STAGE_COLORS.COLD
                 const track    = trackMap[l.id] || {}
@@ -667,6 +675,27 @@ export default function Pipeline() {
               })}
             </tbody>
           </table>
+        </div>
+        {/* Pagination footer */}
+        <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between flex-wrap gap-2">
+          <span className="text-xs text-slate-500">
+            {filtered.length === 0
+              ? 'No leads match the current filters'
+              : `Showing ${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, filtered.length)} of ${filtered.length} leads`}
+          </span>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => setPage(0)} disabled={page === 0}
+                className="px-2 py-1 text-xs rounded-lg bg-white border border-slate-200 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">«</button>
+              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+                className="px-2.5 py-1 text-xs rounded-lg bg-white border border-slate-200 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">‹</button>
+              <span className="text-xs font-semibold text-slate-700 px-2">Page {page + 1} of {totalPages}</span>
+              <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
+                className="px-2.5 py-1 text-xs rounded-lg bg-white border border-slate-200 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">›</button>
+              <button onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1}
+                className="px-2 py-1 text-xs rounded-lg bg-white border border-slate-200 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">»</button>
+            </div>
+          )}
         </div>
       </div>
     </div>
