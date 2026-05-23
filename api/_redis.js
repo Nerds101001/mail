@@ -521,14 +521,13 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       }
     }
 
-    // ── Step 3: Timing guard — 15s for ALL IPs ───────────────────────────────
-    // Strategy:
-    //   • Known scanner IPs (66.249.x, 172.253.x, 17.x etc.) → hard-blocked above, never reach here
-    //   • Gmail proxy (74.125.x) → real user opens, BUT Gmail also fires a delivery
-    //     pre-fetch within 3s of delivery. 15s guard catches that without blocking
-    //     real opens (nobody reads email in under 15s of receiving it).
-    //   • Unknown IPs → same 15s guard catches ISP/corporate scanners.
-    // Result: opens at 16s+ are counted; delivery scans at 0–15s are blocked.
+    // ── Step 3: Timing guard — 5s for ALL IPs ────────────────────────────────
+    // Two-layer defence:
+    //   Layer 1 (above): hard-block known scanner IPs forever (66.249.x, 172.253.x, 17.x…)
+    //   Layer 2 (here):  5s window catches anything that slips through — Gmail delivery
+    //                    pre-fetch fires at ~3s, so 5s is the minimum safe window.
+    //                    Real opens happen 5s+ after delivery. No genuine human reads
+    //                    an email in under 5 seconds of it arriving.
     {
       const guardRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
@@ -537,9 +536,9 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       if (guardRaw.length > 0) {
         const sentAt = parseInt(guardRaw[0].value) || 0;
         const elapsed = now - sentAt;
-        if (elapsed < 15000) {
-          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} IP:${ip} (${Math.round(elapsed/1000)}s after send, guard=15s)`);
-          return { counted: false, reason: 'scanner guard (15s)', count: 0 };
+        if (elapsed < 5000) {
+          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} IP:${ip} (${Math.round(elapsed/1000)}s after send, guard=5s)`);
+          return { counted: false, reason: 'scanner guard (5s)', count: 0 };
         }
       }
     }

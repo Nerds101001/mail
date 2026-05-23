@@ -261,15 +261,15 @@ module.exports = async (req, res) => {
     const raw           = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, unsubscribeUrl: unsubUrl, attachmentData });
 
     // Write scanner-guard key BEFORE sending.
-    // Window = 15s: Gmail delivery pre-fetch fires at ~3s, real opens happen after 15s.
-    // TTL = 30s: key must outlive the 15s window. Attachments get +10s offset so the
-    // window covers the extra time Gmail needs to scan the file before firing the pixel.
+    // Window = 5s (checked in _redis.js). TTL = 10s, well beyond the block window.
+    // Attachments: Gmail scans the file before firing the pixel, adds a few extra
+    // seconds — shift the guard timestamp +5s forward so the 5s window covers it.
     const hasAttachments = attachmentData.length > 0;
-    const guardValue = hasAttachments ? String(Date.now() + 10000) : String(Date.now());
-    const guardTtl   = 30; // seconds — well beyond the 15s block window
+    const guardValue = hasAttachments ? String(Date.now() + 5000) : String(Date.now());
+    const guardTtl   = 10; // seconds
     await set(`email:guard:${leadId}`, guardValue, guardTtl).catch(() => {});
     if (hasAttachments) {
-      await set(`email:att-guard:${leadId}`, String(Date.now()), 30).catch(() => {});
+      await set(`email:att-guard:${leadId}`, String(Date.now()), 15).catch(() => {});
     }
 
     const sendRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
