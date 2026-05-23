@@ -32,6 +32,7 @@ const attachments = require("./api/attachments");
 const trackOpen   = require("./api/track-open");
 const trackClick  = require("./api/track-click");
 const trackPixel  = require("./api/track-pixel");
+const sse         = require("./api/sse");
 const unsubscribe = require("./api/unsubscribe");
 const dbCheck     = require("./api/db-check");
 
@@ -75,6 +76,9 @@ app.all("/api/attachments", attachments);
 app.all("/api/track-open",  trackOpen);
 app.all("/api/track-click", trackClick);
 app.all("/api/track-pixel", trackPixel);
+
+// Real-time SSE stream (EC2 only — long-lived connection)
+app.get("/api/sse", sse);
 
 // Unsubscribe
 app.all("/api/unsubscribe", unsubscribe);

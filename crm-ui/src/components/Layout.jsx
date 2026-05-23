@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useCRM } from '../store'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   LayoutDashboard, CheckSquare, Users, GitBranch, Send,
   UserCheck, FileText, BarChart2, Settings, LogOut, Zap, Mail, UserX, History, Paperclip,
@@ -35,16 +35,62 @@ const NAV = [
 ]
 
 export default function Layout({ children, taskCount = 0 }) {
-  const { leads, clients, gmailStatus, viewAs, setViewAs, loadFromRedis } = useCRM()
+  const { leads, setLeads, saveLeads, clients, gmailStatus, viewAs, setViewAs, loadFromRedis } = useCRM()
   const navigate   = useNavigate()
   const isAdmin    = localStorage.getItem('crm_role') === 'admin'
   const userName   = localStorage.getItem('crm_userName') || 'Admin'
   const userRole   = localStorage.getItem('crm_role') || 'admin'
   const hot        = leads.filter(l => l.pipelineStage === 'HOT' && !['WON','LOST','UNSUBSCRIBED'].includes(l.pipelineStage)).length
-  const [userList, setUserList] = useState([])
-  const [runner, setRunner]     = useState(campaignRunner.getState())
+  const [userList, setUserList]   = useState([])
+  const [runner,   setRunner]     = useState(campaignRunner.getState())
+  const [liveAlerts, setLiveAlerts] = useState([])  // floating real-time alerts
+  const leadsRef    = useRef(leads)
+  const setLeadsRef = useRef(setLeads)
+  const saveLeadsRef = useRef(saveLeads)
+
+  // Keep refs in sync so SSE handler always reads latest state without re-subscribing
+  useEffect(() => { leadsRef.current = leads },        [leads])
+  useEffect(() => { setLeadsRef.current = setLeads },  [setLeads])
+  useEffect(() => { saveLeadsRef.current = saveLeads }, [saveLeads])
 
   useEffect(() => campaignRunner.subscribe(setRunner), [])
+
+  // ── Real-time SSE connection (EC2 always-on) ────────────────────────────────
+  useEffect(() => {
+    const es = new EventSource('/api/sse')
+
+    function handleOpen(e) {
+      try {
+        const { leadId, opens, clicks, newStage, device, geo, campaignId, ts } = JSON.parse(e.data)
+        const isClick = e.type === 'click_event'
+        const lead    = leadsRef.current.find(l => l.id === leadId)
+        const name    = lead?.name || lead?.email || leadId
+        const company = lead?.company ? ` · ${lead.company}` : ''
+        const geoStr  = geo?.city ? ` · ${geo.city}${geo.country ? ', ' + geo.country : ''}` : geo?.country ? ` · ${geo.country}` : ''
+        const devStr  = device?.client && device.client !== 'Unknown' ? ` · ${device.client}` : ''
+
+        // Live alert card
+        const alertId = Date.now()
+        const alertMsg = isClick
+          ? `🖱️ ${name}${company} clicked a link${devStr}${geoStr}`
+          : `📧 ${name}${company} opened email #${opens}${devStr}${geoStr}`
+        setLiveAlerts(prev => [{ id: alertId, msg: alertMsg, isClick, newStage, leadName: name }, ...prev].slice(0, 5))
+        setTimeout(() => setLiveAlerts(prev => prev.filter(a => a.id !== alertId)), 8000)
+
+        // Auto-stage: apply server's decision to local state immediately
+        if (newStage && lead && lead.pipelineStage !== newStage) {
+          const updated = leadsRef.current.map(l => l.id === leadId ? { ...l, pipelineStage: newStage } : l)
+          setLeadsRef.current(updated)
+          saveLeadsRef.current(updated)
+        }
+      } catch {}
+    }
+
+    es.addEventListener('open_event',  handleOpen)
+    es.addEventListener('click_event', handleOpen)
+    es.onerror = () => {}  // silent reconnect
+    return () => es.close()
+  }, []) // connect once — uses refs for live data
 
   useEffect(() => {
     if (!isAdmin) return
@@ -225,6 +271,52 @@ export default function Layout({ children, taskCount = 0 }) {
           {children}
         </main>
       </div>
+
+      {/* ── Live Real-time Alert Toasts (SSE) ───────────────────────── */}
+      {liveAlerts.length > 0 && (
+        <div className="fixed top-4 right-4 z-[60] flex flex-col gap-2 pointer-events-none" style={{ maxWidth: '340px' }}>
+          {liveAlerts.map(alert => (
+            <div
+              key={alert.id}
+              className="pointer-events-auto flex items-start gap-3 rounded-2xl px-4 py-3 shadow-2xl border animate-fade-in"
+              style={{
+                background: alert.isClick
+                  ? 'linear-gradient(135deg, #fef3c7, #fffbeb)'
+                  : 'linear-gradient(135deg, #eff6ff, #f0fdf4)',
+                borderColor: alert.isClick ? '#fcd34d' : '#86efac',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+              }}
+            >
+              <div className="text-xl leading-none flex-shrink-0 mt-0.5">
+                {alert.isClick ? '🖱️' : '📧'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] font-bold text-slate-800 leading-snug truncate">
+                  {alert.isClick ? 'Link Clicked' : 'Email Opened'}
+                </p>
+                <p className="text-[11px] text-slate-600 leading-snug mt-0.5" style={{ wordBreak: 'break-word' }}>
+                  {alert.msg.replace(/^[🖱️📧]\s*/, '')}
+                </p>
+                {alert.newStage && (
+                  <span className="inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
+                    style={{
+                      background: alert.newStage === 'HOT' ? '#fee2e2' : '#dbeafe',
+                      color: alert.newStage === 'HOT' ? '#dc2626' : '#2563eb',
+                    }}>
+                    → {alert.newStage}
+                  </span>
+                )}
+              </div>
+              <button
+                className="flex-shrink-0 text-slate-400 hover:text-slate-600 transition-colors mt-0.5"
+                onClick={() => setLiveAlerts(prev => prev.filter(a => a.id !== alert.id))}
+              >
+                <XIcon size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── Floating Campaign Runner Banner ─────────────────────────── */}
       {(runner.status === 'RUNNING' || runner.status === 'PAUSED' || runner.status === 'DONE') && (

@@ -1,6 +1,34 @@
 // api/_redis.js — Postgres database helper (works with AWS RDS, Supabase, Neon, etc.)
 const { getSql } = require("./_db");
 
+// ── Device parser (no external library needed) ────────────────────────────────
+function parseDevice(ua) {
+  if (!ua || ua === 'unknown') return { type: 'Unknown', client: 'Unknown' };
+  const type = /mobile|android|iphone|ipad/i.test(ua) ? 'Mobile'
+             : /tablet/i.test(ua) ? 'Tablet' : 'Desktop';
+  const client = /googleimageproxy|gmail\s*proxy/i.test(ua) ? 'Gmail Proxy'
+               : /apple\s*mail|mail\/\d/i.test(ua) ? 'Apple Mail'
+               : /outlook/i.test(ua) ? 'Outlook'
+               : /thunderbird/i.test(ua) ? 'Thunderbird'
+               : /yahoo/i.test(ua) ? 'Yahoo Mail'
+               : /chrome/i.test(ua) ? 'Chrome'
+               : /safari/i.test(ua) ? 'Safari'
+               : /firefox/i.test(ua) ? 'Firefox'
+               : 'Other';
+  return { type, client };
+}
+
+// ── IP geolocation (geoip-lite — offline, no API key) ─────────────────────────
+let _geoip = null;
+function getGeo(ip) {
+  try {
+    if (!_geoip) _geoip = require('geoip-lite');
+    if (!ip || ip === 'unknown' || ip === '127.0.0.1' || ip.startsWith('::')) return { country: '', city: '' };
+    const g = _geoip.lookup(ip);
+    return g ? { country: g.country || '', city: (g.city || '') } : { country: '', city: '' };
+  } catch { return { country: '', city: '' }; }
+}
+
 function getDb() {
   return getSql();
 }
@@ -60,6 +88,10 @@ async function ensureTable() {
     // Migrate columns that didn't exist when the table was first created
     await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS campaign_id TEXT`.catch(() => {});
     await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS target_url TEXT`.catch(() => {});
+    await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS device_type TEXT`.catch(() => {});
+    await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS device_client TEXT`.catch(() => {});
+    await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS country TEXT`.catch(() => {});
+    await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS city TEXT`.catch(() => {});
     await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_lead ON tracking_events(lead_id, event_type, created_at)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_campaign ON tracking_events(campaign_id)`.catch(() => {});
     // Composite index powers the per-campaign COUNT(*) subqueries in all-sends
@@ -318,6 +350,53 @@ function isUserProxyIp(ip) {
          /^52\.100\./.test(ip);
 }
 
+// ── Auto pipeline stage advancement ──────────────────────────────────────────
+// Called after a real open/click is counted. Reads the lead from kv_store and
+// bumps its pipelineStage: CONTACTED→OPENED on 1st open, →HOT on 2+ opens or any click.
+// Returns the new stage (or null if unchanged).
+async function autoUpdateStage(leadId, campaignId, opens, isClick, sql) {
+  try {
+    if (!campaignId) return null;
+    const camps = await sql`SELECT user_id FROM campaigns WHERE id = ${campaignId} LIMIT 1`.catch(() => []);
+    if (!camps.length) return null;
+    const userId  = camps[0].user_id || 'admin';
+    const lKey    = userId === 'admin' ? 'crm:leads' : `crm:leads:${userId}`;
+    const raw     = await sql`SELECT value FROM kv_store WHERE key = ${lKey} AND (expires_at IS NULL OR expires_at > ${Date.now()}) LIMIT 1`.catch(() => []);
+    if (!raw.length || !raw[0].value) return null;
+
+    const leads = JSON.parse(raw[0].value);
+    const lead  = leads.find(l => l.id === leadId);
+    if (!lead) return null;
+
+    const cur = lead.pipelineStage || 'COLD';
+    // Don't touch stages that are already further along
+    if (['HOT','DEMO','QUOTED','WON','LOST','UNSUBSCRIBED'].includes(cur) && !isClick) return null;
+    if (['WON','LOST','UNSUBSCRIBED'].includes(cur)) return null;
+
+    let next = cur;
+    if (isClick) {
+      if (['COLD','CONTACTED','OPENED'].includes(cur)) next = 'HOT';
+    } else {
+      if (cur === 'CONTACTED' || cur === 'COLD') next = 'OPENED';
+      if (opens >= 2 && ['CONTACTED','OPENED','COLD'].includes(cur)) next = 'HOT';
+    }
+    if (next === cur) return null;
+
+    const updated = leads.map(l => l.id === leadId ? { ...l, pipelineStage: next } : l);
+    await sql`UPDATE kv_store SET value = ${JSON.stringify(updated)} WHERE key = ${lKey}`.catch(() => {});
+    console.log(`🔄 [AUTO-STAGE] ${leadId}: ${cur} → ${next}`);
+    return next;
+  } catch (e) {
+    console.error('[AUTO-STAGE] Error:', e.message);
+    return null;
+  }
+}
+
+// ── SSE emit helper (non-blocking — fails silently if no clients connected) ───
+function sseEmit(event, data) {
+  try { require('./sse').emit(event, data); } catch {}
+}
+
 // Deduplicated tracking for opens (only count unique opens within 1 hour window)
 async function trackOpen(leadId, ip, userAgent, campaignId = null) {
   try {
@@ -391,21 +470,31 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
             last_open = ${now}
       RETURNING opens
     `;
+    const count = parseInt(rows[0].opens);
 
-    // Log event inline — reuse existing sql connection to avoid cold-start timeout
+    // Parse device + geo
+    const device = parseDevice(userAgent);
+    const geo    = getGeo(ip);
+
+    // Log event with device + geo
     try {
       await sql`
-        INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, created_at)
-        VALUES (${leadId}, 'open', ${ip}, ${userAgent}, ${campaignId ? `campaign:${campaignId}` : null}, ${campaignId || null}, ${now})
+        INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, device_type, device_client, country, city, created_at)
+        VALUES (${leadId}, 'open', ${ip}, ${userAgent}, ${campaignId ? `campaign:${campaignId}` : null}, ${campaignId || null},
+                ${device.type}, ${device.client}, ${geo.country || null}, ${geo.city || null}, ${now})
       `;
-      console.log(`✅ [EVENT LOGGED] OPEN lead:${leadId} camp:${campaignId || '—'}`);
+      console.log(`✅ [EVENT LOGGED] OPEN lead:${leadId} camp:${campaignId || '—'} device:${device.type}/${device.client} geo:${geo.country||'?'}/${geo.city||'?'}`);
     } catch (e) {
       console.error(`❌ [EVENT LOG FAILED] open lead:${leadId}:`, e.message);
     }
 
-    const count = parseInt(rows[0].opens);
+    // Auto-advance pipeline stage (non-blocking)
+    const newStage = await autoUpdateStage(leadId, campaignId, count, false, sql).catch(() => null);
+
+    // Real-time SSE notification to all connected CRM browsers
+    sseEmit('open_event', { leadId, opens: count, newStage, device, geo, campaignId, ts: now });
+
     console.log(`✅ [TRACK OPEN] Unique open counted for ${leadId}, total: ${count}`);
-    
     return { counted: true, count };
   } catch (e) {
     console.error(`❌ [TRACK OPEN] Failed for ${leadId}:`, e.message);
@@ -447,21 +536,31 @@ async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
             last_click = ${now}
       RETURNING clicks
     `;
+    const count = parseInt(rows[0].clicks);
 
-    // Log event inline — reuse existing sql connection to avoid cold-start timeout
+    // Parse device + geo
+    const device = parseDevice(userAgent);
+    const geo    = getGeo(ip);
+
+    // Log event with device + geo
     try {
       await sql`
-        INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, created_at)
-        VALUES (${leadId}, 'click', ${ip}, ${userAgent}, ${targetUrl}, ${campaignId || null}, ${now})
+        INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, device_type, device_client, country, city, created_at)
+        VALUES (${leadId}, 'click', ${ip}, ${userAgent}, ${targetUrl}, ${campaignId || null},
+                ${device.type}, ${device.client}, ${geo.country || null}, ${geo.city || null}, ${now})
       `;
-      console.log(`✅ [EVENT LOGGED] CLICK lead:${leadId} camp:${campaignId || '—'}`);
+      console.log(`✅ [EVENT LOGGED] CLICK lead:${leadId} camp:${campaignId || '—'} device:${device.type}/${device.client}`);
     } catch (e) {
       console.error(`❌ [EVENT LOG FAILED] click lead:${leadId}:`, e.message);
     }
 
-    const count = parseInt(rows[0].clicks);
+    // Click = high intent → auto-advance to HOT
+    const newStage = await autoUpdateStage(leadId, campaignId, 0, true, sql).catch(() => null);
+
+    // Real-time SSE notification
+    sseEmit('click_event', { leadId, clicks: count, newStage, device, geo, targetUrl, campaignId, ts: now });
+
     console.log(`✅ [TRACK CLICK] Unique click counted for ${leadId}, total: ${count}`);
-    
     return { counted: true, count };
   } catch (e) {
     console.error(`❌ [TRACK CLICK] Failed for ${leadId}:`, e.message);

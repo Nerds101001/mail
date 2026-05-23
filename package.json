@@ -12,7 +12,8 @@
     "postgres": "^3.4.4",
     "express": "^4.19.2",
     "dotenv": "^16.4.5",
-    "nodemailer": "^6.9.13"
+    "nodemailer": "^6.9.13",
+    "geoip-lite": "^1.4.10"
   },
   "engines": {
     "node": "20.x"
