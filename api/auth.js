@@ -66,60 +66,50 @@ module.exports = async (req, res) => {
   // ── VALIDATE SESSION ──────────────────────────────────────────────────
   if (req.method === "GET" && !type) {
     if (!token) return res.json({ ok: false });
-    // Admin PIN token (legacy format)
-    if (/^sess_\d+_[a-z0-9]+$/.test(token) && token.length < 40) {
-      return res.json({ ok: true, role: "admin", userId: "admin" });
-    }
     const session = await validateSession(token);
-    if (session) return res.json({ ok: true, ...session });
-    // Fallback for old tokens
-    return res.json({ ok: /^sess_\d+_[a-z0-9]+$/.test(token), role: "admin", userId: "admin" });
+    return res.json(session ? { ok: true, ...session } : { ok: false });
   }
 
   // ── LOGIN ─────────────────────────────────────────────────────────────
   if (req.method === "POST" && !type) {
-    const { pin, username, password } = req.body || {};
-    
-    // Get admin PIN from environment variable (more secure)
-    const adminPin = process.env.CRM_PIN || "enginerds24"; // Fallback for immediate access
-    console.log(`🔍 [AUTH] CRM_PIN check - ENV: ${process.env.CRM_PIN ? 'SET' : 'NOT SET'}, Using: ${adminPin}`);
+    const { username, password } = req.body || {};
+    if (!username || !password)
+      return res.status(400).json({ ok: false, error: "Username and password are required" });
 
-    // Admin PIN login
-    if (pin && pin.trim() === adminPin.trim()) {
-      const tok = generateToken();
+    const uname = username.trim().toLowerCase();
+
+    // Admin credentials from env (ADMIN_USERNAME / ADMIN_PASSWORD)
+    const adminUser = (process.env.ADMIN_USERNAME || "admin").toLowerCase();
+    const adminPass = process.env.ADMIN_PASSWORD || "";
+    if (adminPass && uname === adminUser && password === adminPass) {
       try {
         const sql = getDb();
         await ensureTables(sql);
-        await sql`INSERT INTO sessions (token, user_id, role, expires_at) VALUES (${tok}, 'admin', 'admin', ${Date.now() + 86400000 * 30})`;
-        console.log(`✅ [AUTH] Admin login successful with PIN: ${pin}`);
-      } catch(e) {
-        console.error(`❌ [AUTH] Session creation failed:`, e.message);
-        // Even if session creation fails, allow login for immediate access
-      }
-      return res.json({ ok: true, token: tok, role: "admin", userId: "admin", name: "Admin" });
-    }
-
-    // User login
-    if (username && password) {
-      try {
-        const sql = getDb();
-        await ensureTables(sql);
-        const hashed = hashPassword(password);
-        const users = await sql`
-          SELECT id, name, role FROM users
-          WHERE username = ${username.trim().toLowerCase()} AND password = ${hashed} AND active = true
-        `;
-        if (!users[0]) return res.status(401).json({ ok: false, error: "Invalid username or password" });
-        const user = users[0];
         const tok = generateToken();
-        await sql`INSERT INTO sessions (token, user_id, role, expires_at) VALUES (${tok}, ${user.id}, ${user.role}, ${Date.now() + 86400000 * 30})`;
-        return res.json({ ok: true, token: tok, role: user.role, userId: user.id, name: user.name });
+        await sql`INSERT INTO sessions (token, user_id, role, expires_at) VALUES (${tok}, 'admin', 'admin', ${Date.now() + 86400000 * 30})`;
+        return res.json({ ok: true, token: tok, role: "admin", userId: "admin", name: "Admin" });
       } catch(e) {
         return res.status(500).json({ ok: false, error: e.message });
       }
     }
 
-    return res.status(401).json({ ok: false, error: "Invalid credentials" });
+    // Regular user login
+    try {
+      const sql = getDb();
+      await ensureTables(sql);
+      const hashed = hashPassword(password);
+      const rows = await sql`
+        SELECT id, name, role FROM users
+        WHERE username = ${uname} AND password = ${hashed} AND active = true
+      `;
+      if (!rows[0]) return res.status(401).json({ ok: false, error: "Invalid username or password" });
+      const user = rows[0];
+      const tok  = generateToken();
+      await sql`INSERT INTO sessions (token, user_id, role, expires_at) VALUES (${tok}, ${user.id}, ${user.role}, ${Date.now() + 86400000 * 30})`;
+      return res.json({ ok: true, token: tok, role: user.role, userId: user.id, name: user.name });
+    } catch(e) {
+      return res.status(500).json({ ok: false, error: e.message });
+    }
   }
 
   // ── LOGOUT ────────────────────────────────────────────────────────────
