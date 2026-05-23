@@ -778,7 +778,10 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
             const ep = profile.type === 'gmail' ? `${appUrl}/api/send-email` : `${appUrl}/api/send-smtp`;
             const pl = { leadId:l.id, to:l.email, subject, body, senderName:cfg.sender||'Enginerds Tech', replyTo:cfg.replyTo||'', campaignId:camp.id, attachments:(selectedAttachments||[]).map(id=>({id})) };
             if (profile.type === 'smtp')  pl.smtpConfig = profile;
-            if (profile.type === 'gmail') pl.gmailUser  = profile.user;
+            if (profile.type === 'gmail') {
+              pl.gmailUser = profile.user;
+              if (profile.alias) pl.fromEmail = profile.alias;
+            }
 
             let sendStatus = 'FAILED';
             try {
