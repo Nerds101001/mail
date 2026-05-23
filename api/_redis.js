@@ -363,8 +363,9 @@ function isBotIp(ip) {
          /^54\.240\./.test(ip);        // Amazon SES scanner
 }
 
-// Gmail proxy IPs — these fire only when a REAL user opens in Gmail.
-// We still apply the timing guard (3 min) to catch edge-case pre-fetches.
+// Gmail proxy IPs — fire when a real Gmail user opens the email.
+// NOT hard-blocked. The 15s timing guard still applies so Gmail's delivery
+// pre-fetch (fires at ~3s) is caught, while real opens at 16s+ are counted.
 function isMailProxyIp(ip) {
   if (!ip || ip === 'unknown') return false;
   return /^74\.125\./.test(ip)  ||   // Gmail / Google proxy
@@ -520,12 +521,14 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       }
     }
 
-    // ── Step 3: Timing guard — applied to ALL IPs including Gmail proxy ─────────
-    // Google/ISP scanners can arrive 30–120 seconds after delivery, well past
-    // the old 12s window. Real users take minutes to open email after delivery.
-    // Guard window: 3 minutes for all IPs. Gmail proxy gets a slightly shorter
-    // window (90s) since it fires only on real user opens, but we still protect
-    // against edge-case pre-fetches at delivery time.
+    // ── Step 3: Timing guard — 15s for ALL IPs ───────────────────────────────
+    // Strategy:
+    //   • Known scanner IPs (66.249.x, 172.253.x, 17.x etc.) → hard-blocked above, never reach here
+    //   • Gmail proxy (74.125.x) → real user opens, BUT Gmail also fires a delivery
+    //     pre-fetch within 3s of delivery. 15s guard catches that without blocking
+    //     real opens (nobody reads email in under 15s of receiving it).
+    //   • Unknown IPs → same 15s guard catches ISP/corporate scanners.
+    // Result: opens at 16s+ are counted; delivery scans at 0–15s are blocked.
     {
       const guardRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
@@ -534,10 +537,9 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       if (guardRaw.length > 0) {
         const sentAt = parseInt(guardRaw[0].value) || 0;
         const elapsed = now - sentAt;
-        const guardMs = isMailProxyIp(ip) ? 90000 : 180000; // 90s for Gmail proxy, 3min for others
-        if (elapsed < guardMs) {
-          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} IP:${ip} (${Math.round(elapsed/1000)}s after send, guard=${guardMs/1000}s)`);
-          return { counted: false, reason: `scanner guard (${guardMs/1000}s)`, count: 0 };
+        if (elapsed < 15000) {
+          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} IP:${ip} (${Math.round(elapsed/1000)}s after send, guard=15s)`);
+          return { counted: false, reason: 'scanner guard (15s)', count: 0 };
         }
       }
     }

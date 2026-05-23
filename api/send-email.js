@@ -260,18 +260,16 @@ module.exports = async (req, res) => {
     const attachmentData = await fetchAttachmentData(attachments || []);
     const raw           = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, unsubscribeUrl: unsubUrl, attachmentData });
 
-    // Write scanner-guard BEFORE sending.
-    // Guard window: 3 minutes (180s) for normal emails — scanners from Google,
-    // Microsoft and Amazon typically fire within 0-120s of delivery.
-    // Gmail proxy IPs (74.125.x etc.) get a 90s guard in _redis.js.
-    // For attachments: add an extra 30s offset to account for attachment scanning delay.
+    // Write scanner-guard key BEFORE sending.
+    // Window = 15s: Gmail delivery pre-fetch fires at ~3s, real opens happen after 15s.
+    // TTL = 30s: key must outlive the 15s window. Attachments get +10s offset so the
+    // window covers the extra time Gmail needs to scan the file before firing the pixel.
     const hasAttachments = attachmentData.length > 0;
-    const guardValue = hasAttachments ? String(Date.now() + 30000) : String(Date.now());
-    const guardTtl   = 240; // 4 minutes — must be > 3-minute guard window
+    const guardValue = hasAttachments ? String(Date.now() + 10000) : String(Date.now());
+    const guardTtl   = 30; // seconds — well beyond the 15s block window
     await set(`email:guard:${leadId}`, guardValue, guardTtl).catch(() => {});
-    // Attachment guard — extra safety for attachment scanners
     if (hasAttachments) {
-      await set(`email:att-guard:${leadId}`, String(Date.now()), 60).catch(() => {});
+      await set(`email:att-guard:${leadId}`, String(Date.now()), 30).catch(() => {});
     }
 
     const sendRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
