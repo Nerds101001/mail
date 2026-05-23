@@ -3,8 +3,8 @@ import { useCRM } from '../store'
 import { useEffect, useState } from 'react'
 import {
   LayoutDashboard, CheckSquare, Users, GitBranch, Send,
-  UserCheck, FileText, BarChart2, Settings, LogOut, Zap, Mail, UserX, History, Paperclip, Eye,
-  Pause, X as XIcon,
+  UserCheck, FileText, BarChart2, Settings, LogOut, Zap, Mail, UserX, History, Paperclip,
+  Eye, Pause, X as XIcon, ChevronRight,
 } from 'lucide-react'
 import * as campaignRunner from '../campaignRunner'
 
@@ -21,16 +21,16 @@ const NAV = [
     { to: '/attachments', icon: Paperclip,   label: 'Attachments' },
   ]},
   { label: 'Business', items: [
-    { to: '/clients',  icon: UserCheck,       label: 'Clients' },
-    { to: '/deals',    icon: FileText,        label: 'Deals' },
+    { to: '/clients',  icon: UserCheck,   label: 'Clients' },
+    { to: '/deals',    icon: FileText,    label: 'Deals' },
   ]},
   { label: 'Analytics', items: [
-    { to: '/tracking',     icon: BarChart2,       label: 'Tracking' },
-    { to: '/unsubscribes', icon: UserX,           label: 'Unsubscribes' },
+    { to: '/tracking',     icon: BarChart2, label: 'Tracking' },
+    { to: '/unsubscribes', icon: UserX,     label: 'Unsubscribes' },
   ]},
   { label: 'Config', items: [
-    { to: '/users',    icon: Users,           label: 'Users',    adminOnly: true },
-    { to: '/settings', icon: Settings,        label: 'Settings' },
+    { to: '/users',    icon: Users,     label: 'Users',    adminOnly: true },
+    { to: '/settings', icon: Settings,  label: 'Settings' },
   ]},
 ]
 
@@ -38,14 +38,14 @@ export default function Layout({ children, taskCount = 0 }) {
   const { leads, clients, gmailStatus, viewAs, setViewAs, loadFromRedis } = useCRM()
   const navigate   = useNavigate()
   const isAdmin    = localStorage.getItem('crm_role') === 'admin'
+  const userName   = localStorage.getItem('crm_userName') || 'Admin'
+  const userRole   = localStorage.getItem('crm_role') || 'admin'
   const hot        = leads.filter(l => l.pipelineStage === 'HOT' && !['WON','LOST','UNSUBSCRIBED'].includes(l.pipelineStage)).length
-  const [userList, setUserList]     = useState([])
-  const [runner, setRunner]         = useState(campaignRunner.getState())
+  const [userList, setUserList] = useState([])
+  const [runner, setRunner]     = useState(campaignRunner.getState())
 
-  // Subscribe to runner state for the floating progress banner
   useEffect(() => campaignRunner.subscribe(setRunner), [])
 
-  // Load user list for admin view-as switcher
   useEffect(() => {
     if (!isAdmin) return
     const token = localStorage.getItem('crm_token') || ''
@@ -58,7 +58,6 @@ export default function Layout({ children, taskCount = 0 }) {
   function doLogout() {
     const token = localStorage.getItem('crm_token')
     if (token) fetch(`/api/auth?token=${token}`, { method: 'DELETE' }).catch(() => {})
-    // Clear ALL CRM data from localStorage — critical for user isolation
     Object.keys(localStorage).filter(k => k.startsWith('crm_')).forEach(k => localStorage.removeItem(k))
     navigate('/login')
   }
@@ -66,35 +65,45 @@ export default function Layout({ children, taskCount = 0 }) {
   function handleViewAs(e) {
     const val = e.target.value
     setViewAs(val)
-    // Pass the value directly — avoids the async state-update lag of viewAsRef
     loadFromRedis(val)
   }
 
+  const initials = userName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
-      {/* SIDEBAR */}
-      <aside className="w-56 bg-white border-r border-slate-200 flex flex-col shadow-sm flex-shrink-0">
+    <div className="flex h-screen overflow-hidden" style={{ background: '#f1f5f9' }}>
+
+      {/* ── SIDEBAR ─────────────────────────────────────────────────── */}
+      <aside className="w-60 flex flex-col flex-shrink-0 relative"
+             style={{ background: 'linear-gradient(160deg, #0f172a 0%, #1e1b4b 100%)' }}>
+
+        {/* Subtle grid overlay */}
+        <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
+             style={{ backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
+
         {/* Logo */}
-        <div className="px-4 py-5 border-b border-slate-100">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center shadow-sm">
-              <Zap size={16} className="text-white" />
+        <div className="relative px-5 py-5 border-b border-white/8">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                 style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', boxShadow: '0 4px 12px rgba(99,102,241,0.4)' }}>
+              <Zap size={17} className="text-white" />
             </div>
             <div>
-              <p className="text-sm font-bold text-slate-900 leading-none">Enginerds</p>
-              <p className="text-[10px] text-slate-400 mt-0.5 font-medium">CRM Platform</p>
+              <p className="text-sm font-bold text-white leading-none tracking-tight">EnginErds</p>
+              <p className="text-[10px] text-slate-500 mt-0.5 font-medium tracking-wide">CRM PLATFORM</p>
             </div>
           </div>
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+        <nav className="relative flex-1 overflow-y-auto px-3 py-4 space-y-5">
           {NAV.map(group => (
             <div key={group.label}>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2 mb-1.5">{group.label}</p>
+              <p className="text-[9px] font-bold text-slate-600 uppercase tracking-[0.15em] px-3 mb-1.5">
+                {group.label}
+              </p>
               <div className="space-y-0.5">
                 {group.items.map(item => {
-                  const isAdmin = localStorage.getItem('crm_role') === 'admin'
                   if (item.adminOnly && !isAdmin) return null
                   return (
                     <NavLink
@@ -103,10 +112,13 @@ export default function Layout({ children, taskCount = 0 }) {
                       end={item.to === '/'}
                       className={({ isActive }) => isActive ? 'nav-item-active' : 'nav-item'}
                     >
-                      <item.icon size={16} />
-                      <span className="flex-1">{item.label}</span>
+                      <item.icon size={15} className="flex-shrink-0" />
+                      <span className="flex-1 text-[13px]">{item.label}</span>
                       {item.badge === 'tasks' && taskCount > 0 && (
-                        <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{taskCount}</span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center"
+                              style={{ background: '#ef4444', color: '#fff' }}>
+                          {taskCount}
+                        </span>
                       )}
                     </NavLink>
                   )
@@ -117,68 +129,93 @@ export default function Layout({ children, taskCount = 0 }) {
         </nav>
 
         {/* Bottom */}
-        <div className="px-3 py-3 border-t border-slate-100 space-y-1">
-          <div className="px-3 py-2 text-xs text-slate-500">
-            <span className="font-semibold text-slate-700">{localStorage.getItem('crm_userName') || 'Admin'}</span>
-            <span className="ml-1 text-slate-400">({localStorage.getItem('crm_role') || 'admin'})</span>
+        <div className="relative px-3 py-3 border-t border-white/8 space-y-2">
+
+          {/* Gmail status */}
+          <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${
+            gmailStatus.connected
+              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+              : 'bg-white/5 text-slate-500 border border-white/8'
+          }`}>
+            <Mail size={13} className="flex-shrink-0" />
+            <span className="truncate">{gmailStatus.connected ? gmailStatus.email : 'Gmail not connected'}</span>
           </div>
 
-          {/* Admin: view-as user switcher */}
+          {/* Admin: view-as switcher */}
           {isAdmin && userList.length > 0 && (
-            <div className={`mx-1 px-2 py-2 rounded-lg text-xs border ${viewAs ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
-              <div className="flex items-center gap-1 mb-1 text-slate-500">
+            <div className={`px-2 py-2 rounded-xl border text-xs ${viewAs ? 'bg-amber-500/10 border-amber-500/20' : 'bg-white/5 border-white/8'}`}>
+              <div className="flex items-center gap-1.5 mb-1.5 text-slate-500">
                 <Eye size={11} />
-                <span className="font-semibold uppercase tracking-wide text-[10px]">Viewing as</span>
+                <span className="font-semibold text-[10px] uppercase tracking-wider">Viewing as</span>
               </div>
               <select
-                className="w-full text-xs bg-white border border-slate-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                className="w-full text-xs rounded-lg px-2 py-1.5 focus:outline-none"
+                style={{ background: 'rgba(255,255,255,0.08)', color: '#e2e8f0', border: '1px solid rgba(255,255,255,0.12)' }}
                 value={viewAs || ''}
                 onChange={handleViewAs}
               >
-                <option value="">👑 Admin (own data)</option>
+                <option value="" style={{ background: '#1e293b' }}>👑 Admin (own data)</option>
                 {userList.map(u => (
-                  <option key={u.id} value={u.id}>{u.name || u.username}</option>
+                  <option key={u.id} value={u.id} style={{ background: '#1e293b' }}>{u.name || u.username}</option>
                 ))}
               </select>
               {viewAs && (
-                <p className="text-[10px] text-amber-600 mt-1">Viewing {userList.find(u=>u.id===viewAs)?.name || viewAs}'s data</p>
+                <p className="text-[10px] text-amber-400 mt-1 truncate">
+                  Viewing {userList.find(u => u.id === viewAs)?.name || viewAs}'s data
+                </p>
               )}
             </div>
           )}
 
-          <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${gmailStatus.connected ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-500'}`}>
-            <Mail size={13} />
-            <span className="truncate">{gmailStatus.connected ? gmailStatus.email : 'Gmail not connected'}</span>
+          {/* User info + logout */}
+          <div className="flex items-center gap-2.5 px-2 py-2 rounded-xl bg-white/5 border border-white/8">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0"
+                 style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+              {initials}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[12px] font-semibold text-white truncate">{userName}</p>
+              <p className="text-[10px] text-slate-500 capitalize">{userRole}</p>
+            </div>
+            <button onClick={doLogout} title="Logout"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+              <LogOut size={14} />
+            </button>
           </div>
-          <button onClick={doLogout} className="nav-item w-full text-red-500 hover:bg-red-50 hover:text-red-600">
-            <LogOut size={16} /><span>Logout</span>
-          </button>
         </div>
       </aside>
 
-      {/* MAIN */}
+      {/* ── MAIN AREA ───────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden">
+
         {/* TOPBAR */}
-        <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center gap-4 shadow-sm flex-shrink-0">
-          <div className="flex items-center gap-6 text-sm">
-            <div className="flex items-center gap-1.5">
-              <span className="text-slate-400 font-medium">Leads</span>
-              <span className="font-bold text-slate-900">{leads.length}</span>
+        <header className="bg-white border-b border-slate-200 px-6 h-14 flex items-center gap-4 flex-shrink-0"
+                style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+          <div className="flex items-center gap-5 text-sm">
+            <div className="flex items-center gap-2 text-slate-500">
+              <span className="text-xs font-medium">Leads</span>
+              <span className="font-bold text-slate-900 tabular-nums">{leads.length}</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-slate-400 font-medium">Clients</span>
-              <span className="font-bold text-slate-900">{clients.length}</span>
+            <div className="w-px h-4 bg-slate-200" />
+            <div className="flex items-center gap-2 text-slate-500">
+              <span className="text-xs font-medium">Clients</span>
+              <span className="font-bold text-slate-900 tabular-nums">{clients.length}</span>
             </div>
             {hot > 0 && (
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-                <span className="font-bold text-red-600">{hot} Hot</span>
-              </div>
+              <>
+                <div className="w-px h-4 bg-slate-200" />
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-50 border border-red-200">
+                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+                  <span className="text-xs font-bold text-red-600">{hot} Hot</span>
+                </div>
+              </>
             )}
           </div>
           <div className="ml-auto flex items-center gap-3">
             <NavLink to="/leads">
-              <button className="btn-primary text-xs px-3 py-1.5">+ Add Lead</button>
+              <button className="btn-primary text-xs !px-3 !py-1.5">
+                + Add Lead
+              </button>
             </NavLink>
           </div>
         </header>
@@ -189,26 +226,27 @@ export default function Layout({ children, taskCount = 0 }) {
         </main>
       </div>
 
-      {/* ── Floating Campaign Runner Banner ────────────────────────────── */}
+      {/* ── Floating Campaign Runner Banner ─────────────────────────── */}
       {(runner.status === 'RUNNING' || runner.status === 'PAUSED' || runner.status === 'DONE') && (
-        <div className={`fixed bottom-5 right-5 z-50 w-80 rounded-2xl shadow-2xl border overflow-hidden ${
-          runner.status === 'RUNNING' ? 'bg-white border-blue-200'
-          : runner.status === 'PAUSED' ? 'bg-amber-50 border-amber-200'
-          : 'bg-emerald-50 border-emerald-200'
-        }`}>
+        <div className={`fixed bottom-5 right-5 z-50 w-80 rounded-2xl shadow-2xl overflow-hidden border ${
+          runner.status === 'RUNNING' ? 'bg-white border-indigo-200'
+          : runner.status === 'PAUSED' ? 'bg-white border-amber-200'
+          : 'bg-white border-emerald-200'
+        }`} style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.15)' }}>
+
           {/* Header */}
-          <div className={`flex items-center justify-between px-4 py-2.5 ${
-            runner.status === 'RUNNING' ? 'bg-blue-600'
+          <div className={`flex items-center justify-between px-4 py-3 ${
+            runner.status === 'RUNNING' ? 'bg-gradient-to-r from-indigo-600 to-violet-600'
             : runner.status === 'PAUSED' ? 'bg-amber-500'
             : 'bg-emerald-600'
           }`}>
-            <div className="flex items-center gap-2 text-white">
-              {runner.status === 'RUNNING' && <span className="w-2 h-2 bg-white rounded-full animate-pulse"/>}
-              {runner.status === 'PAUSED'  && <Pause size={12}/>}
-              {runner.status === 'DONE'    && <span className="text-sm">✅</span>}
-              <span className="text-xs font-bold truncate max-w-[180px]">{runner.campaignName}</span>
+            <div className="flex items-center gap-2 text-white min-w-0">
+              {runner.status === 'RUNNING' && <span className="w-2 h-2 bg-white rounded-full animate-pulse flex-shrink-0"/>}
+              {runner.status === 'PAUSED'  && <Pause size={12} className="flex-shrink-0"/>}
+              {runner.status === 'DONE'    && <span className="text-sm flex-shrink-0">✅</span>}
+              <span className="text-xs font-bold truncate">{runner.campaignName}</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               {runner.status === 'RUNNING' && (
                 <button
                   onClick={() => campaignRunner.pause()}
@@ -221,7 +259,6 @@ export default function Layout({ children, taskCount = 0 }) {
                 <button
                   onClick={() => { campaignRunner.dismiss(); navigate('/history') }}
                   className="text-white/80 hover:text-white transition-colors"
-                  title="Dismiss"
                 >
                   <XIcon size={14}/>
                 </button>
@@ -230,23 +267,21 @@ export default function Layout({ children, taskCount = 0 }) {
           </div>
 
           {/* Body */}
-          <div className="px-4 py-3 space-y-2">
+          <div className="px-4 py-3 space-y-2.5">
             {runner.status === 'RUNNING' && (
               <>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-slate-500 truncate max-w-[160px]">{runner.currentLead || 'Starting...'}</span>
-                  <span className="font-bold text-blue-700 shrink-0">{runner.sent}/{runner.total}</span>
+                  <span className="font-bold text-indigo-600 shrink-0">{runner.sent}/{runner.total}</span>
                 </div>
                 <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                    style={{ width: `${runner.progress}%` }}
-                  />
+                  <div className="h-full rounded-full transition-all duration-300"
+                       style={{ width: `${runner.progress}%`, background: 'linear-gradient(90deg, #6366f1, #8b5cf6)' }} />
                 </div>
-                <div className="flex gap-3 text-[10px] text-slate-500">
+                <div className="flex gap-3 text-[11px]">
                   <span className="text-emerald-600 font-semibold">{runner.sent} sent</span>
                   {runner.failed  > 0 && <span className="text-red-500">{runner.failed} failed</span>}
-                  {runner.skipped > 0 && <span>{runner.skipped} skipped</span>}
+                  {runner.skipped > 0 && <span className="text-slate-400">{runner.skipped} skipped</span>}
                 </div>
               </>
             )}
@@ -256,19 +291,19 @@ export default function Layout({ children, taskCount = 0 }) {
                 <p className="text-xs font-semibold text-amber-800">
                   {runner.capPause ? '🚫 Daily sending limit reached' : '⏸ Paused by you'}
                 </p>
-                <p className="text-[10px] text-amber-600">
-                  {runner.pending} leads pending · Resume button appears in Campaign History after 24h
+                <p className="text-[11px] text-amber-600">
+                  {runner.pending} leads pending · Resume in Campaign History after 24h
                 </p>
-                <div className="flex gap-3 text-[10px] text-slate-500">
+                <div className="flex gap-3 text-[11px]">
                   <span className="text-emerald-600 font-semibold">{runner.sent} sent</span>
                   {runner.failed > 0 && <span className="text-red-500">{runner.failed} failed</span>}
                   <span className="text-amber-600">{runner.pending} pending</span>
                 </div>
                 <button
                   onClick={() => { campaignRunner.dismiss(); navigate('/history') }}
-                  className="w-full mt-1 text-xs text-amber-700 font-semibold hover:underline"
+                  className="flex items-center gap-1 text-xs text-amber-700 font-semibold hover:underline"
                 >
-                  View in Campaign History →
+                  View in Campaign History <ChevronRight size={11} />
                 </button>
               </>
             )}
@@ -276,16 +311,16 @@ export default function Layout({ children, taskCount = 0 }) {
             {runner.status === 'DONE' && (
               <>
                 <p className="text-xs font-semibold text-emerald-800">Campaign complete!</p>
-                <div className="flex gap-3 text-[10px]">
+                <div className="flex gap-3 text-[11px]">
                   <span className="text-emerald-600 font-semibold">{runner.sent} sent</span>
                   {runner.failed  > 0 && <span className="text-red-500">{runner.failed} failed</span>}
-                  {runner.skipped > 0 && <span className="text-slate-500">{runner.skipped} skipped</span>}
+                  {runner.skipped > 0 && <span className="text-slate-400">{runner.skipped} skipped</span>}
                 </div>
                 <button
                   onClick={() => { campaignRunner.dismiss(); navigate('/history') }}
-                  className="w-full mt-1 text-xs text-emerald-700 font-semibold hover:underline"
+                  className="flex items-center gap-1 text-xs text-indigo-600 font-semibold hover:underline"
                 >
-                  View results in Campaign History →
+                  View results <ChevronRight size={11} />
                 </button>
               </>
             )}

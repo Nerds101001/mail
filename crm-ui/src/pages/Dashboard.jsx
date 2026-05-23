@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCRM } from '../store'
-import { StatCard, Card, Btn, Spinner } from '../components/ui'
+import { StatCard, Card, Btn, Spinner, SectionHeader } from '../components/ui'
 import { daysDiff, daysSince, fmtCurrency } from '../utils'
 import { Users, UserCheck, Flame, CheckSquare, Send, MessageSquare, RefreshCw, RotateCcw, TrendingUp, Mail } from 'lucide-react'
 
@@ -85,7 +85,7 @@ export default function Dashboard() {
 
       {/* Stats row 1 */}
       <div className="grid grid-cols-4 gap-4">
-        <StatCard label="Total Leads"    value={leads.length}  sub="All contacts"          icon={Users}       color="slate"   onClick={() => navigate('/leads')} />
+        <StatCard label="Total Leads"    value={leads.length}  sub="All contacts"          icon={Users}       color="indigo"  onClick={() => navigate('/leads')} />
         <StatCard label="Hot Leads"      value={hot}           sub="Opened or clicked"     icon={Flame}       color="red"     onClick={() => navigate('/leads')} />
         <StatCard label="Active Clients" value={clients.length} sub={fmtCurrency(revenue)+' pipeline'} icon={UserCheck} color="emerald" onClick={() => navigate('/clients')} />
         <StatCard label="Tasks Today"    value={tasks.length}  sub="Pending actions"       icon={CheckSquare} color="amber"   onClick={() => navigate('/tasks')} />
@@ -94,7 +94,7 @@ export default function Dashboard() {
       {/* Stats row 2 */}
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="Emails Sent"     value={sent}           sub={leads.length ? Math.round(sent/leads.length*100)+'% send rate' : '0%'} icon={Send}         color="blue" />
-        <StatCard label="Replies"         value={replied}        sub={sent ? Math.round(replied/sent*100)+'% reply rate' : '0%'}              icon={MessageSquare} color="emerald" />
+        <StatCard label="Replies"         value={replied}        sub={sent ? Math.round(replied/sent*100)+'% reply rate' : '0%'}              icon={MessageSquare} color="violet" />
         <StatCard label="Renewals Due"    value={renewalsSoon}   sub="Next 30 days"         icon={RotateCcw}   color="amber" onClick={() => navigate('/clients')} />
         <StatCard label="Overdue Payments" value={overdue}       sub="Needs follow-up"      icon={TrendingUp}  color="red"   onClick={() => navigate('/clients')} />
       </div>
@@ -102,15 +102,12 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-6">
         {/* Today's Tasks */}
         <Card className="p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-bold text-slate-900">Today's Priority Tasks</h2>
-            <div className="flex gap-2">
-              <Btn variant="ghost" size="sm" onClick={() => fetch('/api/ops?type=tasks', { headers: authHeader() }).then(r=>r.json()).then(d=>setTasks(d.tasks||[]))}>
-                <RefreshCw size={13} />
-              </Btn>
-              <Btn variant="secondary" size="sm" onClick={sendDigest}><Mail size={13} /> Digest</Btn>
-            </div>
-          </div>
+          <SectionHeader title="Today's Priority Tasks">
+            <Btn variant="ghost" size="sm" onClick={() => fetch('/api/ops?type=tasks', { headers: authHeader() }).then(r=>r.json()).then(d=>setTasks(d.tasks||[]))}>
+              <RefreshCw size={13} />
+            </Btn>
+            <Btn variant="secondary" size="sm" onClick={sendDigest}><Mail size={13} /> Digest</Btn>
+          </SectionHeader>
           {loadingTasks ? (
             <div className="flex justify-center py-8"><Spinner /></div>
           ) : tasks.length === 0 ? (
@@ -142,7 +139,7 @@ export default function Dashboard() {
 
         {/* Recent Activity */}
         <Card className="p-5">
-          <h2 className="text-sm font-bold text-slate-900 mb-4">Recent Activity</h2>
+          <SectionHeader title="Recent Activity" />
           {activity.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-sm text-slate-400">No activity yet</p>
@@ -164,15 +161,31 @@ export default function Dashboard() {
 
       {/* Pipeline summary */}
       <Card className="p-5">
-        <h2 className="text-sm font-bold text-slate-900 mb-4">Lead Pipeline Overview</h2>
+        <SectionHeader title="Lead Pipeline Overview" />
         <div className="grid grid-cols-8 gap-3">
           {['COLD','CONTACTED','OPENED','HOT','DEMO','QUOTED','WON','LOST'].map(stage => {
             const count = leads.filter(l => l.pipelineStage === stage).length
-            const colors = { COLD:'bg-slate-100 text-slate-600', CONTACTED:'bg-blue-100 text-blue-700', OPENED:'bg-amber-100 text-amber-700', HOT:'bg-red-100 text-red-700', DEMO:'bg-purple-100 text-purple-700', QUOTED:'bg-indigo-100 text-indigo-700', WON:'bg-emerald-100 text-emerald-700', LOST:'bg-red-50 text-red-400' }
+            const palette = {
+              COLD:      { bg: 'bg-slate-50',    text: 'text-slate-600',   bar: 'bg-slate-300' },
+              CONTACTED: { bg: 'bg-blue-50',     text: 'text-blue-700',    bar: 'bg-blue-400' },
+              OPENED:    { bg: 'bg-amber-50',    text: 'text-amber-700',   bar: 'bg-amber-400' },
+              HOT:       { bg: 'bg-red-50',      text: 'text-red-700',     bar: 'bg-red-500' },
+              DEMO:      { bg: 'bg-purple-50',   text: 'text-purple-700',  bar: 'bg-purple-500' },
+              QUOTED:    { bg: 'bg-indigo-50',   text: 'text-indigo-700',  bar: 'bg-indigo-500' },
+              WON:       { bg: 'bg-emerald-50',  text: 'text-emerald-700', bar: 'bg-emerald-500' },
+              LOST:      { bg: 'bg-slate-50',    text: 'text-slate-400',   bar: 'bg-slate-200' },
+            }
+            const { bg, text, bar } = palette[stage] || palette.COLD
             return (
-              <div key={stage} className={`rounded-xl p-3 text-center cursor-pointer hover:scale-105 transition-transform ${colors[stage]}`} onClick={() => navigate('/pipeline')}>
-                <p className="text-2xl font-bold">{count}</p>
-                <p className="text-[10px] font-semibold uppercase tracking-wide mt-1">{stage}</p>
+              <div key={stage}
+                   className={`${bg} rounded-xl p-3 text-center cursor-pointer hover:scale-105 transition-all duration-200 border border-transparent hover:border-slate-200`}
+                   onClick={() => navigate('/pipeline')}>
+                <p className={`text-2xl font-bold tabular-nums ${text}`}>{count}</p>
+                <p className={`text-[9px] font-bold uppercase tracking-wider mt-1.5 ${text}`}>{stage}</p>
+                <div className="mt-2 h-1 rounded-full bg-black/5">
+                  <div className={`h-full rounded-full ${bar} transition-all duration-500`}
+                       style={{ width: count > 0 ? `${Math.min(100, count * 10)}%` : '0%' }} />
+                </div>
               </div>
             )
           })}
