@@ -46,11 +46,10 @@ module.exports = async (req, res) => {
         ? `✅ [OPEN] Counted lead ${id}, total: ${result.count}`
         : `⏭️  [OPEN] Skipped (${result.reason})`);
 
-      // Return 204 (no-cache) only for:
-      //   - delivery scanner guard (66.249.x within 5s) → Gmail re-requests on real open
-      //   - hard-blocked bots (Apple MPP, Microsoft SafeLinks, Google SafeBrowse etc.)
-      // Everything else (including 30s dedup) gets 302 → unique URL
-      deliveryScan = !result.counted && result.reason !== '30s dedup';
+      // 204 only for scanner guard (5s) — exact Vercel behaviour.
+      // This tells Gmail "no image here" → Gmail re-requests on real user open.
+      // Everything else (dedup, att-guard) gets 302 → unique URL.
+      deliveryScan = result.reason === 'scanner guard (5s)';
     } catch (e) {
       console.error(`❌ [OPEN] Lead ${id}:`, e.message);
     }

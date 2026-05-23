@@ -347,41 +347,25 @@ async function getTrackingEvents(leadId, campaignId = null, limit = 100) {
 // 3. ALL OTHER IPs — real user opens from their own IP
 //    Apply timing guard (blocks delivery scanners within 12s of send)
 
-// Hard-blocked IPs — scanners that should NEVER be counted regardless of timing.
-// Apple MPP and Microsoft SafeLinks fire automatically on delivery, not on user open.
-// Google/Amazon infrastructure scanners are server-side crawlers, not real users.
-function isBotIp(ip) {
+// IPs that bypass the 5s timing guard — these only fire on real user interaction.
+// Matches exact Vercel logic. No hard-blocking; the 5s guard handles delivery scans.
+function isUserProxyIp(ip) {
   if (!ip || ip === 'unknown') return false;
-  return /^17\./.test(ip)         ||   // Apple MPP — auto-prefetch on delivery
-         /^40\.94\./.test(ip)     ||   // Microsoft SafeLinks
-         /^40\.107\./.test(ip)    ||   // Microsoft SafeLinks
-         /^52\.100\./.test(ip)    ||   // Microsoft SafeLinks
-         /^104\.47\./.test(ip)    ||   // Microsoft email scanner
-         /^66\.249\./.test(ip)    ||   // Google scanner — fires at delivery AND on open, never a real user
-         /^66\.102\./.test(ip)    ||   // Google image/content scanner
-         /^172\.253\./.test(ip)   ||   // Google Safe Browsing / link scanner
-         /^130\.211\./.test(ip)   ||   // Google Cloud scanner
-         /^35\.190\./.test(ip)    ||   // Google Cloud scanner
-         /^23\.21\./.test(ip)     ||   // Amazon SES content scanner
-         /^54\.240\./.test(ip);        // Amazon SES scanner
-  // Hard-blocking 66.249.x returns 204 → Gmail has nothing to cache → re-requests
-  // on real user open → Gmail proxy (74.125.x) fires and is counted correctly.
+  return /^74\.125\./.test(ip)  ||   // Gmail image proxy
+         /^64\.233\./.test(ip)  ||   // Gmail image proxy
+         /^209\.85\./.test(ip)  ||   // Gmail image proxy
+         /^216\.58\./.test(ip)  ||   // Gmail image proxy
+         /^216\.239\./.test(ip) ||   // Gmail image proxy
+         /^142\.250\./.test(ip) ||   // Gmail image proxy
+         /^108\.177\./.test(ip) ||   // Gmail image proxy
+         /^17\./.test(ip)       ||   // Apple MPP
+         /^40\.94\./.test(ip)   ||   // Microsoft SafeLinks
+         /^40\.107\./.test(ip)  ||   // Microsoft SafeLinks
+         /^52\.100\./.test(ip);      // Microsoft SafeLinks
 }
 
-// Gmail / Google proxy IPs — fire ONLY on real user opens (not delivery).
-// These bypass the 5s timing guard entirely and are always counted.
-// Strategy matches the working Vercel version: 66.249.x goes through the 5s guard
-// (204 on delivery scan → Gmail re-requests on real open → 74.125.x fires → counted).
-function isMailProxyIp(ip) {
-  if (!ip || ip === 'unknown') return false;
-  return /^74\.125\./.test(ip)  ||   // Gmail image proxy — real user opens only
-         /^64\.233\./.test(ip)  ||
-         /^209\.85\./.test(ip)  ||
-         /^216\.58\./.test(ip)  ||
-         /^216\.239\./.test(ip) ||
-         /^142\.250\./.test(ip) ||
-         /^108\.177\./.test(ip);
-}
+// Keep isMailProxyIp as alias for backward compat in trackClick
+function isMailProxyIp(ip) { return isUserProxyIp(ip); }
 
 // User-agent based bot detection — catches corporate scanners by UA string
 function isBotUA(ua) {
@@ -485,36 +469,7 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
     const device = parseDevice(userAgent);
     const geo    = getGeo(ip);
 
-    // ── Step 1: Hard-block known bots/proxies ────────────────────────────────
-    // Apple MPP (17.x), Microsoft SafeLinks (40.94/40.107/52.100),
-    // Google delivery scanner (66.249.x), corporate scanner UAs.
-    // Log these so they're visible in UI (greyed out) but NEVER count or stage-advance.
-    if (isBot(ip, userAgent)) {
-      const botReason = isBotIp(ip)
-        ? (/^17\./.test(ip)       ? 'Apple MPP'
-         : /^66\.249\./.test(ip)  ? 'Google Scanner'
-         : /^66\.102\./.test(ip)  ? 'Google Scanner'
-         : /^172\.253\./.test(ip) ? 'Google SafeBrowse'
-         : /^130\.211\./.test(ip) ? 'Google Cloud Scanner'
-         : /^35\.190\./.test(ip)  ? 'Google Cloud Scanner'
-         : /^23\.21\./.test(ip)   ? 'Amazon SES Scanner'
-         : /^54\.240\./.test(ip)  ? 'Amazon SES Scanner'
-         : 'Microsoft Scanner')
-        : 'Bot UA';
-      console.log(`🤖 [BOT-BLOCK] ${botReason} blocked for lead ${leadId} IP:${ip}`);
-      try {
-        await sql`
-          INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, device_type, device_client, country, city, is_bot, created_at)
-          VALUES (${leadId}, 'open', ${ip}, ${userAgent}, ${campaignId ? `campaign:${campaignId}` : null}, ${campaignId || null},
-                  ${device.type}, ${device.client}, ${geo.country || null}, ${geo.city || null}, ${true}, ${now})
-        `;
-      } catch {}
-      return { counted: false, reason: botReason, count: 0 };
-    }
-
-    // ── Step 2: Attachment scanner guard — extra window after sends with files ─
-    // Gmail's attachment content scanner can fire from Gmail proxy IPs too.
-    // Block ANY IP within 10s of an attachment send.
+    // ── Step 1: Attachment guard — all IPs, 10s after attachment sends ──────────
     const attGuardRaw = await sql`
       SELECT value FROM kv_store WHERE key = ${'email:att-guard:' + leadId}
         AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
@@ -527,30 +482,25 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       }
     }
 
-    // ── Step 3: Timing guard — 5s for non-Gmail-proxy IPs ───────────────────
-    // Matches the working Vercel strategy exactly:
-    //   • Gmail proxy (74.125.x etc.) → bypass guard → always counted
-    //     These only fire on real user opens, never at delivery.
-    //   • 66.249.x (Google delivery scanner) → goes through 5s guard
-    //     Within 5s → NOT counted → 204 returned → Gmail has nothing cached
-    //     → Gmail proxy (74.125.x) re-requests on real open → counted correctly
-    //   • All other unknown IPs → 5s guard catches delivery scanners
-    if (!isMailProxyIp(ip)) {
+    // ── Step 2: 5s timing guard — EXACT Vercel logic ─────────────────────────
+    // isUserProxyIp() (74.125.x, Apple MPP 17.x, Microsoft 40.94/107.x) bypass entirely.
+    // All other IPs (including 66.249.x Google scanner): blocked within first 5s of send.
+    // After 5s, every IP is counted — no hard-blocking of any specific IP range.
+    if (!isUserProxyIp(ip)) {
       const guardRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
           AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
       `.catch(() => []);
       if (guardRaw.length > 0) {
         const sentAt = parseInt(guardRaw[0].value) || 0;
-        const elapsed = now - sentAt;
-        if (elapsed < 5000) {
-          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} IP:${ip} (${Math.round(elapsed/1000)}s after send, guard=5s)`);
+        if (now - sentAt < 5000) {
+          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} IP:${ip} (${Math.round((now-sentAt)/1000)}s after send)`);
           return { counted: false, reason: 'scanner guard (5s)', count: 0 };
         }
       }
     }
 
-    // ── Step 4: 30s dedup — same IP can't double-count within 30s ────────────
+    // ── Step 3: 30s dedup — same IP can't double-count within 30s ────────────
     const thirtySecondsAgo = now - (30 * 1000);
     const existing = await sql`
       SELECT created_at FROM tracking_events
@@ -565,7 +515,7 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       return { counted: false, reason: '30s dedup', count: 0 };
     }
 
-    // ── Step 5: Count the real open ───────────────────────────────────────────
+    // ── Step 4: Count the real open ───────────────────────────────────────────
     const rows = await sql`
       INSERT INTO simple_tracking (lead_id, opens, last_open)
       VALUES (${leadId}, 1, ${now})
