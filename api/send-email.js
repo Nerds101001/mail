@@ -268,10 +268,10 @@ module.exports = async (req, res) => {
     // TTL is extended to 90s to cover the full attachment-scan window.
     // Normal emails (no attachments) keep the original 5s window and 30s TTL.
     const hasAttachments = attachmentData.length > 0;
-    // Guard window is 30s — delivery scanners can fire up to ~15s after send.
-    // TTL is 60s to give plenty of buffer beyond the 30s block window.
+    // Guard window is 12s — delivery scanners typically fire 5-12s after send.
+    // TTL is 30s (45s with attachments) — well beyond the 12s block window.
     const guardValue = hasAttachments ? String(Date.now() + 10000) : String(Date.now());
-    const guardTtl   = hasAttachments ? 70 : 60;
+    const guardTtl   = hasAttachments ? 45 : 30;
     await set(`email:guard:${leadId}`, guardValue, guardTtl).catch(() => {});
     // Attachment guard — Gmail's content scanner uses Google infrastructure IPs
     // (74.125.x.x) that are normally whitelisted as real-user opens. Write a
