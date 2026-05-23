@@ -349,17 +349,25 @@ async function getTrackingEvents(leadId, campaignId = null, limit = 100) {
 
 function isBotIp(ip) {
   if (!ip || ip === 'unknown') return false;
-  return /^17\./.test(ip)       ||   // Apple MPP — auto-prefetch on delivery
-         /^40\.94\./.test(ip)   ||   // Microsoft SafeLinks
-         /^40\.107\./.test(ip)  ||   // Microsoft SafeLinks
-         /^52\.100\./.test(ip)  ||   // Microsoft SafeLinks
-         /^66\.249\./.test(ip)  ||   // Google delivery scanner
-         /^104\.47\./.test(ip);      // Microsoft email scanner
+  return /^17\./.test(ip)         ||   // Apple MPP — auto-prefetch on delivery
+         /^40\.94\./.test(ip)     ||   // Microsoft SafeLinks
+         /^40\.107\./.test(ip)    ||   // Microsoft SafeLinks
+         /^52\.100\./.test(ip)    ||   // Microsoft SafeLinks
+         /^66\.249\./.test(ip)    ||   // Google delivery scanner / Googlebot
+         /^66\.102\./.test(ip)    ||   // Google image/content scanner
+         /^104\.47\./.test(ip)    ||   // Microsoft email scanner
+         /^172\.253\./.test(ip)   ||   // Google Safe Browsing / link scanner
+         /^130\.211\./.test(ip)   ||   // Google Cloud load balancer scanner
+         /^35\.190\./.test(ip)    ||   // Google Cloud scanner
+         /^23\.21\./.test(ip)     ||   // Amazon SES content scanner
+         /^54\.240\./.test(ip);        // Amazon SES scanner
 }
 
+// Gmail proxy IPs — these fire only when a REAL user opens in Gmail.
+// We still apply the timing guard (3 min) to catch edge-case pre-fetches.
 function isMailProxyIp(ip) {
   if (!ip || ip === 'unknown') return false;
-  return /^74\.125\./.test(ip)  ||   // Gmail / Google proxy (real user open)
+  return /^74\.125\./.test(ip)  ||   // Gmail / Google proxy
          /^64\.233\./.test(ip)  ||
          /^209\.85\./.test(ip)  ||
          /^216\.58\./.test(ip)  ||
@@ -371,7 +379,7 @@ function isMailProxyIp(ip) {
 // User-agent based bot detection — catches corporate scanners by UA string
 function isBotUA(ua) {
   if (!ua || ua === 'unknown') return false;
-  return /proofpoint|barracuda|mimecast|symantec\.cloud|trend\s*micro|sophos|forcepoint|ironport|postmaster|previewer|prefetch|link.*checker|url.*checker|safety.*checker|zgrab|python-urllib|python-requests|java\/[0-9]|curl\/|wget\/|go-http-client|nessus|scanner/i.test(ua);
+  return /proofpoint|barracuda|mimecast|symantec\.cloud|trend\s*micro|sophos|forcepoint|ironport|postmaster|previewer|prefetch|link.*checker|url.*checker|safety.*checker|zgrab|python-urllib|python-requests|java\/[0-9]|curl\/|wget\/|go-http-client|nessus|scanner|googleimageproxy/i.test(ua);
 }
 
 // Combined: is this request from a bot/scanner that should never be counted?
@@ -476,7 +484,15 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
     // Log these so they're visible in UI (greyed out) but NEVER count or stage-advance.
     if (isBot(ip, userAgent)) {
       const botReason = isBotIp(ip)
-        ? (/^17\./.test(ip) ? 'Apple MPP' : /^66\.249\./.test(ip) ? 'Google Scanner' : 'Microsoft Scanner')
+        ? (/^17\./.test(ip)       ? 'Apple MPP'
+         : /^66\.249\./.test(ip)  ? 'Google Scanner'
+         : /^66\.102\./.test(ip)  ? 'Google Scanner'
+         : /^172\.253\./.test(ip) ? 'Google SafeBrowse'
+         : /^130\.211\./.test(ip) ? 'Google Cloud Scanner'
+         : /^35\.190\./.test(ip)  ? 'Google Cloud Scanner'
+         : /^23\.21\./.test(ip)   ? 'Amazon SES Scanner'
+         : /^54\.240\./.test(ip)  ? 'Amazon SES Scanner'
+         : 'Microsoft Scanner')
         : 'Bot UA';
       console.log(`🤖 [BOT-BLOCK] ${botReason} blocked for lead ${leadId} IP:${ip}`);
       try {
@@ -504,19 +520,24 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       }
     }
 
-    // ── Step 3: Timing guard — only for non-Gmail-proxy IPs ──────────────────
-    // Gmail proxy IPs (74.125, etc.) only fire on real user opens — skip guard.
-    // All other IPs: block if within 12s of send (catches delivery scanners).
-    if (!isMailProxyIp(ip)) {
+    // ── Step 3: Timing guard — applied to ALL IPs including Gmail proxy ─────────
+    // Google/ISP scanners can arrive 30–120 seconds after delivery, well past
+    // the old 12s window. Real users take minutes to open email after delivery.
+    // Guard window: 3 minutes for all IPs. Gmail proxy gets a slightly shorter
+    // window (90s) since it fires only on real user opens, but we still protect
+    // against edge-case pre-fetches at delivery time.
+    {
       const guardRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
           AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
       `.catch(() => []);
       if (guardRaw.length > 0) {
         const sentAt = parseInt(guardRaw[0].value) || 0;
-        if (now - sentAt < 12000) {
-          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} IP:${ip} (${Math.round((now-sentAt)/1000)}s after send)`);
-          return { counted: false, reason: 'scanner guard (12s)', count: 0 };
+        const elapsed = now - sentAt;
+        const guardMs = isMailProxyIp(ip) ? 90000 : 180000; // 90s for Gmail proxy, 3min for others
+        if (elapsed < guardMs) {
+          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} IP:${ip} (${Math.round(elapsed/1000)}s after send, guard=${guardMs/1000}s)`);
+          return { counted: false, reason: `scanner guard (${guardMs/1000}s)`, count: 0 };
         }
       }
     }
@@ -584,10 +605,15 @@ async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
     const geo    = getGeo(ip);
 
     // ── Block known bots / scanners ───────────────────────────────────────────
-    // Microsoft SafeLinks scans ALL links — fires from 40.94/40.107/52.100.
+    // Microsoft SafeLinks, Google SafeBrowsing, Apple MPP — all scan links.
     // Log but never count or advance stage.
     if (isBot(ip, userAgent)) {
-      const botReason = isBotIp(ip) ? 'Microsoft SafeLinks' : 'Bot UA';
+      const botReason = isBotIp(ip)
+        ? (/^40\./.test(ip) || /^104\.47\./.test(ip) ? 'Microsoft SafeLinks'
+         : /^172\.253\./.test(ip) ? 'Google SafeBrowse'
+         : /^17\./.test(ip) ? 'Apple MPP'
+         : 'Bot Scanner')
+        : 'Bot UA';
       console.log(`🤖 [BOT-CLICK] ${botReason} blocked for lead ${leadId} IP:${ip}`);
       try {
         await sql`

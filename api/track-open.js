@@ -46,16 +46,7 @@ module.exports = async (req, res) => {
 
       // Delivery scanner = blocked by timing guard OR hard-blocked as bot
       // Return 204 in both cases so Gmail has nothing to cache
-      deliveryScan = (!result.counted && (
-        result.reason === 'scanner guard (12s)' ||
-        result.reason === 'scanner guard (30s)' ||
-        result.reason === 'scanner guard (5s)'  ||
-        result.reason === 'Apple MPP'           ||
-        result.reason === 'Google Scanner'      ||
-        result.reason === 'Microsoft Scanner'   ||
-        result.reason === 'attachment scanner guard (10s)' ||
-        result.reason === 'Bot UA'
-      ));
+      deliveryScan = !result.counted && result.reason !== '30s dedup';
     } catch (e) {
       console.error(`❌ [OPEN] Lead ${id}:`, e.message);
     }

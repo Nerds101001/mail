@@ -720,5 +720,60 @@ module.exports = async (req, res) => {
     } catch(err) { return res.status(500).json({ error: err.message }); }
   }
 
+  // ── PURGE BOT OPENS — remove historical fake opens from known bot IPs ────────
+  // Deletes tracking_events with is_bot=true AND recalculates simple_tracking counts.
+  // Also deletes events from known bot IP ranges that slipped through before the fix.
+  if (type === "purge-bot-opens" && req.method === "POST") {
+    try {
+      const sql = getSql();
+      // Known bot IP prefixes that should never have been counted
+      const botPrefixes = ['17.', '40.94.', '40.107.', '52.100.', '66.249.', '66.102.',
+                           '104.47.', '172.253.', '130.211.', '35.190.', '23.21.', '54.240.'];
+      const botIpConditions = botPrefixes.map(p => `ip LIKE '${p}%'`).join(' OR ');
+
+      // 1. Mark any untagged bot events as is_bot=true
+      const markedRes = await sql.unsafe(
+        `UPDATE tracking_events SET is_bot = true WHERE event_type='open' AND is_bot IS DISTINCT FROM true AND (${botIpConditions})`
+      );
+      const marked = markedRes?.count || markedRes?.rowCount || 0;
+
+      // 2. Recalculate simple_tracking opens for all affected leads
+      // Get distinct lead_ids that had bot opens counted in simple_tracking
+      const affected = await sql.unsafe(
+        `SELECT DISTINCT lead_id FROM tracking_events WHERE event_type='open' AND (is_bot=true OR (${botIpConditions}))`
+      );
+      let recalculated = 0;
+      for (const row of (affected || [])) {
+        const lid = row.lead_id;
+        // Count only real opens for this lead
+        const realOpens = await sql`
+          SELECT COUNT(*) as cnt FROM tracking_events
+          WHERE lead_id=${lid} AND event_type='open' AND (is_bot IS NULL OR is_bot=false)
+        `;
+        const realCount = parseInt(realOpens[0]?.cnt || 0);
+        const lastOpenRow = await sql`
+          SELECT created_at FROM tracking_events
+          WHERE lead_id=${lid} AND event_type='open' AND (is_bot IS NULL OR is_bot=false)
+          ORDER BY created_at DESC LIMIT 1
+        `;
+        const lastOpen = lastOpenRow[0]?.created_at || null;
+        if (realCount === 0) {
+          await sql`DELETE FROM simple_tracking WHERE lead_id=${lid}`.catch(()=>{});
+        } else {
+          await sql`
+            INSERT INTO simple_tracking (lead_id, opens, last_open) VALUES (${lid}, ${realCount}, ${lastOpen})
+            ON CONFLICT (lead_id) DO UPDATE SET opens=${realCount}, last_open=${lastOpen}
+          `.catch(()=>{});
+        }
+        recalculated++;
+      }
+      console.log(`🧹 [PURGE-BOT] Marked ${marked} bot events, recalculated ${recalculated} leads`);
+      return res.json({ ok: true, marked, recalculated, affectedLeads: recalculated });
+    } catch(err) {
+      console.error('[PURGE-BOT] Error:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   res.status(400).json({ error: "Invalid type parameter" });
 };

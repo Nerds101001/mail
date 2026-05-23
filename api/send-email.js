@@ -261,23 +261,17 @@ module.exports = async (req, res) => {
     const raw           = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, unsubscribeUrl: unsubUrl, attachmentData });
 
     // Write scanner-guard BEFORE sending.
-    // For emails with attachments Gmail downloads + scans the file before firing
-    // the pixel — this takes 10-30s, slipping past the normal 5s scanner window.
-    // Fix: shift the guard timestamp 30s into the future so _redis.js sees any
-    // event within the first ~35s as "within 5s of send" and blocks it.
-    // TTL is extended to 90s to cover the full attachment-scan window.
-    // Normal emails (no attachments) keep the original 5s window and 30s TTL.
+    // Guard window: 3 minutes (180s) for normal emails — scanners from Google,
+    // Microsoft and Amazon typically fire within 0-120s of delivery.
+    // Gmail proxy IPs (74.125.x etc.) get a 90s guard in _redis.js.
+    // For attachments: add an extra 30s offset to account for attachment scanning delay.
     const hasAttachments = attachmentData.length > 0;
-    // Guard window is 12s — delivery scanners typically fire 5-12s after send.
-    // TTL is 30s (45s with attachments) — well beyond the 12s block window.
-    const guardValue = hasAttachments ? String(Date.now() + 10000) : String(Date.now());
-    const guardTtl   = hasAttachments ? 45 : 30;
+    const guardValue = hasAttachments ? String(Date.now() + 30000) : String(Date.now());
+    const guardTtl   = 240; // 4 minutes — must be > 3-minute guard window
     await set(`email:guard:${leadId}`, guardValue, guardTtl).catch(() => {});
-    // Attachment guard — Gmail's content scanner uses Google infrastructure IPs
-    // (74.125.x.x) that are normally whitelisted as real-user opens. Write a
-    // separate key so _redis.js can block even those IPs within the first 10s.
+    // Attachment guard — extra safety for attachment scanners
     if (hasAttachments) {
-      await set(`email:att-guard:${leadId}`, String(Date.now()), 30).catch(() => {});
+      await set(`email:att-guard:${leadId}`, String(Date.now()), 60).catch(() => {});
     }
 
     const sendRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {

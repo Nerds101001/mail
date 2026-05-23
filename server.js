@@ -59,6 +59,7 @@ app.all("/api/csv-export",     withQuery(crm, { type: "csv-export" }));
 app.all("/api/revenue",        withQuery(crm, { type: "revenue" }));
 app.all("/api/drip-sequences", withQuery(crm, { type: "drip-sequences" }));
 app.all("/api/drip-enroll",    withQuery(crm, { type: "drip-enroll" }));
+app.all("/api/purge-bot-opens",withQuery(crm, { type: "purge-bot-opens" }));
 app.all("/api/crm",            crm);
 
 // Ops / tasks / scheduling
