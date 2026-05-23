@@ -357,14 +357,15 @@ function isBotIp(ip) {
          /^40\.107\./.test(ip)    ||   // Microsoft SafeLinks
          /^52\.100\./.test(ip)    ||   // Microsoft SafeLinks
          /^104\.47\./.test(ip)    ||   // Microsoft email scanner
+         /^66\.249\./.test(ip)    ||   // Google scanner — fires at delivery AND on open, never a real user
+         /^66\.102\./.test(ip)    ||   // Google image/content scanner
          /^172\.253\./.test(ip)   ||   // Google Safe Browsing / link scanner
          /^130\.211\./.test(ip)   ||   // Google Cloud scanner
          /^35\.190\./.test(ip)    ||   // Google Cloud scanner
          /^23\.21\./.test(ip)     ||   // Amazon SES content scanner
          /^54\.240\./.test(ip);        // Amazon SES scanner
-  // NOTE: 66.249.x (Google delivery scanner) is NOT here — it fires at delivery
-  // (caught by 5s guard → 204) AND at real user opens (counted after 5s guard).
-  // Hard-blocking it would miss real opens from Google IPs.
+  // Hard-blocking 66.249.x returns 204 → Gmail has nothing to cache → re-requests
+  // on real user open → Gmail proxy (74.125.x) fires and is counted correctly.
 }
 
 // Gmail / Google proxy IPs — fire ONLY on real user opens (not delivery).
