@@ -521,14 +521,14 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       }
     }
 
-    // ── Step 3: Timing guard — 5s for ALL IPs ────────────────────────────────
-    // Two-layer defence:
-    //   Layer 1 (above): hard-block known scanner IPs forever (66.249.x, 172.253.x, 17.x…)
-    //   Layer 2 (here):  5s window catches anything that slips through — Gmail delivery
-    //                    pre-fetch fires at ~3s, so 5s is the minimum safe window.
-    //                    Real opens happen 5s+ after delivery. No genuine human reads
-    //                    an email in under 5 seconds of it arriving.
-    {
+    // ── Step 3: Timing guard — 5s for non-Gmail-proxy IPs only ──────────────
+    // Gmail proxy (74.125.x, 209.85.x etc.) is a special case:
+    //   • Gmail pre-fetches images at delivery AND caches on their CDN
+    //   • If we block the delivery hit → Gmail caches nothing → real open also missed
+    //   • So we MUST count the first Gmail proxy hit (it's the only open signal Gmail gives)
+    //   • The flood of false opens in the past was from 66.249.x (hard-blocked above), NOT 74.125.x
+    // For all other IPs: 5s guard catches unknown delivery scanners.
+    if (!isMailProxyIp(ip)) {
       const guardRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
           AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1

@@ -341,17 +341,20 @@ export default function Tracking() {
                                   </thead>
                                   <tbody>
                                     {expanded.events.map((e, ei) => {
-                                      const isClick  = e.event_type === 'click'
-                                      const isBot    = !!e.is_bot
-                                      const clickUrl = isClick && e.target_url && !e.target_url.startsWith('campaign:') ? e.target_url : null
-                                      const geo      = [e.city, e.country].filter(Boolean).join(', ') || '—'
+                                      const isClick      = e.event_type === 'click'
+                                      const isBot        = !!e.is_bot
+                                      const isGmailProxy = !isBot && !isClick && /^(74\.125\.|64\.233\.|209\.85\.|216\.58\.|216\.239\.|142\.250\.|108\.177\.)/.test(e.ip || '')
+                                      const clickUrl     = isClick && e.target_url && !e.target_url.startsWith('campaign:') ? e.target_url : null
+                                      const geo          = [e.city, e.country].filter(Boolean).join(', ') || '—'
                                       return (
                                         <tr key={ei} className={`border-b border-slate-100 hover:bg-white/80 ${isBot ? 'opacity-50' : ''}`}>
                                           <td className="px-4 py-2">
                                             {isBot ? (
                                               <span className="badge text-[10px] bg-red-50 text-red-400 border border-red-200">🤖 Scanner</span>
+                                            ) : isGmailProxy ? (
+                                              <span className="badge text-[10px] bg-indigo-50 text-indigo-500 border border-indigo-200" title="Gmail pre-fetches images on delivery. This may be delivery cache, not a manual open.">📧 Gmail</span>
                                             ) : (
-                                              <span className={`badge text-[10px] ${isClick ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                                              <span className={`badge text-[10px] ${isClick ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
                                                 {isClick ? '🖱 Clicked' : '👁 Opened'}
                                               </span>
                                             )}
