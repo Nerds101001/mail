@@ -482,11 +482,12 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       }
     }
 
-    // ── Step 2: 5s timing guard — EXACT Vercel logic ─────────────────────────
-    // isUserProxyIp() (74.125.x, Apple MPP 17.x, Microsoft 40.94/107.x) bypass entirely.
-    // All other IPs (including 66.249.x Google scanner): blocked within first 5s of send.
-    // After 5s, every IP is counted — no hard-blocking of any specific IP range.
-    if (!isUserProxyIp(ip)) {
+    // ── Step 2: Universal 5s guard — ALL IPs, no exceptions ─────────────────
+    // ANY request in the first 5s after send is ignored (delivery pre-fetch,
+    // Gmail scanner, Apple MPP, Microsoft SafeLinks — all fire within 3s).
+    // After 5s, EVERYTHING is counted regardless of IP — real user opens.
+    // Returns 204 so Gmail has nothing cached → re-requests on real user open.
+    {
       const guardRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
           AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
@@ -494,7 +495,7 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       if (guardRaw.length > 0) {
         const sentAt = parseInt(guardRaw[0].value) || 0;
         if (now - sentAt < 5000) {
-          console.log(`🛡️ [GUARD] Early open blocked for lead ${leadId} IP:${ip} (${Math.round((now-sentAt)/1000)}s after send)`);
+          console.log(`🛡️ [GUARD] Delivery pre-fetch blocked for lead ${leadId} IP:${ip} (${Math.round((now-sentAt)/1000)}s after send)`);
           return { counted: false, reason: 'scanner guard (5s)', count: 0 };
         }
       }
