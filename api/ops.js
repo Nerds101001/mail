@@ -800,6 +800,24 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
               VALUES (${camp.id},${uid},${l.id},${l.name||''},${l.email||''},${l.company||''},${sendStatus},${subject||''},${body||''},${Date.now()},${varIdx})
             `.catch(()=>{});
 
+            // ── Auto-set CONTACTED stage on successful send ──────────────────
+            // COLD → CONTACTED when email is successfully sent
+            if (sendStatus === 'SENT') {
+              try {
+                const lKey  = uid === 'admin' ? 'crm:leads' : `crm:leads:${uid}`;
+                const lRaw  = await sql2`SELECT value FROM kv_store WHERE key=${lKey} LIMIT 1`.catch(()=>[]);
+                if (lRaw.length && lRaw[0].value) {
+                  const allLeads = JSON.parse(lRaw[0].value);
+                  const target   = allLeads.find(x => x.id === l.id);
+                  if (target && target.pipelineStage === 'COLD') {
+                    const updated = allLeads.map(x => x.id === l.id ? { ...x, pipelineStage: 'CONTACTED' } : x);
+                    await sql2`UPDATE kv_store SET value=${JSON.stringify(updated)} WHERE key=${lKey}`.catch(()=>{});
+                    console.log(`📬 [STAGE] ${l.id} COLD → CONTACTED (email sent)`);
+                  }
+                }
+              } catch(e) { console.error('[STAGE] CONTACTED update failed:', e.message); }
+            }
+
             if (i < targets.length - 1 && (cfg.rate||0) > 0)
               await new Promise(r => setTimeout(r, cfg.rate * 1000));
           }
