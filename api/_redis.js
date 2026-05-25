@@ -591,27 +591,6 @@ async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
     const device = parseDevice(userAgent);
     const geo    = getGeo(ip);
 
-    // ── Block known bots / scanners ───────────────────────────────────────────
-    // Microsoft SafeLinks, Google SafeBrowsing, Apple MPP — all scan links.
-    // Log but never count or advance stage.
-    if (isBot(ip, userAgent)) {
-      const botReason = isBotIp(ip)
-        ? (/^40\./.test(ip) || /^104\.47\./.test(ip) ? 'Microsoft SafeLinks'
-         : /^172\.253\./.test(ip) ? 'Google SafeBrowse'
-         : /^17\./.test(ip) ? 'Apple MPP'
-         : 'Bot Scanner')
-        : 'Bot UA';
-      console.log(`🤖 [BOT-CLICK] ${botReason} blocked for lead ${leadId} IP:${ip}`);
-      try {
-        await sql`
-          INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id, device_type, device_client, country, city, is_bot, created_at)
-          VALUES (${leadId}, 'click', ${ip}, ${userAgent}, ${targetUrl}, ${campaignId || null},
-                  ${device.type}, ${device.client}, ${geo.country || null}, ${geo.city || null}, ${true}, ${now})
-        `;
-      } catch {}
-      return { counted: false, reason: botReason, count: 0 };
-    }
-
     // ── 5-minute dedup — same IP + URL ───────────────────────────────────────
     const fiveMinutesAgo = now - (5 * 60 * 1000);
     const existing = await sql`
