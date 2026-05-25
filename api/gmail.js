@@ -51,6 +51,9 @@ module.exports = async (req, res) => {
       nonce: Math.random().toString(36).slice(2),
     })).toString('base64');
 
+    // login_hint pre-selects the account on Google's login page (used for Re-sync)
+    const loginHint = req.query.login_hint || '';
+
     const params = new URLSearchParams({
       client_id:     clientId,
       redirect_uri:  redirectUri,
@@ -58,10 +61,12 @@ module.exports = async (req, res) => {
       scope: [
         "https://www.googleapis.com/auth/gmail.send",
         "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/gmail.readonly",
       ].join(" "),
       access_type: "offline",
       prompt:      "consent",
       state:       statePayload,
+      ...(loginHint ? { login_hint: loginHint } : {}),
     });
 
     return res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
@@ -165,14 +170,21 @@ module.exports = async (req, res) => {
           connected: !!email,
           email:     email || null,
           tokenExpired: expiresAt > 0 && Date.now() > expiresAt,
-          accounts: email ? [{ id:'gmail_legacy', email, user:email, name:email, active:true, type:'gmail', dailyCap:500 }] : [],
+          accounts: email ? [{ id:'gmail_legacy', email, user:email, name:email, active:true, type:'gmail', dailyCap:500, expiresAt, tokenExpired: expiresAt > 0 && Date.now() > expiresAt }] : [],
         });
       }
+
+      // Attach token expiry info to each account
+      const accountsWithExpiry = await Promise.all(gmailAccounts.map(async acc => {
+        const emailKey  = (acc.user || acc.email || '').replace(/[^a-z0-9]/gi, '_');
+        const expiresAt = parseInt(await get(`gmail:expires_at:${emailKey}`).catch(() => '0') || '0');
+        return { ...acc, expiresAt, tokenExpired: expiresAt > 0 && Date.now() > expiresAt };
+      }));
 
       return res.json({
         connected: gmailAccounts.length > 0,
         email:     gmailAccounts[0]?.email || null,
-        accounts:  gmailAccounts,
+        accounts:  accountsWithExpiry,
       });
     } catch(e) {
       return res.json({ connected: false, email: null, accounts: [] });

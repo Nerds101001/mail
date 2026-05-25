@@ -1,7 +1,44 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useCRM } from '../store'
 import { Card, Btn, Input, PageHeader, toast } from '../components/ui'
-import { Plus, Trash2, Zap, Mail, Download, AlertTriangle, RefreshCw } from 'lucide-react'
+import { Plus, Trash2, Zap, Mail, Download, AlertTriangle, RefreshCw, Clock } from 'lucide-react'
+
+// Token expiry countdown — updates every 30s
+function TokenTimer({ expiresAt }) {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000)
+    return () => clearInterval(t)
+  }, [])
+
+  if (!expiresAt || expiresAt === 0) return null
+  const msLeft = expiresAt - now
+  const expired = msLeft <= 0
+
+  if (expired) {
+    return (
+      <span className="flex items-center gap-1 text-[10px] font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-200">
+        <Clock size={9} /> Token expired — Re-sync needed
+      </span>
+    )
+  }
+
+  const mins  = Math.floor(msLeft / 60000)
+  const hours = Math.floor(mins / 60)
+  const label = hours > 0 ? `${hours}h ${mins % 60}m` : `${mins}m`
+  const urgent = mins < 15
+  const warn   = mins < 60
+
+  return (
+    <span className={`flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border ${
+      urgent ? 'text-red-600 bg-red-50 border-red-200' :
+      warn   ? 'text-amber-600 bg-amber-50 border-amber-200' :
+               'text-emerald-600 bg-emerald-50 border-emerald-200'
+    }`}>
+      <Clock size={9} /> {urgent ? '⚠ ' : ''}Token expires in {label}
+    </span>
+  )
+}
 
 export default function Settings() {
   const { settings, setSettings, profiles, setProfiles, leads, clients, deals, activity, pushToRedis, gmailStatus } = useCRM()
@@ -199,11 +236,26 @@ export default function Settings() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-slate-800 truncate">{acc.name || acc.email} <span className="text-xs text-slate-400 font-normal">(GMAIL)</span></p>
                         <p className="text-xs text-slate-500 font-mono truncate">OAuth: {acc.user || acc.email}</p>
+                        <div className="mt-1">
+                          <TokenTimer expiresAt={acc.expiresAt} />
+                        </div>
                       </div>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                         {isActive ? 'Active' : 'Disabled'}
                       </span>
                       <span className="text-xs text-slate-400 flex-shrink-0">Cap: {acc.dailyCap || 500}/day</span>
+                      {/* Re-sync: re-run OAuth for this specific account to get fresh tokens */}
+                      <a
+                        href={`/api/gmail?type=auth&token=${encodeURIComponent(crmToken())}&login_hint=${encodeURIComponent(acc.user || acc.email || '')}`}
+                        className={`p-1.5 rounded-lg transition-colors flex-shrink-0 flex items-center gap-1 text-[11px] font-medium border ${
+                          acc.tokenExpired
+                            ? 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100'
+                            : 'bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-100'
+                        }`}
+                        title="Re-sync token — re-authorize this Gmail account to get a fresh token"
+                      >
+                        <RefreshCw size={11} /> Re-sync
+                      </a>
                       <button
                         className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition-colors flex-shrink-0"
                         onClick={() => disconnectGmail(acc.user || acc.email)}
