@@ -523,22 +523,7 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       // 'seen' or no key → real open, fall through to count
     }
 
-    // ── Step 2: 30s dedup — same IP can't double-count within 30s ────────────
-    const thirtySecondsAgo = now - (30 * 1000);
-    const existing = await sql`
-      SELECT created_at FROM tracking_events
-      WHERE lead_id = ${leadId}
-        AND event_type = 'open'
-        AND ip = ${ip}
-        AND campaign_id = ${campaignId || null}
-        AND created_at > ${thirtySecondsAgo}
-      LIMIT 1
-    `;
-    if (existing.length > 0) {
-      return { counted: false, reason: '30s dedup', count: 0 };
-    }
-
-    // ── Step 4: Count the real open ───────────────────────────────────────────
+    // ── Step 2: Count the real open ──────────────────────────────────────────
     const rows = await sql`
       INSERT INTO simple_tracking (lead_id, opens, last_open)
       VALUES (${leadId}, 1, ${now})
@@ -584,21 +569,6 @@ async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
     const now = Date.now();
     const device = parseDevice(userAgent);
     const geo    = getGeo(ip);
-
-    // ── 5-minute dedup — same IP + URL ───────────────────────────────────────
-    const fiveMinutesAgo = now - (5 * 60 * 1000);
-    const existing = await sql`
-      SELECT created_at FROM tracking_events
-      WHERE lead_id = ${leadId}
-        AND event_type = 'click'
-        AND ip = ${ip}
-        AND target_url = ${targetUrl}
-        AND created_at > ${fiveMinutesAgo}
-      LIMIT 1
-    `;
-    if (existing.length > 0) {
-      return { counted: false, reason: '5 minute window', count: 0 };
-    }
 
     // ── Count the real click ──────────────────────────────────────────────────
     const rows = await sql`
