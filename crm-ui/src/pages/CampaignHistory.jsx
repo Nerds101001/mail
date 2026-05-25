@@ -484,13 +484,20 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
                               <td className="px-4 py-2 text-slate-500 font-mono text-[11px]">{l.lead_email||'—'}</td>
                               <td className="px-4 py-2 text-slate-600">{l.lead_company||'—'}</td>
                               <td className="px-4 py-2">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className={`badge text-[10px] ${STATUS_COLOR[status.key] || 'bg-slate-100 text-slate-600'}`}>{status.label}</span>
-                                  {td && (td.opens > 0 || td.clicks > 0) && (
-                                    <div className="flex items-center gap-1 text-[10px] text-slate-400">
-                                      {td.opens  > 0 && <span className="flex items-center gap-0.5"><Eye size={9}/>{td.opens}</span>}
-                                      {td.clicks > 0 && <span className="flex items-center gap-0.5"><MousePointer size={9}/>{td.clicks}</span>}
-                                    </div>
+                                <div className="flex flex-col gap-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className={`badge text-[10px] ${STATUS_COLOR[status.key] || 'bg-slate-100 text-slate-600'}`}>{status.label}</span>
+                                    {td && (td.opens > 0 || td.clicks > 0) && (
+                                      <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                                        {td.opens  > 0 && <span className="flex items-center gap-0.5"><Eye size={9}/>{td.opens}</span>}
+                                        {td.clicks > 0 && <span className="flex items-center gap-0.5"><MousePointer size={9}/>{td.clicks}</span>}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {['FAILED','BOUNCED','failed','bounced'].includes(l.status) && l.failure_reason && (
+                                    <span className="text-[10px] text-red-500 italic" title={l.failure_reason}>
+                                      ⚠ {l.failure_reason.length > 50 ? l.failure_reason.slice(0,50)+'…' : l.failure_reason}
+                                    </span>
                                   )}
                                 </div>
                               </td>
@@ -855,6 +862,14 @@ export default function CampaignHistory() {
   return (
     <div>
       <PageHeader title="Campaign History" subtitle="All past and scheduled campaign runs">
+        <Btn variant="secondary" size="sm" onClick={async () => {
+          try {
+            const r = await fetch('/api/check-bounces', { method: 'POST' });
+            const d = await r.json();
+            if (d.ok) { toast(`Scanned ${d.scanned} bounce emails — ${d.bounced} lead(s) marked BOUNCED`, d.bounced > 0 ? 'success' : 'info'); load(); }
+            else toast(d.reason || 'Bounce check failed', 'error');
+          } catch(e) { toast('Bounce check failed: ' + e.message, 'error'); }
+        }}>📪 Check Bounces</Btn>
         <Btn variant="secondary" size="sm" onClick={load}>↻ Refresh</Btn>
       </PageHeader>
 

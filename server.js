@@ -69,6 +69,7 @@ app.all("/api/run-scheduled",  withQuery(ops, { type: "run-scheduled" }));
 app.all("/api/events",         withQuery(ops, { type: "events" }));
 app.all("/api/check-replies",  withQuery(ops, { type: "check-replies" }));
 app.all("/api/run-drip",       withQuery(ops, { type: "run-drip" }));
+app.all("/api/check-bounces",  withQuery(ops, { type: "check-bounces" }));
 app.all("/api/ops",            ops);
 
 // Auth

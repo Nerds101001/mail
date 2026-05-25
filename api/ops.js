@@ -113,6 +113,8 @@ module.exports = async (req, res) => {
       // Ensure app tables exist (safe no-ops if already created)
       await sql`CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, created_at BIGINT, target TEXT, sender TEXT, total_sent INT DEFAULT 0, total_failed INT DEFAULT 0, total_skipped INT DEFAULT 0, stats JSONB DEFAULT '{}', brief JSONB DEFAULT '{}', variants JSONB DEFAULT '[]')`.catch(()=>{});
       await sql`CREATE TABLE IF NOT EXISTS campaign_leads (id SERIAL PRIMARY KEY, campaign_id TEXT, user_id TEXT, lead_id TEXT, lead_name TEXT, lead_email TEXT, lead_company TEXT, status TEXT DEFAULT 'sent', subject TEXT, body TEXT, sent_at BIGINT, variant_index INT DEFAULT 0)`.catch(()=>{});
+      await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS failure_reason TEXT`.catch(()=>{});
+      await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS message_id TEXT`.catch(()=>{});
 
       // Opens/clicks from tracking_events joined on BOTH lead_id AND campaign_id.
       // simple_tracking was cumulative per lead — it bled old opens into every new
@@ -785,19 +787,25 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
               if (profile.alias) pl.fromEmail = profile.alias;
             }
 
-            let sendStatus = 'FAILED';
+            let sendStatus   = 'FAILED';
+            let failReason   = null;
+            let msgId        = null;
             try {
               const r    = await fetch(ep, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(pl) });
               const data = await r.json().catch(()=>({}));
-              if      (data.skipped)       { sendStatus = 'SKIPPED'; result.skipped++; }
-              else if (data.bounced)       { sendStatus = 'BOUNCED'; result.failed++;  }
-              else if (r.ok && !data.error){ sendStatus = 'SENT';    result.sent++;    }
-              else                         { result.failed++; }
-            } catch { result.failed++; }
+              if      (data.skipped)        { sendStatus = 'SKIPPED'; result.skipped++;  failReason = data.reason || 'Unsubscribed'; }
+              else if (data.bounced)        { sendStatus = 'BOUNCED'; result.failed++;   failReason = data.reason || 'Bounced'; }
+              else if (data.rateLimited)    { sendStatus = 'FAILED';  result.failed++;   failReason = data.reason || 'Rate limited / quota exceeded'; }
+              else if (r.ok && !data.error) { sendStatus = 'SENT';    result.sent++;     msgId = data.messageId || null; }
+              else {
+                result.failed++;
+                failReason = data.error || data.reason || `Send failed (HTTP ${r.status})`;
+              }
+            } catch(e) { result.failed++; failReason = e.message || 'Network error'; }
 
             await sql2`
-              INSERT INTO campaign_leads (campaign_id,user_id,lead_id,lead_name,lead_email,lead_company,status,subject,body,sent_at,variant_index)
-              VALUES (${camp.id},${uid},${l.id},${l.name||''},${l.email||''},${l.company||''},${sendStatus},${subject||''},${body||''},${Date.now()},${varIdx})
+              INSERT INTO campaign_leads (campaign_id,user_id,lead_id,lead_name,lead_email,lead_company,status,subject,body,sent_at,variant_index,failure_reason,message_id)
+              VALUES (${camp.id},${uid},${l.id},${l.name||''},${l.email||''},${l.company||''},${sendStatus},${subject||''},${body||''},${Date.now()},${varIdx},${failReason},${msgId})
             `.catch(()=>{});
 
             // ── Auto-set CONTACTED stage on successful send ──────────────────
@@ -1006,6 +1014,76 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       }
       return res.json({ ok: true, processed: due.length, sent });
     } catch(err) { return res.status(500).json({ error: err.message }); }
+  }
+
+  // ── BOUNCE CHECKER — scan Gmail inbox for MAILER-DAEMON bounce emails ───────
+  // Matches bounce Message-ID back to campaign_leads.message_id → marks BOUNCED.
+  if (type === "check-bounces" && (req.method === "GET" || req.method === "POST")) {
+    try {
+      const sql = getSql();
+      const { getAccessToken } = require('./_redis');
+      const gmailUser = await require('./_redis').get('gmail:email').catch(() => null);
+      if (!gmailUser) return res.json({ ok: false, reason: 'No Gmail account connected' });
+
+      const accessToken = await getAccessToken(gmailUser).catch(() => null);
+      if (!accessToken) return res.json({ ok: false, reason: 'Gmail token expired — reconnect in Settings' });
+
+      // Search inbox for bounce emails from MAILER-DAEMON / Mail Delivery Subsystem
+      const searchRes = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=from%3AMAILER-DAEMON+OR+from%3Apostmaster+OR+subject%3A%22Delivery+Status+Notification%22+OR+subject%3A%22Mail+delivery+failed%22+newer_than%3A7d&maxResults=50`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      const searchData = await searchRes.json().catch(() => ({}));
+      const messages   = searchData.messages || [];
+      let bounced = 0;
+
+      for (const msg of messages) {
+        try {
+          // Fetch the full message to extract original Message-ID from bounce body
+          const msgRes  = await fetch(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=X-Failed-Recipients&metadataHeaders=X-Original-Message-ID`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+          const msgData = await msgRes.json().catch(() => ({}));
+          const headers = msgData.payload?.headers || [];
+
+          // Extract failed recipient email from X-Failed-Recipients header or Subject
+          const failedTo = headers.find(h => h.name === 'X-Failed-Recipients')?.value || null;
+          const subject  = headers.find(h => h.name === 'Subject')?.value || '';
+          const origMsgId = headers.find(h => h.name === 'X-Original-Message-ID')?.value || null;
+
+          if (!failedTo && !origMsgId) continue;
+
+          // Try to match by original Message-ID first, then by recipient email
+          let updated = 0;
+          if (origMsgId) {
+            const r = await sql`
+              UPDATE campaign_leads
+              SET status = 'BOUNCED', failure_reason = ${'Delivery failed: ' + (subject || 'MAILER-DAEMON bounce')}
+              WHERE message_id = ${origMsgId} AND status = 'SENT'
+            `.catch(() => ({ count: 0 }));
+            updated = r.count || 0;
+          }
+          if (!updated && failedTo) {
+            const r = await sql`
+              UPDATE campaign_leads
+              SET status = 'BOUNCED', failure_reason = ${'Delivery failed: ' + (subject || 'MAILER-DAEMON bounce')}
+              WHERE lead_email = ${failedTo} AND status = 'SENT'
+                AND sent_at > ${Date.now() - 7 * 24 * 3600 * 1000}
+            `.catch(() => ({ count: 0 }));
+            updated = r.count || 0;
+          }
+          if (updated > 0) {
+            bounced += updated;
+            console.log(`📪 [BOUNCE] Marked ${updated} lead(s) as BOUNCED — recipient: ${failedTo || '?'}`);
+          }
+        } catch {}
+      }
+
+      return res.json({ ok: true, scanned: messages.length, bounced });
+    } catch(err) {
+      return res.status(500).json({ error: err.message });
+    }
   }
 
   res.status(400).json({ error: "Invalid type" });
