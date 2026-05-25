@@ -49,7 +49,7 @@ module.exports = async (req, res) => {
       // 204 only for scanner guard (5s) — exact Vercel behaviour.
       // This tells Gmail "no image here" → Gmail re-requests on real user open.
       // Everything else (dedup, att-guard) gets 302 → unique URL.
-      deliveryScan = result.reason === 'scanner guard (5s)';
+      deliveryScan = result.reason === 'first hit';
     } catch (e) {
       console.error(`❌ [OPEN] Lead ${id}:`, e.message);
     }

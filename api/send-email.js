@@ -260,17 +260,12 @@ module.exports = async (req, res) => {
     const attachmentData = await fetchAttachmentData(attachments || []);
     const raw           = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, unsubscribeUrl: unsubUrl, attachmentData });
 
-    // Write scanner-guard key BEFORE sending.
-    // Window = 5s (checked in _redis.js). TTL = 10s, well beyond the block window.
-    // Attachments: Gmail scans the file before firing the pixel, adds a few extra
-    // seconds — shift the guard timestamp +5s forward so the 5s window covers it.
-    const hasAttachments = attachmentData.length > 0;
-    const guardValue = hasAttachments ? String(Date.now() + 5000) : String(Date.now());
-    const guardTtl   = 10; // seconds
-    await set(`email:guard:${leadId}`, guardValue, guardTtl).catch(() => {});
-    if (hasAttachments) {
-      await set(`email:att-guard:${leadId}`, String(Date.now()), 15).catch(() => {});
-    }
+    // First-hit filter: set key = 'pending' BEFORE sending.
+    // First pixel hit (delivery scan) → _redis.js marks it 'seen', returns 204.
+    // Second pixel hit (real user open) → counted as real open.
+    // TTL = 7 days — covers any delayed delivery; expires safely on its own.
+    const fhKey = `email:first-hit:${leadId}:${campaignId || 'direct'}`;
+    await set(fhKey, 'pending', 7 * 24 * 3600).catch(() => {});
 
     const sendRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
       method: "POST",

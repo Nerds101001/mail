@@ -483,10 +483,12 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
     const device = parseDevice(userAgent);
     const geo    = getGeo(ip);
 
-    // ── Step 0: Hard-block known scanner IPs — NEVER count, return 204 ─────────
-    // Apple MPP, MS SafeLinks, Google scanners — fire on delivery, NOT on user open.
+    // ── Step 0: Hard-block known scanner IPs — NEVER count, always 204 ─────────
+    // Apple MPP (17.x), MS SafeLinks (40.94/107.x, 52.100.x), Google (66.249.x,
+    // 66.102.x, 172.253.x, 34.x, 35.x), Amazon SES (54.240.x).
+    // These are server-side scanners — a real user never opens from these IPs.
     if (isBotIp(ip)) {
-      console.log(`🤖 [BOT-OPEN] Hard-blocked IP ${ip} for lead ${leadId} — logging as bot`);
+      console.log(`🤖 [BOT-OPEN] Hard-blocked IP ${ip} for lead ${leadId}`);
       await sql`
         INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id,
           device_type, device_client, country, city, is_bot, created_at)
@@ -497,39 +499,31 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       return { counted: false, reason: 'bot ip', count: 0 };
     }
 
-    // ── Step 1: Attachment guard — all IPs, 10s after attachment sends ──────────
-    const attGuardRaw = await sql`
-      SELECT value FROM kv_store WHERE key = ${'email:att-guard:' + leadId}
-        AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
-    `.catch(() => []);
-    if (attGuardRaw.length > 0) {
-      const sentAt = parseInt(attGuardRaw[0].value) || 0;
-      if (now - sentAt < 10000) {
-        console.log(`🛡️ [ATT-GUARD] Attachment scanner blocked for lead ${leadId} IP:${ip} (${Math.round((now-sentAt)/1000)}s after send)`);
-        return { counted: false, reason: 'attachment scanner guard (10s)', count: 0 };
-      }
-    }
-
-    // ── Step 2: Universal 5s guard — ALL IPs, no exceptions ─────────────────
-    // ANY request in the first 5s after send is ignored (delivery pre-fetch,
-    // Gmail scanner, Apple MPP, Microsoft SafeLinks — all fire within 3s).
-    // After 5s, EVERYTHING is counted regardless of IP — real user opens.
-    // Returns 204 so Gmail has nothing cached → re-requests on real user open.
+    // ── Step 1: First-hit filter — delivery scan is always the first pixel hit ──
+    // When an email is sent, we set key = 'pending'.
+    // First pixel hit (delivery scan by Gmail/provider) → mark 'seen', return 204.
+    //   → 204 means Gmail has nothing to cache → re-requests on real user open.
+    // Second pixel hit (real user open) → key is 'seen' → count it.
+    // No key → email was sent a long time ago or no campaign → count it.
+    // This works for campaigns of any size — each lead has its own key, no TTL race.
     {
-      const guardRaw = await sql`
-        SELECT value FROM kv_store WHERE key = ${'email:guard:' + leadId}
+      const fhKey = `email:first-hit:${leadId}:${campaignId || 'direct'}`;
+      const fhRaw = await sql`
+        SELECT value FROM kv_store WHERE key = ${fhKey}
           AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
       `.catch(() => []);
-      if (guardRaw.length > 0) {
-        const sentAt = parseInt(guardRaw[0].value) || 0;
-        if (now - sentAt < 5000) {
-          console.log(`🛡️ [GUARD] Delivery pre-fetch blocked for lead ${leadId} IP:${ip} (${Math.round((now-sentAt)/1000)}s after send)`);
-          return { counted: false, reason: 'scanner guard (5s)', count: 0 };
-        }
+      if (fhRaw.length > 0 && fhRaw[0].value === 'pending') {
+        // First hit = delivery scan → mark seen, return 204 so Gmail re-requests later
+        await sql`
+          UPDATE kv_store SET value = 'seen' WHERE key = ${fhKey}
+        `.catch(() => {});
+        console.log(`🛡️ [FIRST-HIT] Delivery scan blocked for ${leadId} (${ip}) — marked seen`);
+        return { counted: false, reason: 'first hit', count: 0 };
       }
+      // 'seen' or no key → real open, fall through to count
     }
 
-    // ── Step 3: 30s dedup — same IP can't double-count within 30s ────────────
+    // ── Step 2: 30s dedup — same IP can't double-count within 30s ────────────
     const thirtySecondsAgo = now - (30 * 1000);
     const existing = await sql`
       SELECT created_at FROM tracking_events
