@@ -93,16 +93,20 @@ async function ensureTable() {
     await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS country TEXT`.catch(() => {});
     await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS city TEXT`.catch(() => {});
     await sql`ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS is_bot BOOLEAN DEFAULT FALSE`.catch(() => {});
-    await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_lead ON tracking_events(lead_id, event_type, created_at)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_campaign ON tracking_events(campaign_id)`.catch(() => {});
-    // Composite index powers the per-campaign COUNT(*) subqueries in all-sends
-    await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_lead_camp_type ON tracking_events(lead_id, campaign_id, event_type)`.catch(() => {});
-
+    // Mark initialized HERE — after core tables exist — so guard key writes
+    // never fail even if index creation has a transient conflict on restart.
     tablesInitialized = true;
     console.log("✅ Database tables initialized successfully");
+
+    // Indexes are additive; failures are non-fatal.
+    await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_lead ON tracking_events(lead_id, event_type, created_at)`.catch(() => {});
+    await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_campaign ON tracking_events(campaign_id)`.catch(() => {});
+    await sql`CREATE INDEX IF NOT EXISTS idx_tracking_events_lead_camp_type ON tracking_events(lead_id, campaign_id, event_type)`.catch(() => {});
   } catch (e) {
     console.error("❌ Database initialization failed:", e.message);
-    throw e;
+    // Do NOT re-throw — tables already exist from prior runs.
+    // Re-throwing would silently break guard key writes in send-email.js.
+    tablesInitialized = true; // prevent infinite retry loops
   }
 }
 
@@ -330,25 +334,39 @@ async function getTrackingEvents(leadId, campaignId = null, limit = 100) {
 
 // ── IP / UA classification ────────────────────────────────────────────────────
 //
-// THREE categories:
+// TWO categories (5s guard is universal — no IP bypasses it):
 //
-// 1. BOT IPs — fire automatically, NEVER count, log as is_bot=true
-//    17.x.x.x        Apple MPP — pre-fetches ALL images on delivery, not on read
-//    40.94/40.107    Microsoft SafeLinks scanner — scans every link automatically
+// 1. BOT IPs — hard-blocked forever, return 204, NEVER count, log as is_bot=true
+//    17.x.x.x        Apple MPP — pre-fetches ALL images on delivery
+//    40.94/40.107    Microsoft SafeLinks scanner
 //    52.100.x        Microsoft SafeLinks scanner
-//    66.249.x        Google delivery scanner (also caught by timing guard)
 //    104.47.x        Microsoft email scanner
+//    66.249.x        Google delivery/link scanner
+//    66.102.x        Google scanner
+//    172.253.x       Google SafeBrowse link scanner
+//    34.x / 35.x     Google Cloud infrastructure scanners
+//    54.240.x        Amazon SES scanner
 //
-// 2. MAIL PROXY IPs — real user opens routed through mail provider's proxy
-//    74.125, 64.233, 209.85, 216.58, 216.239, 142.250, 108.177 — Gmail/Google proxy
-//    These fire ONLY when a real user opens — bypass timing guard, count normally
-//    (Geo will show Google datacenter, not user's real city — that's expected)
-//
-// 3. ALL OTHER IPs — real user opens from their own IP
-//    Apply timing guard (blocks delivery scanners within 12s of send)
+// 2. ALL OTHER IPs (including 74.125.x Gmail proxy) — apply universal 5s guard.
+//    Anything that hits AFTER 5s is counted as a real open regardless of IP.
 
-// IPs that bypass the 5s timing guard — these only fire on real user interaction.
-// Matches exact Vercel logic. No hard-blocking; the 5s guard handles delivery scans.
+// Hard-blocked bot IPs — NEVER count these, not even after 5s.
+function isBotIp(ip) {
+  if (!ip || ip === 'unknown') return false;
+  return /^17\./.test(ip)       ||   // Apple MPP
+         /^40\.94\./.test(ip)   ||   // Microsoft SafeLinks
+         /^40\.107\./.test(ip)  ||   // Microsoft SafeLinks
+         /^52\.100\./.test(ip)  ||   // Microsoft SafeLinks
+         /^104\.47\./.test(ip)  ||   // Microsoft email scanner
+         /^66\.249\./.test(ip)  ||   // Google delivery/link scanner
+         /^66\.102\./.test(ip)  ||   // Google scanner
+         /^172\.253\./.test(ip) ||   // Google SafeBrowse
+         /^34\./.test(ip)       ||   // Google Cloud
+         /^35\./.test(ip)       ||   // Google Cloud
+         /^54\.240\./.test(ip);      // Amazon SES scanner
+}
+
+// Gmail image proxy IPs — real opens route through here, but 5s guard still applies.
 function isUserProxyIp(ip) {
   if (!ip || ip === 'unknown') return false;
   return /^74\.125\./.test(ip)  ||   // Gmail image proxy
@@ -357,11 +375,7 @@ function isUserProxyIp(ip) {
          /^216\.58\./.test(ip)  ||   // Gmail image proxy
          /^216\.239\./.test(ip) ||   // Gmail image proxy
          /^142\.250\./.test(ip) ||   // Gmail image proxy
-         /^108\.177\./.test(ip) ||   // Gmail image proxy
-         /^17\./.test(ip)       ||   // Apple MPP
-         /^40\.94\./.test(ip)   ||   // Microsoft SafeLinks
-         /^40\.107\./.test(ip)  ||   // Microsoft SafeLinks
-         /^52\.100\./.test(ip);      // Microsoft SafeLinks
+         /^108\.177\./.test(ip);     // Gmail image proxy
 }
 
 // Keep isMailProxyIp as alias for backward compat in trackClick
@@ -468,6 +482,20 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
 
     const device = parseDevice(userAgent);
     const geo    = getGeo(ip);
+
+    // ── Step 0: Hard-block known scanner IPs — NEVER count, return 204 ─────────
+    // Apple MPP, MS SafeLinks, Google scanners — fire on delivery, NOT on user open.
+    if (isBotIp(ip)) {
+      console.log(`🤖 [BOT-OPEN] Hard-blocked IP ${ip} for lead ${leadId} — logging as bot`);
+      await sql`
+        INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id,
+          device_type, device_client, country, city, is_bot, created_at)
+        VALUES (${leadId}, 'open', ${ip}, ${userAgent}, ${campaignId ? `campaign:${campaignId}` : null},
+          ${campaignId || null}, ${device.type}, ${device.client},
+          ${geo.country || null}, ${geo.city || null}, ${true}, ${now})
+      `.catch(() => {});
+      return { counted: false, reason: 'bot ip', count: 0 };
+    }
 
     // ── Step 1: Attachment guard — all IPs, 10s after attachment sends ──────────
     const attGuardRaw = await sql`
