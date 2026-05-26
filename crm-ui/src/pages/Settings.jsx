@@ -62,21 +62,27 @@ export default function Settings() {
   const loadSmtpUsage = async () => {
     setUsageLoading(true)
     try {
+      const token = crmToken()
+      console.log('📊 Loading SMTP usage, token length:', token.length)
       const r = await fetch('/api/ops?type=smtp-usage', {
-        headers: { Authorization: `Bearer ${crmToken()}` }
+        headers: { Authorization: `Bearer ${token}` }
       })
       if (r.ok) {
         const d = await r.json()
         console.log('📊 SMTP Usage Data:', d)
-        console.log('📊 Profiles count:', d.profiles?.length || 0)
+        console.log('📊 Profiles from API count:', d.profiles?.length || 0)
+        console.log('📊 Local profiles from context count:', profiles?.length || 0)
         if (d.profiles?.length > 0) {
-          console.log('📊 First profile:', d.profiles[0])
+          console.log('📊 First API profile:', d.profiles[0])
+        }
+        if (profiles?.length > 0) {
+          console.log('📊 First local profile:', profiles[0])
         }
         setSmtpUsage(d)
       } else {
-        console.warn('smtp usage API error:', r.status, r.statusText)
+        console.error('smtp usage API error:', r.status, r.statusText, await r.text())
       }
-    } catch(e) { console.warn('smtp usage failed', e) }
+    } catch(e) { console.error('smtp usage failed:', e) }
     setUsageLoading(false)
   }
 
@@ -257,7 +263,13 @@ export default function Settings() {
                 // Debug matching logic
                 const gmailUsageMatch = smtpUsage?.profiles?.find(p => p.email === acc.user)
                 if (i === 0) {
-                  console.log('🧪 Gmail Account Debug:', { acc_user: acc.user, has_smtpUsage: !!smtpUsage, profiles_count: smtpUsage?.profiles?.length, gmailUsageMatch })
+                  console.log('🧪 Gmail Account Debug:', {
+                    acc_user: acc.user,
+                    has_smtpUsage: !!smtpUsage,
+                    profiles_count: smtpUsage?.profiles?.length,
+                    gmailUsageMatch,
+                    all_api_emails: smtpUsage?.profiles?.map(p => p.email) || []
+                  })
                 }
                 return (
                   <div key={acc.user || i} className={`rounded-xl border transition-colors ${isActive ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
