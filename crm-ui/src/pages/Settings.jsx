@@ -67,7 +67,14 @@ export default function Settings() {
       })
       if (r.ok) {
         const d = await r.json()
+        console.log('📊 SMTP Usage Data:', d)
+        console.log('📊 Profiles count:', d.profiles?.length || 0)
+        if (d.profiles?.length > 0) {
+          console.log('📊 First profile:', d.profiles[0])
+        }
         setSmtpUsage(d)
+      } else {
+        console.warn('smtp usage API error:', r.status, r.statusText)
       }
     } catch(e) { console.warn('smtp usage failed', e) }
     setUsageLoading(false)
@@ -247,6 +254,11 @@ export default function Settings() {
                 const profileEntry = profiles.find(p => p.type === 'gmail' && p.user === acc.user)
                 const isActive = profileEntry ? profileEntry.active : acc.active
                 const currentAlias = profileEntry?.alias || ''
+                // Debug matching logic
+                const gmailUsageMatch = smtpUsage?.profiles?.find(p => p.email === acc.user)
+                if (i === 0) {
+                  console.log('🧪 Gmail Account Debug:', { acc_user: acc.user, has_smtpUsage: !!smtpUsage, profiles_count: smtpUsage?.profiles?.length, gmailUsageMatch })
+                }
                 return (
                   <div key={acc.user || i} className={`rounded-xl border transition-colors ${isActive ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
                     {/* Top row */}
@@ -269,20 +281,15 @@ export default function Settings() {
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                         {isActive ? 'Active' : 'Disabled'}
                       </span>
-                      {smtpUsage && smtpUsage.profiles && (
-                        (() => {
-                          const gmailUsage = smtpUsage.profiles.find(p => p.email === acc.user);
-                          if (gmailUsage) {
-                            return (
-                              <span className="text-xs text-slate-600 flex-shrink-0 bg-blue-50 px-2.5 py-1 rounded-full">
-                                {gmailUsage.sent}/{gmailUsage.limit} · {getResetTime()}
-                              </span>
-                            );
-                          }
-                          return <span className="text-xs text-slate-400 flex-shrink-0">Cap: {acc.dailyCap || 500}/day</span>;
-                        })()
+                      {gmailUsageMatch ? (
+                        <span className="text-xs text-slate-600 flex-shrink-0 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-100 font-medium">
+                          {gmailUsageMatch.sent}/{gmailUsageMatch.limit} · {getResetTime()}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400 flex-shrink-0 bg-slate-50 px-2.5 py-1 rounded-full border border-slate-100">
+                          Cap: {acc.dailyCap || 500}/day
+                        </span>
                       )}
-                      {!smtpUsage && <span className="text-xs text-slate-400 flex-shrink-0">Cap: {acc.dailyCap || 500}/day</span>}
                       {/* Re-sync: re-run OAuth for this specific account to get fresh tokens */}
                       <a
                         href={`/api/gmail?type=auth&token=${encodeURIComponent(crmToken())}&login_hint=${encodeURIComponent(acc.user || acc.email || '')}`}
