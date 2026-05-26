@@ -1265,6 +1265,27 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
     }
   }
 
+  // ── DEBUG: Show what's in Redis for this user ──────────────────────────────
+  if (type === "debug-redis") {
+    try {
+      const profilesKey = ns("crm:profiles", userId);
+      const profilesRaw = await get(profilesKey);
+      const profiles = profilesRaw ? JSON.parse(profilesRaw) : [];
+
+      return res.json({
+        userId,
+        profilesKey,
+        profiles,
+        profiles_count: profiles.length,
+        gmail_count: profiles.filter(p => p.type === 'gmail').length,
+        smtp_count: profiles.filter(p => p.type === 'smtp').length,
+      });
+    } catch(err) {
+      console.error("Debug redis error:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   // ── EMAIL USAGE (SMTP + Gmail per-profile daily send count) ──────────────────────────────
   if (type === "smtp-usage") {
     try {
