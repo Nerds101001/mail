@@ -92,16 +92,16 @@ export function StatCard({ label, value, sub, icon: Icon, color = 'indigo', onCl
   const c = palette[color] || palette.indigo
   return (
     <div className="stat-card group" onClick={onClick}>
-      <div className="flex items-start justify-between mb-4">
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</p>
+      <div className="flex items-start justify-between mb-2 sm:mb-4">
+        <p className="text-[10px] sm:text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</p>
         {Icon && (
-          <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${c.bg} group-hover:scale-110 transition-transform duration-200`}>
-            <Icon size={17} className={c.icon} />
+          <div className={`w-7 h-7 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center ${c.bg} group-hover:scale-110 transition-transform duration-200`}>
+            <Icon size={14} className={c.icon} />
           </div>
         )}
       </div>
-      <p className={`text-3xl font-bold tracking-tight mb-1 ${c.val}`}>{value ?? '—'}</p>
-      {sub && <p className="text-xs text-slate-400 font-medium">{sub}</p>}
+      <p className={`text-2xl sm:text-3xl font-bold tracking-tight mb-0.5 sm:mb-1 ${c.val}`}>{value ?? '—'}</p>
+      {sub && <p className="text-[10px] sm:text-xs text-slate-400 font-medium">{sub}</p>}
     </div>
   )
 }
@@ -135,7 +135,7 @@ export function ToastContainer() {
     info:    { icon: Info,          bg: 'bg-indigo-600',  border: 'border-indigo-500' },
   }
   return (
-    <div className="fixed bottom-6 right-6 z-[9999] flex flex-col gap-2 pointer-events-none">
+    <div className="fixed bottom-20 lg:bottom-6 right-3 left-3 lg:left-auto lg:right-6 z-[9999] flex flex-col gap-2 pointer-events-none" style={{ maxWidth: '360px', marginLeft: 'auto' }}>
       {toasts.map(t => {
         const { icon: Icon, bg, border } = config[t.type] || config.info
         return (
@@ -168,12 +168,12 @@ export function Empty({ icon: Icon, title, sub }) {
 // ── Page Header ───────────────────────────────────────────────────────────────
 export function PageHeader({ title, subtitle, children }) {
   return (
-    <div className="flex items-center justify-between mb-6">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900 tracking-tight">{title}</h1>
-        {subtitle && <p className="text-sm text-slate-500 mt-0.5">{subtitle}</p>}
+    <div className="flex flex-wrap items-start sm:items-center justify-between gap-3 mb-4 sm:mb-6">
+      <div className="min-w-0">
+        <h1 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">{title}</h1>
+        {subtitle && <p className="text-xs sm:text-sm text-slate-500 mt-0.5">{subtitle}</p>}
       </div>
-      {children && <div className="flex items-center gap-2">{children}</div>}
+      {children && <div className="flex items-center gap-2 flex-wrap">{children}</div>}
     </div>
   )
 }

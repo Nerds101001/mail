@@ -80,8 +80,50 @@ export default function Clients() {
         </select>
       </div>
 
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
+      {/* Mobile card view */}
+      <div className="sm:hidden space-y-3 mb-4">
+        {filtered.length === 0 ? (
+          <div className="card p-10"><Empty icon={AlertCircle} title="No clients found" sub="Add your first client" /></div>
+        ) : filtered.map((c, i) => {
+          const renewDays = daysDiff(c.renewalDate)
+          const payColor = PAYMENT_COLORS[c.paymentStatus] || 'bg-slate-100 text-slate-600'
+          const idx = clients.indexOf(c)
+          return (
+            <div key={c.id} className="card p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-sm font-bold text-blue-700 flex-shrink-0">{(c.name||'?')[0]}</div>
+                  <div className="min-w-0">
+                    <p className="font-bold text-slate-900 truncate">{c.name}</p>
+                    <p className="text-xs text-slate-500 truncate">{c.company}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button className="p-2 rounded-lg hover:bg-slate-100 text-slate-500" onClick={() => openEdit(idx)}><Pencil size={14} /></button>
+                  <button className="p-2 rounded-lg hover:bg-red-50 text-red-400" onClick={() => deleteClient(idx)}><Trash2 size={14} /></button>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                <span className="font-bold text-emerald-600">{fmtCurrency(c.amount)}</span>
+                <select className={`badge text-[11px] border-0 cursor-pointer ${payColor}`} value={c.paymentStatus} onChange={e => updatePayment(idx, e.target.value)}>
+                  <option>PAID</option><option>PENDING</option><option>OVERDUE</option>
+                </select>
+                {c.software && <span className="text-slate-500">{c.software}</span>}
+                {renewDays !== null && (
+                  <span className={renewDays < 0 ? 'text-red-600 font-semibold' : renewDays <= 30 ? 'text-amber-600 font-semibold' : 'text-slate-500'}>
+                    {renewDays < 0 ? `Expired ${Math.abs(renewDays)}d ago` : `Renews in ${renewDays}d`}
+                  </span>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden sm:block card overflow-hidden">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[600px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
               {['Name','Company','Software','Amount','Payment','Renewal','Contact','Actions'].map(h => (
@@ -130,6 +172,7 @@ export default function Clients() {
             })}
           </tbody>
         </table>
+        </div>
         <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
           {filtered.length} of {clients.length} clients
         </div>
@@ -137,19 +180,19 @@ export default function Clients() {
 
       <Modal open={open} onClose={() => setOpen(false)} title={editing !== null ? 'Edit Client' : 'Add Client'}>
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="Full Name *" value={form.name} onChange={e => setForm({...form,name:e.target.value})} placeholder="John Doe" />
             <Input label="Company *" value={form.company} onChange={e => setForm({...form,company:e.target.value})} placeholder="Acme Corp" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="Email" type="email" value={form.email} onChange={e => setForm({...form,email:e.target.value})} placeholder="john@acme.com" />
             <Input label="Phone" value={form.phone} onChange={e => setForm({...form,phone:e.target.value})} placeholder="+91 98765 43210" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="Software / Product" value={form.software} onChange={e => setForm({...form,software:e.target.value})} placeholder="ERP Pro, CRM Basic..." />
             <Input label="Amount (₹)" type="number" value={form.amount} onChange={e => setForm({...form,amount:e.target.value})} placeholder="50000" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Select label="Payment Status" value={form.paymentStatus} onChange={e => setForm({...form,paymentStatus:e.target.value})}>
               <option>PAID</option><option>PENDING</option><option>OVERDUE</option>
             </Select>

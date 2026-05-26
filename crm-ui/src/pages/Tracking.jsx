@@ -173,7 +173,7 @@ export default function Tracking() {
       {lastSync && <div className="mb-3 text-xs text-slate-400">Last synced: {lastSync}</div>}
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-6 gap-3 mb-5">
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3 mb-5">
         <StatCard label="Campaigns"    value={campaigns.length}  icon={Filter}        color="slate" />
         <StatCard label="Emails Sent"  value={totalSent}         icon={Send}          color="blue" />
         <StatCard label="Unique Opens" value={uniqueOpeners}     sub={totalSent ? Math.round(uniqueOpeners/totalSent*100)+'% rate':''} icon={Eye} color="emerald" />

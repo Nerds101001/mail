@@ -71,7 +71,8 @@ export default function UsersPage() {
       </PageHeader>
 
       <Card className="overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[400px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
               {['Name','Username','Role','Status','Actions'].map(h=>(
@@ -115,6 +116,7 @@ export default function UsersPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </Card>
 
       <Modal open={open} onClose={()=>setOpen(false)} title={editing ? 'Edit User' : 'Add Team Member'}>

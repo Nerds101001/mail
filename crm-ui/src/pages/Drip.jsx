@@ -187,7 +187,7 @@ export default function Drip() {
                         className="text-slate-300 hover:text-red-400 transition-colors"><Trash2 size={13}/></button>
                     )}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <Input label="Subject" value={step.subject} onChange={e => updateStep(idx,'subject',e.target.value)} placeholder="Email subject line"/>
                     {idx === 0 ? (
                       <div><label className="block text-xs font-semibold text-slate-600 mb-1">Send</label>

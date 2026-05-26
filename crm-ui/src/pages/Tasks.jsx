@@ -62,7 +62,7 @@ export default function Tasks() {
       ) : (
         <div className="space-y-6">
           {/* Summary */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             <div className="card p-4 border-l-4 border-l-red-400">
               <p className="text-2xl font-bold text-red-600">{high.length}</p>
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-1">High Priority</p>

@@ -110,19 +110,26 @@
 
   /* ── Modal ──────────────────────────────────────────── */
   .modal-overlay {
-    @apply fixed inset-0 z-50 flex items-center justify-center p-4;
+    @apply fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4;
     background: rgba(15,23,42,0.6);
     backdrop-filter: blur(4px);
   }
   .modal {
-    @apply bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto;
+    @apply bg-white w-full max-h-[92vh] overflow-y-auto;
     border: 1px solid rgba(255,255,255,0.8);
     box-shadow: 0 25px 60px rgba(0,0,0,0.2);
+    border-radius: 1.5rem 1.5rem 0 0;
+  }
+  @media (min-width: 640px) {
+    .modal {
+      border-radius: 1rem;
+      max-height: 90vh;
+    }
   }
 
   /* ── Page header ────────────────────────────────────── */
   .page-header {
-    @apply flex items-center justify-between mb-6;
+    @apply flex flex-wrap items-start sm:items-center justify-between gap-3 mb-4 sm:mb-6;
   }
 
   /* ── Divider ────────────────────────────────────────── */

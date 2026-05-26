@@ -369,11 +369,11 @@ export default function Settings() {
 
           {smtpOpen && (
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Input label="Profile Name" value={smtp.name} onChange={e=>setSmtp({...smtp,name:e.target.value})} placeholder="Work Email" />
                 <Input label="SMTP Host" value={smtp.host} onChange={e=>setSmtp({...smtp,host:e.target.value})} placeholder="smtp.gmail.com" />
               </div>
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <Input label="Port" value={smtp.port} onChange={e=>setSmtp({...smtp,port:e.target.value})} />
                 <Input label="Email / User" type="email" value={smtp.user} onChange={e=>setSmtp({...smtp,user:e.target.value})} placeholder="me@company.com" />
                 <Input label="Password" type="password" value={smtp.pass} onChange={e=>setSmtp({...smtp,pass:e.target.value})} />

@@ -500,7 +500,7 @@ export default function Campaign() {
       <Card className="p-5">
         <h3 className="text-sm font-bold text-slate-900 mb-1">Campaign Brief <span className="text-xs font-normal text-emerald-600 ml-2">— AI uses this to write sales emails</span></h3>
         <p className="text-xs text-slate-400 mb-4">Fill this in before generating variants. The more detail you give, the sharper the pitch.</p>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="label">Product / Service Name <span className="text-red-400">*</span></label>
             <input className="input" value={brief.product} onChange={e=>setBrief({...brief,product:e.target.value})} placeholder="e.g. Custom ERP Software, IT Outsourcing, Cloud Migration" />
@@ -517,14 +517,14 @@ export default function Campaign() {
             <label className="label">Our Solutions</label>
             <textarea className="input resize-none" rows={2} value={brief.solutions} onChange={e=>setBrief({...brief,solutions:e.target.value})} placeholder="e.g. Automated workflows, live dashboards, 60% faster reporting" />
           </div>
-          <div className="col-span-2">
+          <div className="sm:col-span-2">
             <label className="label">Key Technologies / USP</label>
             <input className="input" value={brief.technologies} onChange={e=>setBrief({...brief,technologies:e.target.value})} placeholder="e.g. React, Node.js, AWS, AI-powered analytics, 10+ years experience" />
           </div>
         </div>
       </Card>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* Config */}
         <Card className="p-5">
           <h3 className="text-sm font-bold text-slate-900 mb-4">Campaign Config</h3>

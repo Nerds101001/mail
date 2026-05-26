@@ -52,7 +52,8 @@ export default function Unsubscribes() {
           <div className="px-5 py-3 bg-amber-50 border-b border-amber-200 text-sm text-amber-700 font-medium">
             ⚠ These contacts have opted out. They will be automatically skipped in all campaigns.
           </div>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[550px]">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
                 {['Name', 'Email', 'Company', 'Last Sent', 'Notes', 'Actions'].map(h => (
@@ -75,6 +76,7 @@ export default function Unsubscribes() {
               ))}
             </tbody>
           </table>
+          </div>
           <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
             {unsubscribed.length} unsubscribed contacts
           </div>

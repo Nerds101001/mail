@@ -460,7 +460,7 @@ export default function Leads() {
       )}
 
       {/* Filters */}
-      <div className="flex gap-3 mb-4 flex-wrap">
+      <div className="flex gap-2 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input className="input pl-9" placeholder="Search name, email, company..." value={search} onChange={e => setSearch(e.target.value)} />
@@ -495,9 +495,10 @@ export default function Leads() {
         )}
       </div>
 
-      {/* Table */}
+      {/* Table — scrollable on mobile */}
       <div className="card overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto -webkit-overflow-scrolling-touch">
+        <table className="w-full text-sm min-w-[700px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
               <th className="px-4 py-3 w-10"><input type="checkbox" className="rounded" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleAll} /></th>
@@ -594,6 +595,7 @@ export default function Leads() {
             })}
           </tbody>
         </table>
+        </div>
         <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between flex-wrap gap-2">
           <span className="text-xs text-slate-500">
             Showing {filtered.length === 0 ? 0 : page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}{filtered.length !== leads.length ? ` filtered` : ''} leads (total: {leads.length}){groupF ? ` in "${groupF}"` : ''}
@@ -617,15 +619,15 @@ export default function Leads() {
       {/* Add Lead Modal */}
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add New Lead">
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="Full Name *" value={form.name} onChange={e => setForm({...form, name:e.target.value})} placeholder="John Doe" />
             <Input label="Email *" type="email" value={form.email} onChange={e => setForm({...form, email:e.target.value})} placeholder="john@company.com" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="Company" value={form.company} onChange={e => setForm({...form, company:e.target.value})} placeholder="Acme Corp" />
             <Input label="Phone" value={form.phone} onChange={e => setForm({...form, phone:e.target.value})} placeholder="+91 98765 43210" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Select label="Role" value={form.role} onChange={e => setForm({...form, role:e.target.value})}>
               {['GENERAL','FOUNDER','SALES','HR','CTO','CFO'].map(r => <option key={r}>{r}</option>)}
             </Select>
@@ -633,7 +635,7 @@ export default function Leads() {
               {PIPELINE_STAGES.slice(0,6).map(s => <option key={s}>{s}</option>)}
             </Select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="Category" value={form.category} onChange={e => setForm({...form, category:e.target.value})} placeholder="SaaS, E-commerce..." />
             <Input label="Tags (comma separated)" value={form.tags} onChange={e => setForm({...form, tags:e.target.value})} placeholder="VIP, Hot..." />
           </div>
@@ -649,15 +651,15 @@ export default function Leads() {
       {/* Edit Lead Modal */}
       <Modal open={editOpen} onClose={() => { setEditOpen(false); setEditLead(null); setForm({ name:'', email:'', company:'', phone:'', role:'GENERAL', category:'General', tags:'', notes:'', pipelineStage:'COLD', group:'' }) }} title={`Edit Lead — ${editLead?.name}`}>
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="Full Name *" value={form.name} onChange={e => setForm({...form, name:e.target.value})} placeholder="John Doe" />
             <Input label="Email *" type="email" value={form.email} onChange={e => setForm({...form, email:e.target.value})} placeholder="john@company.com" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="Company" value={form.company} onChange={e => setForm({...form, company:e.target.value})} placeholder="Acme Corp" />
             <Input label="Phone" value={form.phone} onChange={e => setForm({...form, phone:e.target.value})} placeholder="+91 98765 43210" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Select label="Role" value={form.role} onChange={e => setForm({...form, role:e.target.value})}>
               {['GENERAL','FOUNDER','SALES','HR','CTO','CFO'].map(r => <option key={r}>{r}</option>)}
             </Select>
@@ -665,7 +667,7 @@ export default function Leads() {
               {PIPELINE_STAGES.slice(0,6).map(s => <option key={s}>{s}</option>)}
             </Select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="Category" value={form.category} onChange={e => setForm({...form, category:e.target.value})} placeholder="SaaS, E-commerce..." />
             <Input label="Tags (comma separated)" value={form.tags} onChange={e => setForm({...form, tags:e.target.value})} placeholder="VIP, Hot..." />
           </div>

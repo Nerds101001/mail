@@ -174,7 +174,7 @@ export default function Invoices() {
       </PageHeader>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         {[
           { label:'Paid',    value: totalPaid,    color:'emerald', icon:'✅' },
           { label:'Pending', value: totalPending, color:'blue',    icon:'📤' },
@@ -207,7 +207,8 @@ export default function Invoices() {
         ) : filtered.length === 0 ? (
           <div className="py-16"><Empty icon={FileText} title="No invoices" sub="Create your first invoice to get started" /></div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[500px]">
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr>{['#','Client','Amount','Due Date','Status','Actions'].map(h => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500">{h}</th>
@@ -244,6 +245,7 @@ export default function Invoices() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

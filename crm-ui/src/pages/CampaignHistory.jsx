@@ -94,7 +94,7 @@ function EditScheduledModal({ campaign, onClose, onSaved }) {
         </div>
 
         <div className="overflow-y-auto flex-1 p-5 space-y-5">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Campaign Name</label>
               <input className="input w-full" value={name} onChange={e => setName(e.target.value)} />
@@ -381,7 +381,7 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
 
           {/* Brief + Variants summary */}
           {(detail.brief?.product || detail.variants?.length > 0) && (
-            <div className="px-5 py-4 bg-slate-50 border-b border-slate-100 grid grid-cols-2 gap-6">
+            <div className="px-5 py-4 bg-slate-50 border-b border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-6">
               {detail.brief?.product && (
                 <div>
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Campaign Brief</p>
@@ -451,7 +451,7 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
                   <>
                     {/* Summary counts */}
                     {sentLeads.length > 0 && pendingLeads.length > 0 && (
-                      <div className="mx-5 mt-4 mb-1 flex items-center gap-3 text-xs">
+                      <div className="mx-5 mt-4 mb-1 flex items-center gap-3 text-xs flex-wrap">
                         <span className="font-semibold text-blue-600">✉ {sentLeads.length} sent</span>
                         <span className="text-slate-300">·</span>
                         <span className="font-semibold text-yellow-600">⏳ {pendingLeads.length} queued (not yet sent)</span>
@@ -459,7 +459,8 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
                       </div>
                     )}
 
-                    <table className="w-full text-xs">
+                    <div className="overflow-x-auto">
+                    <table className="w-full text-xs min-w-[700px]">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200">
                           {['Name','Email','Company','Status','Variant #','Subject','Sent At',''].map(h => (
@@ -541,6 +542,7 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   </>
                 )}
               </>
@@ -1050,7 +1052,8 @@ export default function CampaignHistory() {
                       <p className="text-xs text-slate-400 mt-1">Opens and clicks appear here when the recipient interacts with the email.</p>
                     </div>
                   ) : (
-                    <table className="w-full text-xs">
+                    <div className="overflow-x-auto">
+                    <table className="w-full text-xs min-w-[560px]">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200">
                           {['Event','Time','IP Address','Device / Browser','URL'].map(h => (
@@ -1081,6 +1084,7 @@ export default function CampaignHistory() {
                         })}
                       </tbody>
                     </table>
+                    </div>
                   )}
                 </div>
               )}

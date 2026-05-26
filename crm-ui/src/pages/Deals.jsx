@@ -73,7 +73,8 @@ export default function Deals() {
       </div>
 
       <div className="card overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[800px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
               {['Type','Contact','Company','Invoice','Service','Amount','Status','Date','Notes','Actions'].map(h => (
@@ -114,6 +115,7 @@ export default function Deals() {
             })}
           </tbody>
         </table>
+        </div>
         <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 text-xs text-slate-500">
           {filtered.length} deals · {fmtCurrency(total)} total
         </div>

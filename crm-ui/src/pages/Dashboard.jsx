@@ -84,7 +84,7 @@ export default function Dashboard() {
       )}
 
       {/* Stats row 1 */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         <StatCard label="Total Leads"    value={leads.length}  sub="All contacts"          icon={Users}       color="indigo"  onClick={() => navigate('/leads')} />
         <StatCard label="Hot Leads"      value={hot}           sub="Opened or clicked"     icon={Flame}       color="red"     onClick={() => navigate('/leads')} />
         <StatCard label="Active Clients" value={clients.length} sub={fmtCurrency(revenue)+' pipeline'} icon={UserCheck} color="emerald" onClick={() => navigate('/clients')} />
@@ -92,14 +92,14 @@ export default function Dashboard() {
       </div>
 
       {/* Stats row 2 */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         <StatCard label="Emails Sent"     value={sent}           sub={leads.length ? Math.round(sent/leads.length*100)+'% send rate' : '0%'} icon={Send}         color="blue" />
         <StatCard label="Replies"         value={replied}        sub={sent ? Math.round(replied/sent*100)+'% reply rate' : '0%'}              icon={MessageSquare} color="violet" />
         <StatCard label="Renewals Due"    value={renewalsSoon}   sub="Next 30 days"         icon={RotateCcw}   color="amber" onClick={() => navigate('/clients')} />
         <StatCard label="Overdue Payments" value={overdue}       sub="Needs follow-up"      icon={TrendingUp}  color="red"   onClick={() => navigate('/clients')} />
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
         {/* Today's Tasks */}
         <Card className="p-5">
           <SectionHeader title="Today's Priority Tasks">
@@ -162,7 +162,7 @@ export default function Dashboard() {
       {/* Pipeline summary */}
       <Card className="p-5">
         <SectionHeader title="Lead Pipeline Overview" />
-        <div className="grid grid-cols-8 gap-3">
+        <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 sm:gap-3">
           {['COLD','CONTACTED','OPENED','HOT','DEMO','QUOTED','WON','LOST'].map(stage => {
             const count = leads.filter(l => l.pipelineStage === stage).length
             const palette = {
