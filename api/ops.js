@@ -1277,6 +1277,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       const profilesKey = ns("crm:profiles", userId);
       const profilesRaw = await get(profilesKey);
       const profiles = profilesRaw ? JSON.parse(profilesRaw) : [];
+      console.log(`📊 [SMTP-USAGE] userId=${userId}, profilesKey=${profilesKey}, profiles count=${profiles.length}`);
 
       // Get today's start (midnight)
       const todayStart = new Date();
@@ -1285,6 +1286,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
 
       // Count sends per profile (SMTP + Gmail)
       const activeProfiles = profiles.filter(p => p.active);
+      console.log(`📊 [SMTP-USAGE] activeProfiles count=${activeProfiles.length}`);
 
       const usage = [];
       let totalSent = 0;
@@ -1325,7 +1327,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
 
       const totalPercentage = totalCap > 0 ? Math.round((totalSent / totalCap) * 100) : 0;
 
-      return res.json({
+      const response = {
         profiles: usage,
         total: {
           sent: totalSent,
@@ -1333,7 +1335,12 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
           remaining: Math.max(0, totalCap - totalSent),
           percentage: totalPercentage,
         },
-      });
+      };
+      console.log(`📊 [SMTP-USAGE] Returning ${usage.length} profiles, total: ${totalSent}/${totalCap}`);
+      if (usage.length > 0) {
+        console.log(`📊 [SMTP-USAGE] First profile:`, usage[0]);
+      }
+      return res.json(response);
     } catch(err) {
       console.error("Email usage error:", err.message);
       return res.status(500).json({ error: err.message });
