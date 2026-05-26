@@ -607,13 +607,16 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       const leadIds = ids.split(",").filter(Boolean);
       await ensureTable();
       const sql = getSql();
+      // Only return scores for leads in campaigns belonging to this user
       const rows = await sql`
-        SELECT lead_id,
-          COUNT(*) FILTER (WHERE event_type = 'open')  AS opens,
-          COUNT(*) FILTER (WHERE event_type = 'click') AS clicks
-        FROM tracking_events
-        WHERE lead_id = ANY(${leadIds})
-        GROUP BY lead_id
+        SELECT te.lead_id,
+          COUNT(*) FILTER (WHERE te.event_type = 'open')  AS opens,
+          COUNT(*) FILTER (WHERE te.event_type = 'click') AS clicks
+        FROM tracking_events te
+        JOIN campaigns c ON c.id = te.campaign_id
+        WHERE te.lead_id = ANY(${leadIds})
+          AND (c.user_id = ${userId} OR ${userId} = 'admin')
+        GROUP BY te.lead_id
       `;
       const scores = {};
       rows.forEach(r => {
@@ -666,6 +669,11 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       if (!campaignId) return res.json({ variantIndex: 0, reason: "no campaignId" });
       await ensureTable();
       const sql = getSql();
+      // Verify campaign belongs to this user before returning variant stats
+      const campaign = await sql`SELECT id, user_id FROM campaigns WHERE id = ${campaignId} LIMIT 1`.catch(() => []);
+      if (!campaign.length || (campaign[0].user_id !== userId && userId !== 'admin')) {
+        return res.json({ variantIndex: 0, reason: "unauthorized" });
+      }
       // For each variant_index, compute open rate = opens / sends
       const rows = await sql`
         SELECT cl.variant_index,
@@ -1069,7 +1077,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       await ensureTable();
       const sql = getSql();
 
-      // Per-campaign stats
+      // Per-campaign stats — FILTERED BY USER
       const campaignRows = await sql`
         SELECT
           c.id,
@@ -1090,6 +1098,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
         FROM campaigns c
         LEFT JOIN campaign_leads cl ON cl.campaign_id = c.id
         LEFT JOIN tracking_events te ON te.campaign_id = c.id
+        WHERE c.user_id = ${userId} OR ${userId} = 'admin'
         GROUP BY c.id, c.name, c.created_at, c.status
         ORDER BY MAX(cl.sent_at) DESC NULLS LAST
         LIMIT 50
@@ -1151,14 +1160,16 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       await ensureTable();
       const sql = getSql();
 
-      // Aggregate opens by hour of day and day of week (UTC timestamps in ms)
+      // Aggregate opens by hour of day and day of week (UTC timestamps in ms) — FILTERED BY USER
       const rows = await sql`
         SELECT
-          EXTRACT(HOUR FROM to_timestamp(created_at / 1000.0))::int  AS hour,
-          EXTRACT(DOW  FROM to_timestamp(created_at / 1000.0))::int  AS dow,
+          EXTRACT(HOUR FROM to_timestamp(te.created_at / 1000.0))::int  AS hour,
+          EXTRACT(DOW  FROM to_timestamp(te.created_at / 1000.0))::int  AS dow,
           COUNT(*) AS opens
-        FROM tracking_events
-        WHERE event_type = 'open' AND created_at IS NOT NULL
+        FROM tracking_events te
+        JOIN campaigns c ON c.id = te.campaign_id
+        WHERE te.event_type = 'open' AND te.created_at IS NOT NULL
+          AND (c.user_id = ${userId} OR ${userId} = 'admin')
         GROUP BY hour, dow
         ORDER BY opens DESC
       `.catch(() => []);
