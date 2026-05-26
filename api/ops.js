@@ -1265,7 +1265,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
     }
   }
 
-  // ── SMTP USAGE (per-profile daily send count) ──────────────────────────────
+  // ── EMAIL USAGE (SMTP + Gmail per-profile daily send count) ──────────────────────────────
   if (type === "smtp-usage") {
     try {
       const sql = getSql();
@@ -1283,34 +1283,35 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       todayStart.setHours(0, 0, 0, 0);
       const todayMs = todayStart.getTime();
 
-      // Count sends per profile (SMTP only, not Gmail)
-      const smtpProfiles = profiles.filter(p => p.type === 'smtp' && p.active);
+      // Count sends per profile (SMTP + Gmail)
+      const activeProfiles = profiles.filter(p => p.active);
 
       const usage = [];
       let totalSent = 0;
       let totalCap = 0;
 
-      for (const profile of smtpProfiles) {
-        const dailyCap = profile.dailyCap || 50;
+      for (const profile of activeProfiles) {
+        const dailyCap = profile.dailyCap || (profile.type === 'gmail' ? 500 : 50);
+        const senderEmail = profile.user || profile.email;
 
         // Count sends for this profile today
-        // First try matching by sender_email, fallback to counting all
         const rows = await sql`
           SELECT COUNT(*) as cnt
           FROM campaign_leads
-          WHERE sender_email = ${profile.user}
+          WHERE (sender_email = ${senderEmail} OR (sender_email = '' AND status = 'SENT'))
             AND sent_at > ${todayMs}
             AND status IN ('SENT', 'REPLIED', 'FAILED', 'BOUNCED')
         `.catch(() => [{ cnt: 0 }]);
 
         const sent = parseInt(rows[0]?.cnt || 0);
         const remaining = Math.max(0, dailyCap - sent);
-        const percentage = Math.round((sent / dailyCap) * 100);
+        const percentage = dailyCap > 0 ? Math.round((sent / dailyCap) * 100) : 0;
 
         usage.push({
           id: profile.id,
           name: profile.name,
-          email: profile.email || profile.user,
+          type: profile.type,
+          email: senderEmail,
           sent,
           limit: dailyCap,
           remaining,
@@ -1334,7 +1335,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
         },
       });
     } catch(err) {
-      console.error("SMTP usage error:", err.message);
+      console.error("Email usage error:", err.message);
       return res.status(500).json({ error: err.message });
     }
   }
