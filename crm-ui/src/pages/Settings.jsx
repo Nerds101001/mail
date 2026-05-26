@@ -47,6 +47,8 @@ export default function Settings() {
   const [smtpOpen, setSmtpOpen] = useState(false)
   const [smtp, setSmtp]       = useState({ name:'', host:'', port:'465', user:'', pass:'', secure:true, dailyCap:50 })
   const [testing, setTesting] = useState(false)
+  const [smtpUsage, setSmtpUsage] = useState(null)
+  const [usageLoading, setUsageLoading] = useState(false)
 
   // Multi-Gmail account state
   const [gmailAccounts, setGmailAccounts] = useState([])
@@ -56,6 +58,20 @@ export default function Settings() {
 
   // Admin check — read the role stored at login (same as Layout.jsx)
   const isAdmin = localStorage.getItem('crm_role') === 'admin'
+
+  const loadSmtpUsage = async () => {
+    setUsageLoading(true)
+    try {
+      const r = await fetch('/api/ops?type=smtp-usage', {
+        headers: { Authorization: `Bearer ${crmToken()}` }
+      })
+      if (r.ok) {
+        const d = await r.json()
+        setSmtpUsage(d)
+      }
+    } catch(e) { console.warn('smtp usage failed', e) }
+    setUsageLoading(false)
+  }
 
   const loadGmailAccounts = async () => {
     setGmailLoading(true)
@@ -71,7 +87,8 @@ export default function Settings() {
     setGmailLoading(false)
   }
 
-  useEffect(() => { loadGmailAccounts() }, [])
+  useEffect(() => { loadGmailAccounts(); loadSmtpUsage() }, [])
+  useEffect(() => { loadSmtpUsage() }, [profiles])
 
   // Sync key presence indicator whenever settings arrive from server
   // We never pre-fill the input — just track whether a key is already saved
@@ -389,6 +406,57 @@ export default function Settings() {
                   <Btn variant="primary" size="sm" onClick={addSmtp}>Save Profile</Btn>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* SMTP Usage Summary */}
+          {smtpUsage && smtpUsage.total && smtpUsage.profiles.length > 0 && (
+            <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold text-slate-900">Today's Email Usage</p>
+                <span className="text-xs text-slate-500">{new Date().toLocaleDateString()}</span>
+              </div>
+
+              {/* Total usage bar */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium text-slate-700">Total Capacity</span>
+                  <span className="text-sm font-bold text-slate-900">{smtpUsage.total.sent} / {smtpUsage.total.limit}</span>
+                </div>
+                <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+                  <div
+                    className={`h-2.5 rounded-full transition-all ${
+                      smtpUsage.total.percentage >= 90 ? 'bg-red-500' :
+                      smtpUsage.total.percentage >= 70 ? 'bg-amber-500' :
+                      'bg-emerald-500'
+                    }`}
+                    style={{ width: `${Math.min(100, smtpUsage.total.percentage)}%` }}
+                  />
+                </div>
+                <p className="text-xs text-slate-600 mt-1">{smtpUsage.total.percentage}% used · {smtpUsage.total.remaining} remaining</p>
+              </div>
+
+              {/* Per-profile breakdown */}
+              {smtpUsage.profiles.length > 1 && (
+                <div className="space-y-2 border-t border-blue-100 pt-3">
+                  {smtpUsage.profiles.map(p => (
+                    <div key={p.id} className="flex items-center justify-between text-xs">
+                      <span className="text-slate-700 font-medium">{p.name}</span>
+                      <span className="text-slate-600">{p.sent} / {p.limit}</span>
+                      <div className="w-24 bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className={`h-1.5 rounded-full ${
+                            p.percentage >= 90 ? 'bg-red-500' :
+                            p.percentage >= 70 ? 'bg-amber-500' :
+                            'bg-emerald-500'
+                          }`}
+                          style={{ width: `${Math.min(100, p.percentage)}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

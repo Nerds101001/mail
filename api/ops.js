@@ -804,8 +804,8 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
             } catch(e) { result.failed++; failReason = e.message || 'Network error'; }
 
             await sql2`
-              INSERT INTO campaign_leads (campaign_id,user_id,lead_id,lead_name,lead_email,lead_company,status,subject,body,sent_at,variant_index,failure_reason,message_id)
-              VALUES (${camp.id},${uid},${l.id},${l.name||''},${l.email||''},${l.company||''},${sendStatus},${subject||''},${body||''},${Date.now()},${varIdx},${failReason},${msgId})
+              INSERT INTO campaign_leads (campaign_id,user_id,lead_id,lead_name,lead_email,lead_company,status,subject,body,sent_at,variant_index,failure_reason,message_id,sender_email)
+              VALUES (${camp.id},${uid},${l.id},${l.name||''},${l.email||''},${l.company||''},${sendStatus},${subject||''},${body||''},${Date.now()},${varIdx},${failReason},${msgId},${profile.user||profile.email||''})
             `.catch(()=>{});
 
             // ── Auto-set CONTACTED stage on successful send ──────────────────
@@ -1261,6 +1261,80 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
 
       return res.json({ ok: true, scanned: messages.length, bounced });
     } catch(err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // ── SMTP USAGE (per-profile daily send count) ──────────────────────────────
+  if (type === "smtp-usage") {
+    try {
+      const sql = getSql();
+
+      // Ensure sender_email column exists
+      await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS sender_email TEXT`.catch(() => {});
+
+      // Get all profiles for the user
+      const profilesKey = ns("crm:profiles", userId);
+      const profilesRaw = await get(profilesKey);
+      const profiles = profilesRaw ? JSON.parse(profilesRaw) : [];
+
+      // Get today's start (midnight)
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayMs = todayStart.getTime();
+
+      // Count sends per profile (SMTP only, not Gmail)
+      const smtpProfiles = profiles.filter(p => p.type === 'smtp' && p.active);
+
+      const usage = [];
+      let totalSent = 0;
+      let totalCap = 0;
+
+      for (const profile of smtpProfiles) {
+        const dailyCap = profile.dailyCap || 50;
+
+        // Count sends for this profile today
+        // First try matching by sender_email, fallback to counting all
+        const rows = await sql`
+          SELECT COUNT(*) as cnt
+          FROM campaign_leads
+          WHERE sender_email = ${profile.user}
+            AND sent_at > ${todayMs}
+            AND status IN ('SENT', 'REPLIED', 'FAILED', 'BOUNCED')
+        `.catch(() => [{ cnt: 0 }]);
+
+        const sent = parseInt(rows[0]?.cnt || 0);
+        const remaining = Math.max(0, dailyCap - sent);
+        const percentage = Math.round((sent / dailyCap) * 100);
+
+        usage.push({
+          id: profile.id,
+          name: profile.name,
+          email: profile.email || profile.user,
+          sent,
+          limit: dailyCap,
+          remaining,
+          percentage,
+          active: profile.active,
+        });
+
+        totalSent += sent;
+        totalCap += dailyCap;
+      }
+
+      const totalPercentage = totalCap > 0 ? Math.round((totalSent / totalCap) * 100) : 0;
+
+      return res.json({
+        profiles: usage,
+        total: {
+          sent: totalSent,
+          limit: totalCap,
+          remaining: Math.max(0, totalCap - totalSent),
+          percentage: totalPercentage,
+        },
+      });
+    } catch(err) {
+      console.error("SMTP usage error:", err.message);
       return res.status(500).json({ error: err.message });
     }
   }
