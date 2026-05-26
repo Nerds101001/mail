@@ -87,6 +87,15 @@ export default function Settings() {
     setGmailLoading(false)
   }
 
+  const getResetTime = () => {
+    const now = new Date()
+    const tomorrow = new Date(now)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    tomorrow.setHours(0, 0, 0, 0)
+    const hoursLeft = Math.ceil((tomorrow - now) / (1000 * 60 * 60))
+    return `Resets in ${hoursLeft}h`
+  }
+
   useEffect(() => { loadGmailAccounts(); loadSmtpUsage() }, [])
   useEffect(() => { loadSmtpUsage() }, [profiles])
 
@@ -260,7 +269,20 @@ export default function Settings() {
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                         {isActive ? 'Active' : 'Disabled'}
                       </span>
-                      <span className="text-xs text-slate-400 flex-shrink-0">Cap: {acc.dailyCap || 500}/day</span>
+                      {smtpUsage && smtpUsage.profiles && (
+                        (() => {
+                          const gmailUsage = smtpUsage.profiles.find(p => p.email === acc.user);
+                          if (gmailUsage) {
+                            return (
+                              <span className="text-xs text-slate-600 flex-shrink-0 bg-blue-50 px-2.5 py-1 rounded-full">
+                                {gmailUsage.sent}/{gmailUsage.limit} · {getResetTime()}
+                              </span>
+                            );
+                          }
+                          return <span className="text-xs text-slate-400 flex-shrink-0">Cap: {acc.dailyCap || 500}/day</span>;
+                        })()
+                      )}
+                      {!smtpUsage && <span className="text-xs text-slate-400 flex-shrink-0">Cap: {acc.dailyCap || 500}/day</span>}
                       {/* Re-sync: re-run OAuth for this specific account to get fresh tokens */}
                       <a
                         href={`/api/gmail?type=auth&token=${encodeURIComponent(crmToken())}&login_hint=${encodeURIComponent(acc.user || acc.email || '')}`}
