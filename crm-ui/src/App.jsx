@@ -19,6 +19,7 @@ import UsersPage          from './pages/Users'
 import AttachmentManager  from './pages/AttachmentManager'
 import Invoices           from './pages/Invoices'
 import Drip               from './pages/Drip'
+import Analytics          from './pages/Analytics'
 
 function ProtectedApp() {
   const { loadFromRedis, checkGmailStatus, setProfiles, profiles, logActivity } = useCRM()
@@ -73,6 +74,7 @@ function ProtectedApp() {
         <Route path="/attachments"   element={<AttachmentManager />} />
         <Route path="/invoices"      element={<Invoices />} />
         <Route path="/drip"          element={<Drip />} />
+        <Route path="/analytics"     element={<Analytics />} />
       </Routes>
     </Layout>
   )

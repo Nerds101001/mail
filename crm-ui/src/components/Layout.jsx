@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   LayoutDashboard, CheckSquare, Users, GitBranch, Send,
   UserCheck, FileText, BarChart2, Settings, LogOut, Zap, Mail, UserX, History, Paperclip,
-  Eye, Pause, X as XIcon, ChevronRight, Receipt, Layers,
+  Eye, Pause, X as XIcon, ChevronRight, Receipt, Layers, TrendingUp,
 } from 'lucide-react'
 import * as campaignRunner from '../campaignRunner'
 
@@ -27,8 +27,9 @@ const NAV = [
     { to: '/invoices', icon: Receipt,     label: 'Invoices' },
   ]},
   { label: 'Analytics', items: [
-    { to: '/tracking',     icon: BarChart2, label: 'Tracking' },
-    { to: '/unsubscribes', icon: UserX,     label: 'Unsubscribes' },
+    { to: '/analytics',    icon: TrendingUp, label: 'Analytics' },
+    { to: '/tracking',     icon: BarChart2,  label: 'Tracking' },
+    { to: '/unsubscribes', icon: UserX,      label: 'Unsubscribes' },
   ]},
   { label: 'Config', items: [
     { to: '/users',    icon: Users,     label: 'Users',    adminOnly: true },

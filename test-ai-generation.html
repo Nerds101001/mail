@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test AI Generation - Enginerds CRM</title>
+    <style>
+        body { font-family: system-ui; max-width: 800px; margin: 50px auto; padding: 20px; background: #f8fafc; }
+        .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .btn { background: #2563eb; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; margin: 10px 5px; font-size: 14px; }
+        .btn:hover { background: #1d4ed8; }
+        .btn:disabled { background: #94a3b8; cursor: not-allowed; }
+        .result { margin-top: 20px; padding: 20px; border-radius: 8px; background: #f1f5f9; border: 1px solid #e2e8f0; }
+        input, textarea { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
+        .status { padding: 12px; margin: 12px 0; border-radius: 6px; font-weight: 500; }
+        .success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+        .error { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
+        .info { background: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe; }
+        .warning { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+        pre { background: #f8fafc; padding: 15px; border-radius: 6px; border: 1px solid #e2e8f0; white-space: pre-wrap; font-size: 13px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #374151; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .email-preview { background: white; border: 2px solid #e5e7eb; border-radius: 8px; padding: 20px; margin-top: 15px; }
+        .subject-line { font-weight: bold; color: #1f2937; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #e5e7eb; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 AI Email Generation Test</h1>
+        <p style="color: #6b7280; margin-bottom: 30px;">Test the NVIDIA NIM AI email generation endpoint</p>
+        
+        <div class="info status">
+            <strong>Endpoint:</strong> POST /api/ops?type=generate-ai<br>
+            <strong>Model:</strong> NVIDIA NIM Llama 3.1 405B<br>
+            <strong>Time:</strong> <span id="timestamp"></span>
+        </div>
+        
+        <div class="form-group">
+            <label>NVIDIA API Key (required):</label>
+            <input type="password" id="apiKey" placeholder="nvapi-..." />
+            <small style="color: #6b7280;">Get your key from <a href="https://build.nvidia.com" target="_blank">build.nvidia.com</a></small>
+        </div>
+        
+        <div class="grid">
+            <div class="form-group">
+                <label>Lead Name:</label>
+                <input type="text" id="name" value="John Smith" />
+            </div>
+            <div class="form-group">
+                <label>Company:</label>
+                <input type="text" id="company" value="TechCorp Solutions" />
+            </div>
+        </div>
+        
+        <div class="grid">
+            <div class="form-group">
+                <label>Role:</label>
+                <input type="text" id="role" value="CTO" />
+            </div>
+            <div class="form-group">
+                <label>Category:</label>
+                <input type="text" id="category" value="Technology" />
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>Custom Prompt (optional):</label>
+            <textarea id="customPrompt" rows="3" placeholder="Focus on ERP solutions, mention ROI benefits, keep it under 150 words..."></textarea>
+        </div>
+        
+        <div style="text-align: center; margin: 30px 0;">
+            <button class="btn" onclick="testAI()" id="testBtn">🚀 Generate AI Email</button>
+            <button class="btn" onclick="testWithoutKey()" style="background: #dc2626;">Test Without Key</button>
+            <button class="btn" onclick="clearResults()" style="background: #6b7280;">Clear Results</button>
+        </div>
+        
+        <div id="result"></div>
+    </div>
+    
+    <script>
+        document.getElementById('timestamp').textContent = new Date().toLocaleString();
+        
+        async function testAI() {
+            const resultDiv = document.getElementById('result');
+            const testBtn = document.getElementById('testBtn');
+            
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const name = document.getElementById('name').value.trim();
+            const company = document.getElementById('company').value.trim();
+            const role = document.getElementById('role').value.trim();
+            const category = document.getElementById('category').value.trim();
+            const customPrompt = document.getElementById('customPrompt').value.trim();
+            
+            if (!apiKey) {
+                resultDiv.innerHTML = '<div class="error status">❌ Please enter your NVIDIA API key</div>';
+                return;
+            }
+            
+            if (!name || !company) {
+                resultDiv.innerHTML = '<div class="error status">❌ Please enter lead name and company</div>';
+                return;
+            }
+            
+            testBtn.disabled = true;
+            testBtn.textContent = '⏳ Generating...';
+            
+            resultDiv.innerHTML = '<div class="info status">⏳ Calling NVIDIA NIM API... This may take 10-30 seconds.</div>';
+            
+            const startTime = Date.now();
+            
+            try {
+                console.log('🚀 Testing AI Generation Endpoint');
+                console.log('Payload:', { name, company, role, category, customPrompt: customPrompt || 'none' });
+                
+                const response = await fetch('/api/ops?type=generate-ai', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        company: company,
+                        role: role || 'Decision Maker',
+                        category: category || 'Business',
+                        apiKey: apiKey,
+                        customPrompt: customPrompt || undefined
+                    })
+                });
+                
+                const endTime = Date.now();
+                const duration = ((endTime - startTime) / 1000).toFixed(1);
+                
+                console.log('Response status:', response.status);
+                console.log('Response time:', duration + 's');
+                
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok) {
+                    const isFallback = data.fallback || false;
+                    resultDiv.innerHTML = `
+                        <div class="success status">
+                            ✅ AI Generation ${isFallback ? 'Fallback' : 'Successful'}! 
+                            <small>(${duration}s)</small>
+                        </div>
+                        
+                        ${isFallback ? '<div class="warning status">⚠️ This is a fallback response. The NVIDIA API may be unavailable or your API key might be invalid.</div>' : ''}
+                        
+                        <div class="email-preview">
+                            <div class="subject-line">
+                                <strong>Subject:</strong> ${escapeHtml(data.subject)}
+                            </div>
+                            <div style="line-height: 1.6; color: #374151;">
+                                ${escapeHtml(data.body).replace(/\\n/g, '<br>')}
+                            </div>
+                        </div>
+                        
+                        <div style="margin-top: 20px; font-size: 13px; color: #6b7280;">
+                            <strong>Technical Details:</strong><br>
+                            • Response Time: ${duration} seconds<br>
+                            • Model: ${isFallback ? 'Fallback Template' : 'NVIDIA NIM Llama 3.1 405B'}<br>
+                            • Status: ${response.status}<br>
+                            • Fallback Used: ${isFallback ? 'Yes' : 'No'}
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="error status">❌ API Error (${response.status})</div>
+                        <div class="result">
+                            <p><strong>Error Message:</strong> ${escapeHtml(data.error || 'Unknown error')}</p>
+                            <p><strong>Response Time:</strong> ${duration}s</p>
+                            
+                            <details style="margin-top: 15px;">
+                                <summary style="cursor: pointer; font-weight: 600;">Raw Response</summary>
+                                <pre>${JSON.stringify(data, null, 2)}</pre>
+                            </details>
+                            
+                            <div style="margin-top: 15px; padding: 10px; background: #fef3c7; border-radius: 6px; font-size: 13px;">
+                                <strong>Common Issues:</strong><br>
+                                • Invalid NVIDIA API key<br>
+                                • API key doesn't have access to Llama 3.1 405B model<br>
+                                • NVIDIA API rate limits exceeded<br>
+                                • Network connectivity issues
+                            </div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                const endTime = Date.now();
+                const duration = ((endTime - startTime) / 1000).toFixed(1);
+                
+                console.error('Network error:', error);
+                resultDiv.innerHTML = `
+                    <div class="error status">❌ Network Error</div>
+                    <div class="result">
+                        <p><strong>Error:</strong> ${escapeHtml(error.message)}</p>
+                        <p><strong>Duration:</strong> ${duration}s</p>
+                        
+                        <div style="margin-top: 15px; padding: 10px; background: #fee2e2; border-radius: 6px; font-size: 13px;">
+                            <strong>This could indicate:</strong><br>
+                            • 404 - Endpoint not found (deployment issue)<br>
+                            • Network connectivity problem<br>
+                            • CORS configuration issue<br>
+                            • Server timeout (NVIDIA API is slow)
+                        </div>
+                    </div>
+                `;
+            } finally {
+                testBtn.disabled = false;
+                testBtn.textContent = '🚀 Generate AI Email';
+            }
+        }
+        
+        async function testWithoutKey() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<div class="info status">⏳ Testing endpoint validation...</div>';
+            
+            try {
+                const response = await fetch('/api/ops?type=generate-ai', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        name: 'Test User',
+                        company: 'Test Company'
+                        // No apiKey provided
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.status === 400 && data.error && data.error.includes('API key')) {
+                    resultDiv.innerHTML = `
+                        <div class="success status">✅ Endpoint Validation Working</div>
+                        <div class="result">
+                            <p>The endpoint exists and correctly validates the API key requirement.</p>
+                            <p><strong>Validation Message:</strong> ${escapeHtml(data.error)}</p>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="warning status">⚠️ Unexpected Response</div>
+                        <div class="result">
+                            <p><strong>Status:</strong> ${response.status}</p>
+                            <p><strong>Expected:</strong> 400 with API key error</p>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error status">❌ Endpoint Not Found</div>
+                    <div class="result">
+                        <p>The endpoint /api/ops?type=generate-ai is not accessible.</p>
+                        <p><strong>Error:</strong> ${escapeHtml(error.message)}</p>
+                    </div>
+                `;
+            }
+        }
+        
+        function clearResults() {
+            document.getElementById('result').innerHTML = '';
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Auto-focus API key field
+        document.getElementById('apiKey').focus();
+    </script>
+</body>
+</html>

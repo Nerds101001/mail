@@ -69,7 +69,9 @@ app.all("/api/run-scheduled",  withQuery(ops, { type: "run-scheduled" }));
 app.all("/api/events",         withQuery(ops, { type: "events" }));
 app.all("/api/check-replies",  withQuery(ops, { type: "check-replies" }));
 app.all("/api/run-drip",       withQuery(ops, { type: "run-drip" }));
-app.all("/api/check-bounces",  withQuery(ops, { type: "check-bounces" }));
+app.all("/api/check-bounces",   withQuery(ops, { type: "check-bounces" }));
+app.all("/api/analytics",       withQuery(ops, { type: "analytics" }));
+app.all("/api/send-time-stats", withQuery(ops, { type: "send-time-stats" }));
 app.all("/api/ops",            ops);
 
 // Auth
@@ -107,3 +109,58 @@ app.get("*", (req, res) => {
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ EnginErds CRM running → http://0.0.0.0:${PORT}`);
 });
+
+// ── Feature 5: Auto-reply detection — runs every 5 minutes ───────────────────
+// Calls the same check-replies handler with a synthetic req/res so it fires
+// automatically without any manual button click.
+function autoCheckReplies() {
+  const fakeReq = {
+    method:  'GET',
+    query:   { type: 'check-replies' },
+    headers: { authorization: '' },
+    body:    {},
+  };
+  const fakeRes = {
+    json:   (data) => {
+      if (data.repliesFound > 0) {
+        console.log(`🔔 [AUTO-REPLIES] Found ${data.repliesFound} new reply(ies):`, data.repliedLeads);
+      }
+    },
+    status: (code) => ({ json: () => {} }),
+  };
+  ops(fakeReq, fakeRes).catch(err => {
+    console.error('[AUTO-REPLIES] Error:', err.message);
+  });
+}
+
+// Run once 30 seconds after startup (let DB settle), then every 5 minutes
+setTimeout(() => {
+  autoCheckReplies();
+  setInterval(autoCheckReplies, 5 * 60 * 1000);
+}, 30 * 1000);
+
+// ── Auto-run drip sequences every 15 minutes ─────────────────────────────────
+function autoDrip() {
+  const fakeReq = {
+    method:  'POST',
+    query:   { type: 'run-drip' },
+    headers: { authorization: '' },
+    body:    {},
+  };
+  const fakeRes = {
+    json:   (data) => {
+      if (data.sent > 0 || data.skipped > 0) {
+        console.log(`💧 [AUTO-DRIP] sent=${data.sent} skipped=${data.skipped} processed=${data.processed}`);
+      }
+    },
+    status: (code) => ({ json: () => {} }),
+  };
+  ops(fakeReq, fakeRes).catch(err => {
+    console.error('[AUTO-DRIP] Error:', err.message);
+  });
+}
+
+setTimeout(() => {
+  autoDrip();
+  setInterval(autoDrip, 15 * 60 * 1000);
+}, 60 * 1000);

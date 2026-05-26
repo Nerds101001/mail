@@ -977,13 +977,60 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
         LIMIT 50
       `.catch(()=>[]);
 
-      let sent = 0;
+      let sent = 0; let skipped = 0;
       for (const enroll of due) {
         try {
           const steps = typeof enroll.steps === 'string' ? JSON.parse(enroll.steps||'[]') : (enroll.steps||[]);
           const step  = steps[enroll.step_index];
           if (!step) {
             await sql`UPDATE drip_enrollments SET status='completed' WHERE id=${enroll.id}`.catch(()=>{});
+            continue;
+          }
+
+          // ── Feature 7: Behaviour-based trigger check ─────────────────────
+          // step.trigger: 'always' (default) | 'if_opened' | 'if_clicked' | 'if_not_opened'
+          const trigger = step.trigger || 'always';
+          if (trigger !== 'always') {
+            // Check what the lead has done in ANY previous campaign or drip step
+            const prevEvents = await sql`
+              SELECT event_type FROM tracking_events
+              WHERE lead_id = ${enroll.lead_id}
+              LIMIT 50
+            `.catch(() => []);
+            const hasOpened  = prevEvents.some(e => e.event_type === 'open');
+            const hasClicked = prevEvents.some(e => e.event_type === 'click');
+
+            let conditionMet = true;
+            if      (trigger === 'if_opened'     && !hasOpened)  conditionMet = false;
+            else if (trigger === 'if_clicked'    && !hasClicked) conditionMet = false;
+            else if (trigger === 'if_not_opened' && hasOpened)   conditionMet = false;
+
+            if (!conditionMet) {
+              // Skip this step — advance to next or complete
+              const nextStepIdx2 = enroll.step_index + 1;
+              const nextStep2    = steps[nextStepIdx2];
+              if (nextStep2) {
+                const nextSendAt2 = now2 + (nextStep2.delayDays || 1) * 86400000;
+                await sql`UPDATE drip_enrollments SET step_index=${nextStepIdx2}, next_send_at=${nextSendAt2} WHERE id=${enroll.id}`.catch(()=>{});
+              } else {
+                await sql`UPDATE drip_enrollments SET status='completed' WHERE id=${enroll.id}`.catch(()=>{});
+              }
+              console.log(`[DRIP] Skipped step ${enroll.step_index} for ${enroll.lead_id} — trigger: ${trigger} not met`);
+              skipped++;
+              continue;
+            }
+          }
+
+          // Also check: if lead unsubscribed or replied, pause drip
+          const leadStatus = await sql`
+            SELECT status FROM campaign_leads
+            WHERE lead_id = ${enroll.lead_id} AND status IN ('REPLIED','UNSUBSCRIBED')
+            LIMIT 1
+          `.catch(() => []);
+          if (leadStatus.length > 0) {
+            await sql`UPDATE drip_enrollments SET status='paused' WHERE id=${enroll.id}`.catch(()=>{});
+            console.log(`[DRIP] Paused drip for ${enroll.lead_id} — status: ${leadStatus[0].status}`);
+            skipped++;
             continue;
           }
 
@@ -1012,8 +1059,140 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
           sent++;
         } catch(e) { console.error('[DRIP] Step error:', e.message); }
       }
-      return res.json({ ok: true, processed: due.length, sent });
+      return res.json({ ok: true, processed: due.length, sent, skipped });
     } catch(err) { return res.status(500).json({ error: err.message }); }
+  }
+
+  // ── CAMPAIGN ANALYTICS (Feature 9 + 8 + 11) ────────────────────────────────
+  if (type === "analytics") {
+    try {
+      await ensureTable();
+      const sql = getSql();
+
+      // Per-campaign stats
+      const campaignRows = await sql`
+        SELECT
+          c.id,
+          c.name,
+          c.created_at,
+          c.status AS campaign_status,
+          COUNT(DISTINCT cl.lead_id) FILTER (WHERE cl.status IN ('SENT','REPLIED','BOUNCED','UNSUBSCRIBED')) AS total_sent,
+          COUNT(DISTINCT te.lead_id) FILTER (WHERE te.event_type = 'open')  AS unique_opens,
+          COUNT(*)                   FILTER (WHERE te.event_type = 'open')  AS total_opens,
+          COUNT(DISTINCT te.lead_id) FILTER (WHERE te.event_type = 'click') AS unique_clicks,
+          COUNT(*)                   FILTER (WHERE te.event_type = 'click') AS total_clicks,
+          COUNT(DISTINCT cl.lead_id) FILTER (WHERE cl.status = 'REPLIED')      AS replies,
+          COUNT(DISTINCT cl.lead_id) FILTER (WHERE cl.status = 'BOUNCED')      AS bounces,
+          COUNT(DISTINCT cl.lead_id) FILTER (WHERE cl.status = 'UNSUBSCRIBED') AS unsubscribes,
+          COUNT(DISTINCT cl.lead_id) FILTER (WHERE cl.status = 'FAILED')       AS failed,
+          MAX(cl.sent_at) AS last_sent_at,
+          MIN(cl.subject) AS subject_preview
+        FROM campaigns c
+        LEFT JOIN campaign_leads cl ON cl.campaign_id = c.id
+        LEFT JOIN tracking_events te ON te.campaign_id = c.id
+        GROUP BY c.id, c.name, c.created_at, c.status
+        ORDER BY MAX(cl.sent_at) DESC NULLS LAST
+        LIMIT 50
+      `.catch(() => []);
+
+      const campaigns = campaignRows.map(r => {
+        const sent        = parseInt(r.total_sent)      || 0;
+        const uOpens      = parseInt(r.unique_opens)    || 0;
+        const tOpens      = parseInt(r.total_opens)     || 0;
+        const uClicks     = parseInt(r.unique_clicks)   || 0;
+        const tClicks     = parseInt(r.total_clicks)    || 0;
+        const replies     = parseInt(r.replies)         || 0;
+        const bounces     = parseInt(r.bounces)         || 0;
+        const unsubs      = parseInt(r.unsubscribes)    || 0;
+        const failed      = parseInt(r.failed)          || 0;
+        return {
+          id:             r.id,
+          name:           r.name,
+          status:         r.campaign_status,
+          createdAt:      r.created_at,
+          lastSentAt:     r.last_sent_at,
+          subjectPreview: r.subject_preview,
+          sent,
+          uniqueOpens:    uOpens,
+          totalOpens:     tOpens,
+          uniqueClicks:   uClicks,
+          totalClicks:    tClicks,
+          replies,
+          bounces,
+          unsubscribes:   unsubs,
+          failed,
+          openRate:     sent > 0 ? Math.round(uOpens  / sent * 100) : 0,
+          clickRate:    sent > 0 ? Math.round(uClicks / sent * 100) : 0,
+          replyRate:    sent > 0 ? Math.round(replies / sent * 100) : 0,
+          bounceRate:   sent > 0 ? Math.round(bounces / sent * 100) : 0,
+          unsubRate:    sent > 0 ? Math.round(unsubs  / sent * 100) : 0,
+        };
+      });
+
+      // Overall totals
+      const totals = campaigns.reduce((acc, c) => ({
+        sent:         acc.sent         + c.sent,
+        uniqueOpens:  acc.uniqueOpens  + c.uniqueOpens,
+        uniqueClicks: acc.uniqueClicks + c.uniqueClicks,
+        replies:      acc.replies      + c.replies,
+        bounces:      acc.bounces      + c.bounces,
+        unsubscribes: acc.unsubscribes + c.unsubscribes,
+      }), { sent: 0, uniqueOpens: 0, uniqueClicks: 0, replies: 0, bounces: 0, unsubscribes: 0 });
+
+      return res.json({ campaigns, totals });
+    } catch(e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  // ── SEND TIME STATS (Feature 11) — best hour/day to send ─────────────────
+  if (type === "send-time-stats") {
+    try {
+      await ensureTable();
+      const sql = getSql();
+
+      // Aggregate opens by hour of day and day of week (UTC timestamps in ms)
+      const rows = await sql`
+        SELECT
+          EXTRACT(HOUR FROM to_timestamp(created_at / 1000.0))::int  AS hour,
+          EXTRACT(DOW  FROM to_timestamp(created_at / 1000.0))::int  AS dow,
+          COUNT(*) AS opens
+        FROM tracking_events
+        WHERE event_type = 'open' AND created_at IS NOT NULL
+        GROUP BY hour, dow
+        ORDER BY opens DESC
+      `.catch(() => []);
+
+      // Hour totals
+      const byHour = Array.from({ length: 24 }, (_, h) => ({ hour: h, opens: 0 }));
+      // Day totals (0=Sun … 6=Sat)
+      const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const byDow = Array.from({ length: 7 }, (_, d) => ({ dow: d, day: DAYS[d], opens: 0 }));
+
+      rows.forEach(r => {
+        const h = parseInt(r.hour); const d = parseInt(r.dow); const o = parseInt(r.opens) || 0;
+        if (h >= 0 && h < 24) byHour[h].opens += o;
+        if (d >= 0 && d < 7)  byDow[d].opens  += o;
+      });
+
+      const totalOpens = byHour.reduce((s, r) => s + r.opens, 0);
+
+      // Best single slot
+      const bestSlot = rows[0] ? {
+        hour: parseInt(rows[0].hour),
+        dow:  parseInt(rows[0].dow),
+        day:  DAYS[parseInt(rows[0].dow)],
+        opens: parseInt(rows[0].opens),
+      } : null;
+
+      // Best 3 hours
+      const bestHours = [...byHour].sort((a, b) => b.opens - a.opens).slice(0, 3);
+      const bestDays  = [...byDow].sort((a,  b) => b.opens  - a.opens).slice(0, 3);
+
+      return res.json({ byHour, byDow, bestHours, bestDays, bestSlot, totalOpens });
+    } catch(e) {
+      return res.status(500).json({ error: e.message });
+    }
   }
 
   // ── BOUNCE CHECKER — scan Gmail inbox for MAILER-DAEMON bounce emails ───────

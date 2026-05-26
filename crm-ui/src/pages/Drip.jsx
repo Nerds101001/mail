@@ -18,7 +18,7 @@ export default function Drip() {
   const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
   const vaParam    = () => viewAs ? `?viewAs=${encodeURIComponent(viewAs)}` : ''
 
-  const EMPTY_STEP = { subject: '', body: '', delayDays: 1, senderName: '' }
+  const EMPTY_STEP = { subject: '', body: '', delayDays: 1, senderName: '', trigger: 'always' }
   const EMPTY_FORM = { name: '', steps: [{ ...EMPTY_STEP, delayDays: 0 }] }
   const [form, setForm] = useState(EMPTY_FORM)
 
@@ -140,12 +140,17 @@ export default function Drip() {
                           {idx < (seq.steps||[]).length - 1 && <div className="w-px flex-1 bg-indigo-100 mt-1"/>}
                         </div>
                         <div className="flex-1 pb-4">
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <span className="text-xs font-bold text-indigo-600">Step {idx + 1}</span>
                             {idx === 0 ? (
                               <span className="text-xs text-slate-400 flex items-center gap-1"><Clock size={10}/> Immediately</span>
                             ) : (
                               <span className="text-xs text-slate-400 flex items-center gap-1"><Clock size={10}/> After {step.delayDays} day{step.delayDays !== 1 ? 's' : ''}</span>
+                            )}
+                            {idx > 0 && step.trigger && step.trigger !== 'always' && (
+                              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-violet-100 text-violet-600">
+                                {{if_opened:'if opened',if_clicked:'if clicked',if_not_opened:'if not opened'}[step.trigger] || step.trigger}
+                              </span>
                             )}
                           </div>
                           <p className="text-sm font-semibold text-slate-800">{step.subject || '(no subject)'}</p>
@@ -193,6 +198,23 @@ export default function Drip() {
                           className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"/></div>
                     )}
                   </div>
+                  {idx > 0 && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">
+                        Send condition <span className="text-slate-400 font-normal">(based on lead behaviour)</span>
+                      </label>
+                      <select
+                        value={step.trigger || 'always'}
+                        onChange={e => updateStep(idx, 'trigger', e.target.value)}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      >
+                        <option value="always">Always send (time-based only)</option>
+                        <option value="if_opened">Only if lead opened a previous email</option>
+                        <option value="if_clicked">Only if lead clicked a link</option>
+                        <option value="if_not_opened">Only if lead has NOT opened (no engagement)</option>
+                      </select>
+                    </div>
+                  )}
                   <Textarea label="Email Body" value={step.body} onChange={e => updateStep(idx,'body',e.target.value)} rows={3} placeholder="Email body… Use [name], [company] for personalisation"/>
                 </div>
               ))}

@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Tracking System</title>
+    <style>
+        body { font-family: system-ui; max-width: 1000px; margin: 50px auto; padding: 20px; }
+        .btn { background: #2563eb; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; margin: 10px 5px; }
+        .btn:hover { background: #1d4ed8; }
+        .result { margin-top: 20px; padding: 15px; border-radius: 6px; background: #f8fafc; border: 1px solid #e2e8f0; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .success { background: #dcfce7; color: #166534; }
+        .error { background: #fee2e2; color: #dc2626; }
+        .info { background: #dbeafe; color: #1d4ed8; }
+        .warning { background: #fef3c7; color: #92400e; }
+        pre { background: #f1f5f9; padding: 10px; border-radius: 4px; white-space: pre-wrap; font-size: 12px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .test-section { border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 15px 0; }
+        input { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Debug Tracking System</h1>
+    <p>Comprehensive tracking system diagnostics</p>
+    
+    <div class="grid">
+        <div class="test-section">
+            <h3>🎯 Test Tracking Pixel</h3>
+            <input type="text" id="testLeadId" placeholder="Lead ID (e.g., lead_123)" value="test_lead_001" />
+            <button class="btn" onclick="testTrackingPixel()">Test Open Tracking</button>
+            <div id="pixelResult"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>🔗 Test Click Tracking</h3>
+            <input type="text" id="clickLeadId" placeholder="Lead ID" value="test_lead_001" />
+            <input type="text" id="clickUrl" placeholder="Target URL" value="https://enginerds.in" />
+            <button class="btn" onclick="testClickTracking()">Test Click Tracking</button>
+            <div id="clickResult"></div>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h3>📊 Test Tracking Stats</h3>
+        <input type="text" id="statsLeadIds" placeholder="Lead IDs (comma-separated)" value="test_lead_001,test_lead_002" />
+        <button class="btn" onclick="testTrackingStats()">Get Tracking Stats</button>
+        <div id="statsResult"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>🗄️ Database Connection Test</h3>
+        <button class="btn" onclick="testDatabase()">Test Database Connection</button>
+        <div id="dbResult"></div>
+    </div>
+    
+    <div style="text-align: center; margin: 30px 0;">
+        <button class="btn" onclick="runAllTests()" style="background: #059669;">🚀 Run All Tests</button>
+        <button class="btn" onclick="clearResults()" style="background: #6b7280;">Clear Results</button>
+    </div>
+    
+    <div id="allResults"></div>
+    
+    <script>
+        async function testTrackingPixel() {
+            const resultDiv = document.getElementById('pixelResult');
+            const leadId = document.getElementById('testLeadId').value.trim();
+            
+            if (!leadId) {
+                resultDiv.innerHTML = '<div class="error status">❌ Please enter a Lead ID</div>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<div class="info status">⏳ Testing tracking pixel...</div>';
+            
+            try {
+                // Test the tracking pixel endpoint
+                const pixelUrl = `/api/track-open?id=${leadId}`;
+                console.log('Testing pixel URL:', pixelUrl);
+                
+                const response = await fetch(pixelUrl);
+                
+                if (response.ok) {
+                    const contentType = response.headers.get('content-type');
+                    const isImage = contentType && contentType.includes('image');
+                    
+                    resultDiv.innerHTML = `
+                        <div class="success status">✅ Tracking pixel loaded successfully</div>
+                        <div style="margin-top: 10px; font-size: 13px;">
+                            <strong>Response Details:</strong><br>
+                            • Status: ${response.status}<br>
+                            • Content-Type: ${contentType}<br>
+                            • Is Image: ${isImage ? 'Yes' : 'No'}<br>
+                            • URL: ${pixelUrl}
+                        </div>
+                        <div style="margin-top: 10px;">
+                            <img src="${pixelUrl}" width="1" height="1" style="border: 1px solid red;" 
+                                 onload="console.log('Pixel loaded successfully')" 
+                                 onerror="console.log('Pixel failed to load')" />
+                            <small>↑ Actual tracking pixel (1x1, red border for visibility)</small>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="error status">❌ Tracking pixel failed</div>
+                        <div style="margin-top: 10px;">
+                            <strong>Error:</strong> ${response.status} ${response.statusText}<br>
+                            <strong>URL:</strong> ${pixelUrl}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error status">❌ Network Error: ${error.message}</div>
+                `;
+            }
+        }
+        
+        async function testClickTracking() {
+            const resultDiv = document.getElementById('clickResult');
+            const leadId = document.getElementById('clickLeadId').value.trim();
+            const targetUrl = document.getElementById('clickUrl').value.trim();
+            
+            if (!leadId || !targetUrl) {
+                resultDiv.innerHTML = '<div class="error status">❌ Please enter Lead ID and Target URL</div>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<div class="info status">⏳ Testing click tracking...</div>';
+            
+            try {
+                const clickUrl = `/api/track-click?id=${leadId}&url=${encodeURIComponent(targetUrl)}`;
+                console.log('Testing click URL:', clickUrl);
+                
+                // Note: This will redirect, so we can't easily test the response
+                resultDiv.innerHTML = `
+                    <div class="info status">🔗 Click tracking URL generated</div>
+                    <div style="margin-top: 10px;">
+                        <strong>Click URL:</strong><br>
+                        <a href="${clickUrl}" target="_blank" style="word-break: break-all;">${clickUrl}</a><br>
+                        <small>Click the link above to test click tracking (opens in new tab)</small>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error status">❌ Error: ${error.message}</div>
+                `;
+            }
+        }
+        
+        async function testTrackingStats() {
+            const resultDiv = document.getElementById('statsResult');
+            const leadIds = document.getElementById('statsLeadIds').value.trim();
+            
+            if (!leadIds) {
+                resultDiv.innerHTML = '<div class="error status">❌ Please enter Lead IDs</div>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<div class="info status">⏳ Fetching tracking stats...</div>';
+            
+            try {
+                const response = await fetch(`/api/tracking-stats?ids=${encodeURIComponent(leadIds)}`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    const leadIdArray = leadIds.split(',').map(id => id.trim());
+                    let statsHtml = '<div class="success status">✅ Tracking stats retrieved</div>';
+                    
+                    statsHtml += '<div style="margin-top: 15px;"><strong>Stats by Lead:</strong></div>';
+                    
+                    leadIdArray.forEach(leadId => {
+                        const stats = data[leadId] || { opens: 0, clicks: 0 };
+                        statsHtml += `
+                            <div style="margin: 10px 0; padding: 10px; background: white; border-radius: 4px; border: 1px solid #e5e7eb;">
+                                <strong>${leadId}:</strong> ${stats.opens} opens, ${stats.clicks} clicks
+                            </div>
+                        `;
+                    });
+                    
+                    statsHtml += `
+                        <details style="margin-top: 15px;">
+                            <summary>Raw Response</summary>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </details>
+                    `;
+                    
+                    resultDiv.innerHTML = statsHtml;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="error status">❌ Failed to fetch stats</div>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error status">❌ Network Error: ${error.message}</div>
+                `;
+            }
+        }
+        
+        async function testDatabase() {
+            const resultDiv = document.getElementById('dbResult');
+            resultDiv.innerHTML = '<div class="info status">⏳ Testing database connection...</div>';
+            
+            try {
+                // Test by trying to get tracking stats (this will test DB connection)
+                const response = await fetch('/api/tracking-stats?ids=db_test');
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    resultDiv.innerHTML = `
+                        <div class="success status">✅ Database connection working</div>
+                        <div style="margin-top: 10px;">
+                            <strong>Test Result:</strong> Successfully queried database<br>
+                            <strong>Response:</strong> ${JSON.stringify(data)}
+                        </div>
+                    `;
+                } else {
+                    const errorData = await response.text();
+                    resultDiv.innerHTML = `
+                        <div class="error status">❌ Database connection failed</div>
+                        <div style="margin-top: 10px;">
+                            <strong>Status:</strong> ${response.status}<br>
+                            <strong>Error:</strong> ${errorData}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error status">❌ Database test failed: ${error.message}</div>
+                `;
+            }
+        }
+        
+        async function runAllTests() {
+            const resultDiv = document.getElementById('allResults');
+            resultDiv.innerHTML = '<div class="info status">⏳ Running comprehensive tracking tests...</div>';
+            
+            const tests = [
+                { name: 'Database Connection', test: testDatabase, resultId: 'dbResult' },
+                { name: 'Tracking Pixel', test: testTrackingPixel, resultId: 'pixelResult' },
+                { name: 'Tracking Stats', test: testTrackingStats, resultId: 'statsResult' }
+            ];
+            
+            let allResults = '<div class="info status">📋 Comprehensive Test Results</div>';
+            
+            for (const test of tests) {
+                try {
+                    await test.test();
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second between tests
+                    
+                    const resultElement = document.getElementById(test.resultId);
+                    const resultContent = resultElement.innerHTML;
+                    const isSuccess = resultContent.includes('✅');
+                    
+                    allResults += `
+                        <div style="margin: 15px 0; padding: 15px; border-radius: 8px; border: 1px solid ${isSuccess ? '#bbf7d0' : '#fecaca'}; background: ${isSuccess ? '#f0fdf4' : '#fef2f2'};">
+                            <h4 style="margin: 0 0 10px 0;">${isSuccess ? '✅' : '❌'} ${test.name}</h4>
+                            ${resultContent}
+                        </div>
+                    `;
+                } catch (error) {
+                    allResults += `
+                        <div style="margin: 15px 0; padding: 15px; border-radius: 8px; border: 1px solid #fecaca; background: #fef2f2;">
+                            <h4 style="margin: 0 0 10px 0;">❌ ${test.name}</h4>
+                            <div class="error status">Error: ${error.message}</div>
+                        </div>
+                    `;
+                }
+            }
+            
+            resultDiv.innerHTML = allResults;
+        }
+        
+        function clearResults() {
+            document.getElementById('pixelResult').innerHTML = '';
+            document.getElementById('clickResult').innerHTML = '';
+            document.getElementById('statsResult').innerHTML = '';
+            document.getElementById('dbResult').innerHTML = '';
+            document.getElementById('allResults').innerHTML = '';
+        }
+        
+        // Auto-focus first input
+        document.getElementById('testLeadId').focus();
+    </script>
+</body>
+</html>

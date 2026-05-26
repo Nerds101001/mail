@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test AI Variants & Industry Focus</title>
+    <style>
+        body { font-family: system-ui; max-width: 1000px; margin: 50px auto; padding: 20px; }
+        .btn { background: #2563eb; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; margin: 10px 5px; }
+        .btn:hover { background: #1d4ed8; }
+        .result { margin-top: 20px; padding: 15px; border-radius: 6px; background: #f8fafc; border: 1px solid #e2e8f0; }
+        input, select, textarea { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .success { background: #dcfce7; color: #166534; }
+        .error { background: #fee2e2; color: #dc2626; }
+        .info { background: #dbeafe; color: #1d4ed8; }
+        .warning { background: #fef3c7; color: #92400e; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .email-variant { background: white; border: 2px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 15px 0; }
+        .subject-line { font-weight: bold; color: #1f2937; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #e5e7eb; }
+        .variant-header { background: #f3f4f6; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-weight: 600; }
+        pre { background: #f1f5f9; padding: 10px; border-radius: 4px; white-space: pre-wrap; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Test AI Variants & Industry-Specific Content</h1>
+    <p>Test multiple email variants with industry-specific pain points and solutions</p>
+    
+    <div class="grid">
+        <div>
+            <label>NVIDIA API Key:</label>
+            <input type="password" id="apiKey" placeholder="nvapi-..." />
+            
+            <label>Lead Name:</label>
+            <input type="text" id="name" value="Sarah Johnson" />
+            
+            <label>Company:</label>
+            <input type="text" id="company" value="TechFlow Solutions" />
+            
+            <label>Role:</label>
+            <input type="text" id="role" value="CTO" />
+        </div>
+        <div>
+            <label>Industry Category:</label>
+            <select id="category">
+                <option value="Technology">Technology</option>
+                <option value="Healthcare">Healthcare</option>
+                <option value="Finance">Finance</option>
+                <option value="Manufacturing">Manufacturing</option>
+                <option value="Retail">Retail</option>
+                <option value="Education">Education</option>
+                <option value="Real Estate">Real Estate</option>
+            </select>
+            
+            <label>Number of Variants:</label>
+            <select id="count">
+                <option value="1">1 Email</option>
+                <option value="3">3 Variants</option>
+                <option value="5" selected>5 Variants</option>
+            </select>
+            
+            <label>Custom Prompt (optional):</label>
+            <textarea id="customPrompt" rows="2" placeholder="Focus on ROI, mention case studies, keep under 150 words..."></textarea>
+        </div>
+    </div>
+    
+    <div style="text-align: center; margin: 30px 0;">
+        <button class="btn" onclick="testVariants()">🚀 Generate Industry-Specific Variants</button>
+        <button class="btn" onclick="testSingleEmail()" style="background: #059669;">Test Single Email</button>
+        <button class="btn" onclick="clearResults()" style="background: #6b7280;">Clear Results</button>
+    </div>
+    
+    <div id="result"></div>
+    
+    <script>
+        async function testVariants() {
+            const resultDiv = document.getElementById('result');
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const name = document.getElementById('name').value.trim();
+            const company = document.getElementById('company').value.trim();
+            const role = document.getElementById('role').value.trim();
+            const category = document.getElementById('category').value;
+            const count = parseInt(document.getElementById('count').value);
+            const customPrompt = document.getElementById('customPrompt').value.trim();
+            
+            if (!apiKey || !name || !company) {
+                resultDiv.innerHTML = '<div class="error status">❌ Please fill required fields (API Key, Name, Company)</div>';
+                return;
+            }
+            
+            resultDiv.innerHTML = `<div class="info status">⏳ Generating ${count} industry-specific email variants for ${category}...</div>`;
+            
+            const startTime = Date.now();
+            
+            try {
+                const response = await fetch('/api/ops?type=generate-ai', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name,
+                        company: company,
+                        role: role,
+                        category: category,
+                        apiKey: apiKey,
+                        customPrompt: customPrompt || undefined,
+                        count: count
+                    })
+                });
+                
+                const endTime = Date.now();
+                const duration = ((endTime - startTime) / 1000).toFixed(1);
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayVariants(data, duration, count, category);
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="error status">❌ Error: ${data.error}</div>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                }
+            } catch (error) {
+                const endTime = Date.now();
+                const duration = ((endTime - startTime) / 1000).toFixed(1);
+                
+                resultDiv.innerHTML = `
+                    <div class="error status">❌ Network Error (${duration}s): ${error.message}</div>
+                `;
+            }
+        }
+        
+        async function testSingleEmail() {
+            document.getElementById('count').value = '1';
+            await testVariants();
+        }
+        
+        function displayVariants(data, duration, expectedCount, category) {
+            const resultDiv = document.getElementById('result');
+            
+            const variants = data.variants || [data];
+            const actualCount = variants.length;
+            const isFallback = data.fallback || false;
+            
+            let html = `
+                <div class="${actualCount === expectedCount ? 'success' : 'warning'} status">
+                    ${isFallback ? '⚠️ Fallback Response' : '✅ AI Generation Success'} 
+                    - Generated ${actualCount}/${expectedCount} variants in ${duration}s
+                </div>
+            `;
+            
+            if (isFallback) {
+                html += '<div class="warning status">⚠️ Using fallback templates. Check your NVIDIA API key or try again.</div>';
+            }
+            
+            // Analysis section
+            html += `
+                <div class="info status">
+                    <strong>📊 Analysis:</strong><br>
+                    • Industry: ${category}<br>
+                    • Variants Generated: ${actualCount}<br>
+                    • Response Time: ${duration}s<br>
+                    • Fallback Used: ${isFallback ? 'Yes' : 'No'}
+                </div>
+            `;
+            
+            // Display each variant
+            variants.forEach((variant, index) => {
+                const variantNum = variants.length > 1 ? ` #${index + 1}` : '';
+                
+                // Check for industry-specific content
+                const hasIndustryTerms = checkIndustryContent(variant.body, category);
+                const hasQuantifiedBenefits = /\d+%|\d+x|reduce.*\d+|increase.*\d+|save.*\d+/i.test(variant.body);
+                const hasSpecificPainPoints = checkPainPoints(variant.body, category);
+                
+                html += `
+                    <div class="email-variant">
+                        <div class="variant-header">
+                            Email Variant${variantNum}
+                            ${hasIndustryTerms ? '✅ Industry-Specific' : '❌ Generic'}
+                            ${hasQuantifiedBenefits ? '✅ Quantified Benefits' : '❌ No Numbers'}
+                            ${hasSpecificPainPoints ? '✅ Pain Points' : '❌ Generic Issues'}
+                        </div>
+                        
+                        <div class="subject-line">
+                            <strong>Subject:</strong> ${escapeHtml(variant.subject)}
+                        </div>
+                        
+                        <div style="line-height: 1.6; color: #374151;">
+                            ${escapeHtml(variant.body).replace(/\n/g, '<br>')}
+                        </div>
+                        
+                        <details style="margin-top: 15px; font-size: 13px;">
+                            <summary style="cursor: pointer; color: #6b7280;">Content Analysis</summary>
+                            <div style="margin-top: 10px; padding: 10px; background: #f8fafc; border-radius: 4px;">
+                                • Industry Terms: ${hasIndustryTerms ? '✅ Found' : '❌ Missing'}<br>
+                                • Quantified Benefits: ${hasQuantifiedBenefits ? '✅ Found' : '❌ Missing'}<br>
+                                • Specific Pain Points: ${hasSpecificPainPoints ? '✅ Found' : '❌ Missing'}<br>
+                                • Word Count: ${variant.body.split(' ').length} words<br>
+                                • Character Count: ${variant.body.length} characters
+                            </div>
+                        </details>
+                    </div>
+                `;
+            });
+            
+            // Raw response for debugging
+            html += `
+                <details style="margin-top: 20px;">
+                    <summary style="cursor: pointer; font-weight: 600;">Raw API Response</summary>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                </details>
+            `;
+            
+            resultDiv.innerHTML = html;
+        }
+        
+        function checkIndustryContent(body, category) {
+            const industryTerms = {
+                'Technology': ['cloud', 'DevOps', 'infrastructure', 'scalability', 'cybersecurity', 'API', 'integration', 'automation'],
+                'Healthcare': ['patient', 'HIPAA', 'compliance', 'medical', 'healthcare', 'clinical', 'treatment'],
+                'Finance': ['financial', 'banking', 'compliance', 'regulatory', 'fraud', 'fintech', 'investment'],
+                'Manufacturing': ['supply chain', 'inventory', 'production', 'quality control', 'manufacturing', 'equipment'],
+                'Retail': ['customer', 'inventory', 'e-commerce', 'sales', 'retail', 'shopping', 'merchandise'],
+                'Education': ['student', 'learning', 'educational', 'academic', 'curriculum', 'teaching'],
+                'Real Estate': ['property', 'real estate', 'market', 'listing', 'investment', 'commercial']
+            };
+            
+            const terms = industryTerms[category] || [];
+            return terms.some(term => body.toLowerCase().includes(term.toLowerCase()));
+        }
+        
+        function checkPainPoints(body, category) {
+            const painPoints = [
+                'challenge', 'struggle', 'difficulty', 'problem', 'issue', 'inefficiency', 
+                'bottleneck', 'overhead', 'manual process', 'time-consuming', 'costly'
+            ];
+            
+            return painPoints.some(pain => body.toLowerCase().includes(pain.toLowerCase()));
+        }
+        
+        function clearResults() {
+            document.getElementById('result').innerHTML = '';
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Auto-focus API key field
+        document.getElementById('apiKey').focus();
+    </script>
+</body>
+</html>

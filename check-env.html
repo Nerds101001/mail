@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Environment Check - Enginerds CRM</title>
+    <style>
+        body { font-family: system-ui; max-width: 800px; margin: 50px auto; padding: 20px; background: #f8fafc; }
+        .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .status { padding: 12px; margin: 12px 0; border-radius: 6px; font-weight: 500; }
+        .success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+        .error { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
+        .warning { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+        .info { background: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe; }
+        .btn { background: #2563eb; color: white; padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; margin: 10px 5px; }
+        .btn:hover { background: #1d4ed8; }
+        pre { background: #f8fafc; padding: 15px; border-radius: 6px; border: 1px solid #e2e8f0; white-space: pre-wrap; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0; }
+        .check-item { padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; }
+        .check-item h4 { margin: 0 0 10px 0; color: #374151; }
+        .check-item p { margin: 0; font-size: 14px; color: #6b7280; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Environment & API Check</h1>
+        <p style="color: #6b7280; margin-bottom: 30px;">Check if all required environment variables and API endpoints are working</p>
+        
+        <div style="text-align: center; margin: 30px 0;">
+            <button class="btn" onclick="runAllChecks()">🚀 Run All Checks</button>
+            <button class="btn" onclick="testLogin()" style="background: #059669;">Test Login</button>
+            <button class="btn" onclick="clearResults()" style="background: #6b7280;">Clear Results</button>
+        </div>
+        
+        <div id="results"></div>
+        
+        <div class="grid">
+            <div class="check-item">
+                <h4>🔑 Authentication</h4>
+                <p>Tests login endpoint and token validation</p>
+            </div>
+            <div class="check-item">
+                <h4>💾 Database</h4>
+                <p>Tests Postgres connection and table creation</p>
+            </div>
+            <div class="check-item">
+                <h4>📧 Gmail Integration</h4>
+                <p>Tests Gmail OAuth status</p>
+            </div>
+            <div class="check-item">
+                <h4>🤖 AI Generation</h4>
+                <p>Tests NVIDIA NIM API availability</p>
+            </div>
+        </div>
+        
+        <div class="info status">
+            <strong>Required Environment Variables:</strong><br>
+            • <code>CRM_PIN</code> - Admin login PIN<br>
+            • <code>DATABASE_URL</code> or <code>POSTGRES_URL</code> - Neon Postgres connection<br>
+            • <code>GOOGLE_CLIENT_ID</code> & <code>GOOGLE_CLIENT_SECRET</code> - Gmail OAuth<br>
+            • <code>NVIDIA_API_KEY</code> - AI email generation (optional)
+        </div>
+    </div>
+    
+    <script>
+        async function runAllChecks() {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<div class="info status">⏳ Running comprehensive checks...</div>';
+            
+            const checks = [
+                { name: 'Auth Endpoint', test: testAuthEndpoint },
+                { name: 'Gmail Status', test: testGmailStatus },
+                { name: 'Tasks Endpoint', test: testTasksEndpoint },
+                { name: 'CRM Data Endpoints', test: testCrmEndpoints },
+                { name: 'AI Generation', test: testAiGeneration }
+            ];
+            
+            let results = [];
+            
+            for (const check of checks) {
+                try {
+                    const result = await check.test();
+                    results.push({ name: check.name, ...result });
+                } catch (error) {
+                    results.push({ 
+                        name: check.name, 
+                        success: false, 
+                        message: error.message,
+                        details: 'Network error or endpoint not found'
+                    });
+                }
+            }
+            
+            displayResults(results);
+        }
+        
+        async function testAuthEndpoint() {
+            const response = await fetch('/api/auth?token=invalid_token');
+            const data = await response.json();
+            
+            if (response.status === 200 && !data.ok) {
+                return {
+                    success: true,
+                    message: 'Auth endpoint working - correctly rejected invalid token',
+                    details: `Status: ${response.status}, Response: ${JSON.stringify(data)}`
+                };
+            } else {
+                return {
+                    success: false,
+                    message: 'Auth endpoint issue',
+                    details: `Status: ${response.status}, Response: ${JSON.stringify(data)}`
+                };
+            }
+        }
+        
+        async function testGmailStatus() {
+            const response = await fetch('/api/ops?type=gmail-status');
+            
+            if (response.ok) {
+                const data = await response.json();
+                return {
+                    success: true,
+                    message: 'Gmail status endpoint working',
+                    details: `Connected: ${data.connected}, Email: ${data.email || 'None'}`
+                };
+            } else {
+                return {
+                    success: false,
+                    message: 'Gmail status endpoint failed',
+                    details: `Status: ${response.status}`
+                };
+            }
+        }
+        
+        async function testTasksEndpoint() {
+            const response = await fetch('/api/ops?type=tasks');
+            
+            if (response.ok) {
+                const data = await response.json();
+                return {
+                    success: true,
+                    message: 'Tasks endpoint working',
+                    details: `Found ${data.length || 0} tasks`
+                };
+            } else {
+                return {
+                    success: false,
+                    message: 'Tasks endpoint failed',
+                    details: `Status: ${response.status}`
+                };
+            }
+        }
+        
+        async function testCrmEndpoints() {
+            try {
+                const loadResponse = await fetch('/api/crm?type=load');
+                const loadOk = loadResponse.status === 401 || loadResponse.ok; // 401 is expected without auth
+                
+                return {
+                    success: loadOk,
+                    message: loadOk ? 'CRM endpoints accessible' : 'CRM endpoints failed',
+                    details: `Load endpoint status: ${loadResponse.status}`
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    message: 'CRM endpoints failed',
+                    details: error.message
+                };
+            }
+        }
+        
+        async function testAiGeneration() {
+            const response = await fetch('/api/ops?type=generate-ai', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: 'Test', company: 'Test Corp' })
+            });
+            
+            const data = await response.json();
+            
+            if (response.status === 400 && data.error && data.error.includes('API key')) {
+                return {
+                    success: true,
+                    message: 'AI generation endpoint working - requires API key',
+                    details: 'Endpoint exists and validates API key requirement'
+                };
+            } else if (response.ok) {
+                return {
+                    success: true,
+                    message: 'AI generation working',
+                    details: `Generated: ${data.subject?.substring(0, 50)}...`
+                };
+            } else {
+                return {
+                    success: false,
+                    message: 'AI generation endpoint failed',
+                    details: `Status: ${response.status}, Error: ${data.error || 'Unknown'}`
+                };
+            }
+        }
+        
+        async function testLogin() {
+            const pin = prompt('Enter your CRM PIN to test login:');
+            if (!pin) return;
+            
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<div class="info status">⏳ Testing login...</div>';
+            
+            try {
+                const response = await fetch('/api/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pin: pin })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.ok) {
+                    resultsDiv.innerHTML = `
+                        <div class="success status">✅ Login Successful!</div>
+                        <div style="margin-top: 15px; padding: 15px; background: #f8fafc; border-radius: 6px;">
+                            <strong>Login Details:</strong><br>
+                            • Token: ${data.token.substring(0, 20)}...<br>
+                            • Role: ${data.role}<br>
+                            • User ID: ${data.userId}<br>
+                            • Name: ${data.name}
+                        </div>
+                    `;
+                } else {
+                    resultsDiv.innerHTML = `
+                        <div class="error status">❌ Login Failed</div>
+                        <div style="margin-top: 15px; padding: 15px; background: #fee2e2; border-radius: 6px;">
+                            <strong>Error:</strong> ${data.error || 'Invalid PIN'}<br>
+                            <strong>Status:</strong> ${response.status}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultsDiv.innerHTML = `
+                    <div class="error status">❌ Network Error</div>
+                    <div style="margin-top: 15px; padding: 15px; background: #fee2e2; border-radius: 6px;">
+                        <strong>Error:</strong> ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        function displayResults(results) {
+            const resultsDiv = document.getElementById('results');
+            
+            const successCount = results.filter(r => r.success).length;
+            const totalCount = results.length;
+            
+            let html = `
+                <div class="${successCount === totalCount ? 'success' : 'warning'} status">
+                    ${successCount === totalCount ? '✅' : '⚠️'} 
+                    ${successCount}/${totalCount} checks passed
+                </div>
+            `;
+            
+            results.forEach(result => {
+                html += `
+                    <div style="margin: 15px 0; padding: 15px; border: 1px solid ${result.success ? '#bbf7d0' : '#fecaca'}; border-radius: 8px; background: ${result.success ? '#f0fdf4' : '#fef2f2'};">
+                        <h4 style="margin: 0 0 10px 0; color: ${result.success ? '#166534' : '#dc2626'};">
+                            ${result.success ? '✅' : '❌'} ${result.name}
+                        </h4>
+                        <p style="margin: 0 0 10px 0; font-weight: 500;">${result.message}</p>
+                        <details style="font-size: 13px; color: #6b7280;">
+                            <summary style="cursor: pointer;">Details</summary>
+                            <pre style="margin-top: 10px; font-size: 12px;">${result.details}</pre>
+                        </details>
+                    </div>
+                `;
+            });
+            
+            resultsDiv.innerHTML = html;
+        }
+        
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+    </script>
+</body>
+</html>
