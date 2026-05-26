@@ -531,6 +531,36 @@ export default function Settings() {
           </Card>
         )}
 
+        {/* DEBUG: Email Usage Tracking Status */}
+        <Card className="p-5 bg-blue-50 border border-blue-100">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold text-blue-900 flex items-center gap-2">
+              <span className="text-xs px-2 py-1 rounded bg-blue-100">DEBUG</span> Email Usage Status
+            </h3>
+            <button
+              onClick={() => loadSmtpUsage()}
+              className="text-xs px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded"
+            >
+              Reload
+            </button>
+          </div>
+          <div className="bg-white rounded-lg p-3 font-mono text-xs text-slate-600 space-y-1">
+            <div>Gmail Accounts: <span className="text-slate-900 font-semibold">{gmailAccounts.length}</span></div>
+            <div>Profiles in Context: <span className="text-slate-900 font-semibold">{profiles.length}</span></div>
+            <div>API Profiles Loaded: <span className={`font-semibold ${smtpUsage?.profiles?.length ? 'text-emerald-600' : 'text-red-600'}`}>{smtpUsage?.profiles?.length || 0}</span></div>
+            {smtpUsage?.profiles?.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-slate-200">
+                <p className="text-slate-700 font-semibold mb-1">API Profile Emails:</p>
+                {smtpUsage.profiles.map((p, i) => (
+                  <div key={i} className="text-blue-700">
+                    • {p.email} ({p.sent}/{p.limit})
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Card>
+
         {/* Deployment Info */}
         <Card className="p-5">
           <h3 className="text-sm font-bold text-slate-900 mb-3">Deployment Info</h3>
