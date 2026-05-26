@@ -125,16 +125,23 @@ export default function Settings() {
         body: JSON.stringify({ email })
       })
       // Remove from local profiles store
-      setProfiles(profiles.filter(p => !(p.type === 'gmail' && p.user === email)))
-      pushToRedis()
+      const updated = profiles.filter(p => !(p.type === 'gmail' && p.user === email))
+      setProfiles(updated)
       await loadGmailAccounts()
+      // Reload usage data after changes propagate
+      setTimeout(() => loadSmtpUsage(), 600)
       toast(`Disconnected ${email}`, 'success')
     } catch(e) { toast('Disconnect failed: ' + e.message, 'error') }
   }
 
   function toggleGmailActive(email) {
-    setProfiles(profiles.map(p => p.type === 'gmail' && p.user === email ? { ...p, active: !p.active } : p))
-    pushToRedis()
+    const updated = profiles.map(p => p.type === 'gmail' && p.user === email ? { ...p, active: !p.active } : p)
+    setProfiles(updated)
+    // Save immediately and reload usage
+    setTimeout(() => {
+      // Reload usage data after save completes
+      loadSmtpUsage()
+    }, 600) // match the debounce delay in store + buffer
     setGmailAccounts(prev => prev.map(a => a.user === email ? { ...a, active: !a.active } : a))
   }
 
