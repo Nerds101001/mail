@@ -504,6 +504,7 @@ export default function Leads() {
               <th className="px-4 py-3 w-10"><input type="checkbox" className="rounded" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleAll} /></th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Name</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Email</th>
+              <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Phone</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Company</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Group</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Stage</th>
@@ -516,7 +517,7 @@ export default function Leads() {
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={11}><Empty icon={Users} title="No leads found" sub="Try adjusting your filters" /></td></tr>
+              <tr><td colSpan={12}><Empty icon={Users} title="No leads found" sub="Try adjusting your filters" /></td></tr>
             ) : paginated.map(l => {
               const sc = STAGE_COLORS[l.pipelineStage] || STAGE_COLORS.COLD
               const stc = STATUS_COLORS[l.status] || 'bg-slate-100 text-slate-600'
@@ -534,6 +535,7 @@ export default function Leads() {
                     </div>
                   </td>
                   <td className="px-4 py-3 text-slate-500 font-mono text-xs">{l.email}</td>
+                  <td className="px-4 py-3 text-slate-600 text-xs">{l.phone || '—'}</td>
                   <td className="px-4 py-3 text-slate-600">{l.company || '—'}</td>
                   <td className="px-4 py-3">
                     <span className="badge text-[11px] bg-blue-100 text-blue-700">{l.group || 'Default'}</span>

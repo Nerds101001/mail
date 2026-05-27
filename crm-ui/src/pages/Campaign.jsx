@@ -210,6 +210,12 @@ export default function Campaign() {
     if (cfg.target === 'tag')      return leads.filter(l => (l.tags||[]).some(t => t.toLowerCase() === fv))
     if (cfg.target === 'group')    return leads.filter(l => (l.group||'').toLowerCase() === fv)
     if (cfg.target === 'stage')    return leads.filter(l => (l.pipelineStage||'').toLowerCase() === fv)
+    if (cfg.target === 'campaign-stage') {
+      const [campaignId, stage] = cfg.filterVal.split('|')
+      if (!stage) return []
+      // Returns all leads in the specified stage (will be filtered to campaign leads when campaign is fetched)
+      return leads.filter(l => (l.pipelineStage||'').toLowerCase() === stage.toLowerCase())
+    }
     if (cfg.target === 'followup-campaign') return followupCampaignLeads ? leads.filter(l => followupCampaignLeads.has(l.id)) : []
     return []
   }
@@ -586,6 +592,7 @@ export default function Campaign() {
                 <option value="followup">Follow-Up</option>
                 <option value="group">Specific Group</option>
                 <option value="stage">Specific Pipeline Stage</option>
+                <option value="campaign-stage">Campaign → Lead Stage</option>
                 <option value="followup-campaign">Follow-up to Campaign</option>
               </select>
             </div>
@@ -609,6 +616,43 @@ export default function Campaign() {
                     <option key={stage} value={stage}>{stage}</option>
                   ))}
                 </select>
+              </div>
+            )}
+            {cfg.target === 'campaign-stage' && (
+              <div className="space-y-3">
+                <div>
+                  <label className="label">Select Campaign</label>
+                  <select className="input" value={cfg.filterVal?.split('|')[0] || ''} onChange={e=>{
+                    const campaignId = e.target.value
+                    setCfg({...cfg, filterVal: campaignId ? `${campaignId}|` : ''})
+                  }}>
+                    <option value="">Choose a campaign...</option>
+                    {campaigns.length > 0 ? campaigns.map(camp => (
+                      <option key={camp.id} value={camp.id}>{camp.name} ({camp.stats?.sent || 0} sent)</option>
+                    )) : (
+                      <option disabled>No campaigns available</option>
+                    )}
+                  </select>
+                </div>
+                {cfg.filterVal?.split('|')[0] && (
+                  <div>
+                    <label className="label">Select Lead Stage</label>
+                    <select className="input" value={cfg.filterVal?.split('|')[1] || ''} onChange={e=>{
+                      const campaignId = cfg.filterVal.split('|')[0]
+                      setCfg({...cfg, filterVal: `${campaignId}|${e.target.value}`})
+                    }}>
+                      <option value="">Choose a lead stage...</option>
+                      {uniqueStages.map(stage => (
+                        <option key={stage} value={stage}>{stage}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {cfg.filterVal && cfg.filterVal.includes('|') && (
+                  <p className="text-xs text-blue-600 mt-2">
+                    📧 Will target leads from selected campaign in chosen stage
+                  </p>
+                )}
               </div>
             )}
             {cfg.target === 'followup-campaign' && (
