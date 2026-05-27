@@ -328,15 +328,22 @@ export async function start(config) {
   }
 
   const exhaustedProfiles = new Set()
-  const batchSize = config.batchSize || config.targets.length  // undefined = send all
+  const actualBatchSize = config.batchSize || config.targets.length  // undefined = send all
 
   let i = 0
+  let batchNum = 1
   while (i < config.targets.length) {
     // ── Batch limit reached ──
-    if (i >= batchSize) {
-      _addLog(`⏸ Batch limit (${batchSize}) reached. Click Resume to continue.`, 'warn')
-      await _handlePause(i, config, 'batch')
-      return
+    if (config.batchSize && i > 0 && i % actualBatchSize === 0) {
+      _addLog(`✅ Batch #${batchNum} complete (${actualBatchSize} sent). Auto-resuming batch #${batchNum + 1} in 2 seconds...`, 'success')
+      batchNum++
+      _notify()
+      // Reset exhausted profiles for next batch
+      exhaustedProfiles.clear()
+      // Add a small delay before auto-resuming to avoid overload
+      await new Promise(r => setTimeout(r, 2000))
+      _addLog(`▶ Starting batch #${batchNum}...`, 'info')
+      _notify()
     }
 
     // ── Manual pause ──
@@ -505,6 +512,10 @@ export async function resume(campaign, token, fallbackProfiles = []) {
   }
   _notify()
 
+  // Extract batchSize from cfg if it exists
+  const cfgObj = rc.cfg || { rate: 2 }
+  const resumeBatchSize = cfgObj.batch ? parseInt(cfgObj.batch, 10) : undefined
+
   await start({
     campaignId:         campaign.id,
     campaignName:       campaign.name,
@@ -514,7 +525,7 @@ export async function resume(campaign, token, fallbackProfiles = []) {
     mode:               rc.mode               || (variants.length ? 'ai' : 'custom'),
     customSubj:         rc.customSubj         || '',
     customBody:         rc.customBody         || '',
-    cfg:                rc.cfg                || { rate: 2 },
+    cfg:                cfgObj,
     senderName:         rc.senderName         || campaign.sender || '',
     replyTo:            rc.replyTo            || '',
     selectedAtts:       rc.selectedAtts       || [],
@@ -522,6 +533,7 @@ export async function resume(campaign, token, fallbackProfiles = []) {
     attachmentText:     rc.attachmentText     || '',
     token,
     preInsertLeads: false,   // ← PENDING rows already exist from initial insert
+    batchSize:          resumeBatchSize,     // ← Pass batchSize to start() for auto-batching
     resumeOffset: {
       sent:    campaign.total_sent    || 0,
       failed:  campaign.total_failed  || 0,
