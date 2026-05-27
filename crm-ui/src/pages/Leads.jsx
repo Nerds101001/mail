@@ -179,7 +179,8 @@ export default function Leads() {
     if (ei < 0) { toast('CSV must have Email column', 'error'); return }
 
     const fresh = []
-    let skippedStats = { invalidEmail: 0, duplicateEmail: 0, emptyEmail: 0, processed: 0 }
+    const updated = []
+    let skippedStats = { invalidEmail: 0, emptyEmail: 0, processed: 0 }
 
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''))
@@ -192,9 +193,7 @@ export default function Leads() {
 
       for (const singleEmail of emails) {
         if (!isValidEmail(singleEmail)) { skippedStats.invalidEmail++; continue }
-        if (leads.find(l => l.email.toLowerCase() === singleEmail.toLowerCase())) { skippedStats.duplicateEmail++; continue }
 
-        skippedStats.processed++
         const ci = headers.indexOf('company'), phi = headers.indexOf('phone')
         const cati = headers.indexOf('category'), tagi = headers.indexOf('tags'), ni2 = headers.indexOf('notes')
         const name     = ni >= 0   ? (cols[ni]   || '') : ''
@@ -205,42 +204,71 @@ export default function Leads() {
         const notes    = ni2 >= 0  ? (cols[ni2]  || '') : ''
         const group    = groupName || 'Default'
 
-        fresh.push(enrichLead({
-          id:'lead_'+(Date.now()+i+fresh.length),
-          name, email: singleEmail.toLowerCase(), company, phone, role:'',
-          category, tags, notes, group,
-          status:'VALID', pipelineStage:'COLD', stage:'',
-          opens:0, clicks:0, score:40, lastSent:'', domain:'', priority:'LOW',
-          createdAt:new Date().toISOString()
-        }))
+        // Check if lead already exists
+        const existingLead = leads.find(l => l.email.toLowerCase() === singleEmail.toLowerCase())
+
+        if (existingLead) {
+          // Update existing lead if phone or other fields are provided
+          const updatedLead = { ...existingLead }
+          if (phone) updatedLead.phone = phone
+          if (name) updatedLead.name = name
+          if (company) updatedLead.company = company
+          if (notes) updatedLead.notes = notes
+          // Only update tags if provided and non-empty
+          if (tags.length > 0) updatedLead.tags = tags
+          updated.push(updatedLead)
+        } else {
+          // Add new lead
+          skippedStats.processed++
+          fresh.push(enrichLead({
+            id:'lead_'+(Date.now()+i+fresh.length),
+            name, email: singleEmail.toLowerCase(), company, phone, role:'',
+            category, tags, notes, group,
+            status:'VALID', pipelineStage:'COLD', stage:'',
+            opens:0, clicks:0, score:40, lastSent:'', domain:'', priority:'LOW',
+            createdAt:new Date().toISOString()
+          }))
+        }
       }
     }
 
-    if (!fresh.length) {
-      const totalSkipped = skippedStats.invalidEmail + skippedStats.duplicateEmail + skippedStats.emptyEmail
-      toast(`No new leads imported. Skipped: ${totalSkipped} (${skippedStats.duplicateEmail} duplicates, ${skippedStats.invalidEmail} invalid, ${skippedStats.emptyEmail} empty)`, 'warn')
+    if (!fresh.length && !updated.length) {
+      const totalSkipped = skippedStats.invalidEmail + skippedStats.emptyEmail
+      toast(`No new leads or updates. Skipped: ${totalSkipped} (${skippedStats.invalidEmail} invalid, ${skippedStats.emptyEmail} empty)`, 'warn')
       return
     }
 
-    toast(`Verifying ${fresh.length} emails...`, 'info')
+    // Merge updates back into leads and combine with new leads
+    let newLeads = leads.map(l => {
+      const upd = updated.find(u => u.id === l.id)
+      return upd ? upd : l
+    })
+    newLeads = [...newLeads, ...fresh]
 
-    try {
-      const vr = await fetch('/api/ops?type=verify-bulk', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ emails: fresh.map(l => l.email) }) })
-      const { results } = await vr.json()
-      let invalid = 0
-      fresh.forEach(l => {
-        if (results[l.email] && !results[l.email].valid) { l.status = 'INVALID'; invalid++ }
-      })
-      const newLeads = [...leads, ...fresh]
+    if (fresh.length > 0) {
+      toast(`Verifying ${fresh.length} new emails...`, 'info')
+      try {
+        const vr = await fetch('/api/ops?type=verify-bulk', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ emails: fresh.map(l => l.email) }) })
+        const { results } = await vr.json()
+        let invalid = 0
+        newLeads.forEach(l => {
+          if (fresh.find(f => f.id === l.id) && results[l.email] && !results[l.email].valid) { l.status = 'INVALID'; invalid++ }
+        })
+        save(newLeads)
+        const totalRows = lines.length - 1
+        const totalSkipped = skippedStats.invalidEmail + skippedStats.emptyEmail
+        logActivity(`CSV import: ${fresh.length} new + ${updated.length} updated leads | ${totalSkipped} skipped`)
+        toast(`✅ Imported ${fresh.length} new + Updated ${updated.length} | Skipped: ${totalSkipped}`, 'success')
+      } catch {
+        save(newLeads)
+        logActivity(`CSV import: ${fresh.length} new + ${updated.length} updated leads (verification skipped)`)
+        toast(`✅ Imported ${fresh.length} new + Updated ${updated.length} (verification skipped)`, 'success')
+      }
+    } else if (updated.length > 0) {
+      // Only updates, no new leads to verify
       save(newLeads)
-      const totalRows = lines.length - 1
-      const totalSkipped = skippedStats.invalidEmail + skippedStats.duplicateEmail + skippedStats.emptyEmail
-      logActivity(`CSV import: ${fresh.length} leads (${invalid} invalid) added to group "${groupName || 'Default'}" — ${totalSkipped} skipped`)
-      toast(`✅ Imported ${fresh.length}/${totalRows} to "${groupName || 'Default'}" | Skipped: ${totalSkipped} (${skippedStats.duplicateEmail} dupes, ${skippedStats.invalidEmail} invalid, ${skippedStats.emptyEmail} empty) | ${invalid} flagged`, fresh.length > 0 ? 'success' : 'warn')
-    } catch {
-      save([...leads, ...fresh])
-      const totalSkipped = skippedStats.invalidEmail + skippedStats.duplicateEmail + skippedStats.emptyEmail
-      toast(`✅ Imported ${fresh.length} to "${groupName || 'Default'}" | Skipped: ${totalSkipped} (verification skipped)`, 'success')
+      logActivity(`CSV import: ${updated.length} leads updated`)
+      toast(`✅ Updated ${updated.length} leads`, 'success')
     }
 
     setImportOpen(false); setCsvText(''); setGroupName('')
