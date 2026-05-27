@@ -25,6 +25,43 @@ export default function Campaign() {
   // Get unique groups for dropdown
   const uniqueGroups = [...new Set(leads.map(l => l.group).filter(Boolean))].sort()
 
+  // Get unique pipeline stages for dropdown
+  const uniqueStages = [...new Set(leads.map(l => l.pipelineStage).filter(Boolean))].sort()
+
+  // Load available campaigns for follow-up targeting
+  const [campaigns, setCampaigns] = useState([])
+  const [followupCampaignLeads, setFollowupCampaignLeads] = useState(null)
+
+  useEffect(() => {
+    async function loadCampaigns() {
+      try {
+        const res = await fetch('/api/campaigns', { headers: authHeader() })
+        if (res.ok) {
+          const data = await res.json()
+          setCampaigns((data.campaigns || []).filter(c => c.status === 'RUNNING' || c.status === 'COMPLETED'))
+        }
+      } catch (error) {
+        console.warn('Failed to load campaigns:', error)
+      }
+    }
+    loadCampaigns()
+  }, [viewAs])
+
+  // When follow-up campaign is selected, fetch its data
+  useEffect(() => {
+    if (cfg.target === 'followup-campaign' && cfg.filterVal) {
+      fetch(`/api/campaigns?id=${cfg.filterVal}`, { headers: authHeader() })
+        .then(r => r.json())
+        .then(d => {
+          const zeroOpen = d.leads?.filter(l => !l.opens || l.opens === 0).map(l => l.lead_id) || []
+          setFollowupCampaignLeads(new Set(zeroOpen))
+        })
+        .catch(() => setFollowupCampaignLeads(new Set()))
+    } else {
+      setFollowupCampaignLeads(null)
+    }
+  }, [cfg.target, cfg.filterVal])
+
   // Campaign Brief — the AI brain context
   const [brief, setBrief] = useState({
     product:      '',
@@ -163,6 +200,7 @@ export default function Campaign() {
 
   function getTargets() {
     if (followupIds) return leads.filter(l => followupIds.has(l.id))
+    if (followupCampaignLeads) return leads.filter(l => followupCampaignLeads.has(l.id))
     const fv = cfg.filterVal.trim().toLowerCase()
     if (cfg.target === 'all')      return leads.slice()
     if (cfg.target === 'valid')    return leads.filter(l => l.status === 'VALID')
@@ -171,6 +209,8 @@ export default function Campaign() {
     if (cfg.target === 'category') return leads.filter(l => (l.category||'').toLowerCase() === fv)
     if (cfg.target === 'tag')      return leads.filter(l => (l.tags||[]).some(t => t.toLowerCase() === fv))
     if (cfg.target === 'group')    return leads.filter(l => (l.group||'').toLowerCase() === fv)
+    if (cfg.target === 'stage')    return leads.filter(l => (l.pipelineStage||'').toLowerCase() === fv)
+    if (cfg.target === 'followup-campaign') return followupCampaignLeads ? leads.filter(l => followupCampaignLeads.has(l.id)) : []
     return []
   }
 
@@ -545,6 +585,8 @@ export default function Campaign() {
                 <option value="hot">HOT Leads</option>
                 <option value="followup">Follow-Up</option>
                 <option value="group">Specific Group</option>
+                <option value="stage">Specific Pipeline Stage</option>
+                <option value="followup-campaign">Follow-up to Campaign</option>
               </select>
             </div>
             {cfg.target === 'group' && (
@@ -556,6 +598,35 @@ export default function Campaign() {
                     <option key={group} value={group}>{group}</option>
                   ))}
                 </select>
+              </div>
+            )}
+            {cfg.target === 'stage' && (
+              <div>
+                <label className="label">Pipeline Stage</label>
+                <select className="input" value={cfg.filterVal} onChange={e=>setCfg({...cfg,filterVal:e.target.value})}>
+                  <option value="">Select a pipeline stage...</option>
+                  {uniqueStages.map(stage => (
+                    <option key={stage} value={stage}>{stage}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {cfg.target === 'followup-campaign' && (
+              <div>
+                <label className="label">Select Campaign</label>
+                <select className="input" value={cfg.filterVal} onChange={e=>setCfg({...cfg,filterVal:e.target.value})}>
+                  <option value="">Choose a campaign for follow-ups...</option>
+                  {campaigns.length > 0 ? campaigns.map(camp => (
+                    <option key={camp.id} value={camp.id}>{camp.name} ({camp.stats?.sent || 0} sent)</option>
+                  )) : (
+                    <option disabled>No campaigns available</option>
+                  )}
+                </select>
+                {cfg.filterVal && followupCampaignLeads && (
+                  <p className="text-xs text-emerald-600 mt-2">
+                    📧 Targeting {followupCampaignLeads.size} non-openers from this campaign
+                  </p>
+                )}
               </div>
             )}
             <div><label className="label">Sender Display Name</label><input className="input" value={cfg.sender} onChange={e=>setCfg({...cfg,sender:e.target.value})} /></div>

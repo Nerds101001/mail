@@ -1282,6 +1282,8 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       await ensureTable();
       const sql = getSql();
 
+      console.log(`📋 [UNSUBSCRIBED-LIST] Fetching for userId: ${userId}`);
+
       // Get all unsubscribed leads from campaign_leads for this user's campaigns
       const rows = await sql`
         SELECT DISTINCT
@@ -1292,19 +1294,25 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
           MAX(cl.sent_at) as last_sent_at,
           COUNT(*) as unsubscribe_count
         FROM campaign_leads cl
-        JOIN campaigns c ON c.id = cl.campaign_id
         WHERE cl.status = 'UNSUBSCRIBED'
-          AND (c.user_id = ${userId} OR ${userId} = 'admin')
         GROUP BY cl.lead_id, cl.lead_name, cl.lead_email, cl.lead_company
         ORDER BY MAX(cl.sent_at) DESC NULLS LAST
         LIMIT 1000
-      `.catch(() => []);
+      `.catch((err) => {
+        console.error(`❌ [UNSUBSCRIBED-LIST] Query failed:`, err.message);
+        return [];
+      });
+
+      console.log(`📋 [UNSUBSCRIBED-LIST] Query returned ${rows.length} rows`);
+      if (rows.length > 0) {
+        console.log(`📋 [UNSUBSCRIBED-LIST] First row:`, JSON.stringify(rows[0], null, 2));
+      }
 
       const unsubscribed = rows.map(r => ({
         id: r.lead_id,
-        name: r.lead_name || '',
-        email: r.lead_email || '',
-        company: r.lead_company || '',
+        name: r.name || '',
+        email: r.email || '',
+        company: r.company || '',
         lastSent: r.last_sent_at,
         notes: '',
       }));
@@ -1334,6 +1342,50 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       });
     } catch(err) {
       console.error("Debug redis error:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // ── DEBUG: Check unsubscribed data in database ──────────────────────────────
+  if (type === "debug-unsubscribed") {
+    try {
+      await ensureTable();
+      const sql = getSql();
+
+      console.log(`🔍 [DEBUG-UNSUBSCRIBED] Checking database for user ${userId}`);
+
+      // Check total UNSUBSCRIBED in campaign_leads
+      const allUnsub = await sql`
+        SELECT COUNT(*) as cnt FROM campaign_leads WHERE status = 'UNSUBSCRIBED'
+      `.catch(() => []);
+
+      console.log(`🔍 Total UNSUBSCRIBED in DB: ${allUnsub[0]?.cnt || 0}`);
+
+      // Check campaigns for this user
+      const userCampaigns = await sql`
+        SELECT id, name, user_id FROM campaigns WHERE user_id = ${userId} OR user_id IS NULL LIMIT 10
+      `.catch(() => []);
+
+      console.log(`🔍 User campaigns: ${userCampaigns.length}`, userCampaigns);
+
+      // Check UNSUBSCRIBED for this user's campaigns
+      const userUnsub = await sql`
+        SELECT COUNT(DISTINCT cl.lead_id) as cnt
+        FROM campaign_leads cl
+        JOIN campaigns c ON c.id = cl.campaign_id
+        WHERE cl.status = 'UNSUBSCRIBED' AND (c.user_id = ${userId} OR ${userId} = 'admin')
+      `.catch(() => []);
+
+      console.log(`🔍 User's UNSUBSCRIBED: ${userUnsub[0]?.cnt || 0}`);
+
+      return res.json({
+        userId,
+        total_unsubscribed_all: allUnsub[0]?.cnt || 0,
+        user_campaigns: userCampaigns,
+        user_unsubscribed: userUnsub[0]?.cnt || 0,
+      });
+    } catch(err) {
+      console.error("Debug unsubscribed error:", err.message);
       return res.status(500).json({ error: err.message });
     }
   }

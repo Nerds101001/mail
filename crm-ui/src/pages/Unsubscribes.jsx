@@ -18,23 +18,30 @@ export default function Unsubscribes() {
     setLoading(true)
     try {
       // Fetch actual unsubscribed leads from campaign_leads table (from analytics)
+      console.log('📋 [Unsubscribes] Fetching from API...')
       const res = await fetch('/api/ops?type=unsubscribed-list', { headers: authHeader() })
+      console.log('📋 [Unsubscribes] API response status:', res.status)
       if (res.ok) {
         const data = await res.json()
+        console.log('📋 [Unsubscribes] API returned:', data)
+        console.log('📋 [Unsubscribes] Unsubscribed count:', data.unsubscribed?.length || 0)
         setUnsubscribed(data.unsubscribed || [])
       } else {
+        console.warn('📋 [Unsubscribes] API returned error, falling back to local data')
         // Fallback to local leads if API endpoint doesn't exist yet
         const localUnsubs = leads.filter(l =>
           l.status === 'UNSUBSCRIBED' || l.pipelineStage === 'UNSUBSCRIBED'
         )
+        console.log('📋 [Unsubscribes] Local unsubscribed:', localUnsubs.length)
         setUnsubscribed(localUnsubs)
       }
     } catch (error) {
-      console.warn('Failed to load unsubscribed from API, using local data:', error)
+      console.warn('📋 [Unsubscribes] Failed to load unsubscribed from API, using local data:', error)
       // Fallback to local state
       const localUnsubs = leads.filter(l =>
         l.status === 'UNSUBSCRIBED' || l.pipelineStage === 'UNSUBSCRIBED'
       )
+      console.log('📋 [Unsubscribes] Local unsubscribed (catch):', localUnsubs.length)
       setUnsubscribed(localUnsubs)
     }
     setLoading(false)
