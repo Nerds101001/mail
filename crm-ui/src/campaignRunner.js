@@ -328,9 +328,17 @@ export async function start(config) {
   }
 
   const exhaustedProfiles = new Set()
+  const batchSize = config.batchSize || config.targets.length  // undefined = send all
 
   let i = 0
   while (i < config.targets.length) {
+    // ── Batch limit reached ──
+    if (i >= batchSize) {
+      _addLog(`⏸ Batch limit (${batchSize}) reached. Click Resume to continue.`, 'warn')
+      await _handlePause(i, config, 'batch')
+      return
+    }
+
     // ── Manual pause ──
     if (_state._abortFlag) {
       await _handlePause(i, config, 'manual')

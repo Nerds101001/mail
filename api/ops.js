@@ -1276,6 +1276,47 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
     }
   }
 
+  // ── UNSUBSCRIBED LIST (fetch from campaign_leads) ─────────────────────────
+  if (type === "unsubscribed-list") {
+    try {
+      await ensureTable();
+      const sql = getSql();
+
+      // Get all unsubscribed leads from campaign_leads for this user's campaigns
+      const rows = await sql`
+        SELECT DISTINCT
+          cl.lead_id,
+          cl.lead_name as name,
+          cl.lead_email as email,
+          cl.lead_company as company,
+          MAX(cl.sent_at) as last_sent_at,
+          COUNT(*) as unsubscribe_count
+        FROM campaign_leads cl
+        JOIN campaigns c ON c.id = cl.campaign_id
+        WHERE cl.status = 'UNSUBSCRIBED'
+          AND (c.user_id = ${userId} OR ${userId} = 'admin')
+        GROUP BY cl.lead_id, cl.lead_name, cl.lead_email, cl.lead_company
+        ORDER BY MAX(cl.sent_at) DESC NULLS LAST
+        LIMIT 1000
+      `.catch(() => []);
+
+      const unsubscribed = rows.map(r => ({
+        id: r.lead_id,
+        name: r.lead_name || '',
+        email: r.lead_email || '',
+        company: r.lead_company || '',
+        lastSent: r.last_sent_at,
+        notes: '',
+      }));
+
+      console.log(`📋 [UNSUBSCRIBED-LIST] Found ${unsubscribed.length} unsubscribed contacts for user ${userId}`);
+      return res.json({ unsubscribed });
+    } catch(err) {
+      console.error("Unsubscribed list error:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   // ── DEBUG: Show what's in Redis for this user ──────────────────────────────
   if (type === "debug-redis") {
     try {

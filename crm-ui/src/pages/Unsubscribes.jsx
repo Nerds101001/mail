@@ -1,14 +1,44 @@
 import { useCRM } from '../store'
 import { PageHeader, Empty, Btn, toast } from '../components/ui'
 import { fmtDate } from '../utils'
-import { UserX, Download } from 'lucide-react'
+import { UserX, Download, RefreshCw } from 'lucide-react'
+import { useState, useEffect } from 'react'
 
 export default function Unsubscribes() {
   const { leads, setLeads, saveLeads } = useCRM()
+  const [unsubscribed, setUnsubscribed] = useState([])
+  const [loading, setLoading] = useState(true)
+  const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
 
-  const unsubscribed = leads.filter(l =>
-    l.status === 'UNSUBSCRIBED' || l.pipelineStage === 'UNSUBSCRIBED'
-  )
+  useEffect(() => {
+    loadUnsubscribed()
+  }, [])
+
+  async function loadUnsubscribed() {
+    setLoading(true)
+    try {
+      // Fetch actual unsubscribed leads from campaign_leads table (from analytics)
+      const res = await fetch('/api/ops?type=unsubscribed-list', { headers: authHeader() })
+      if (res.ok) {
+        const data = await res.json()
+        setUnsubscribed(data.unsubscribed || [])
+      } else {
+        // Fallback to local leads if API endpoint doesn't exist yet
+        const localUnsubs = leads.filter(l =>
+          l.status === 'UNSUBSCRIBED' || l.pipelineStage === 'UNSUBSCRIBED'
+        )
+        setUnsubscribed(localUnsubs)
+      }
+    } catch (error) {
+      console.warn('Failed to load unsubscribed from API, using local data:', error)
+      // Fallback to local state
+      const localUnsubs = leads.filter(l =>
+        l.status === 'UNSUBSCRIBED' || l.pipelineStage === 'UNSUBSCRIBED'
+      )
+      setUnsubscribed(localUnsubs)
+    }
+    setLoading(false)
+  }
 
   async function resubscribe(lead) {
     if (!confirm('Re-subscribe this contact? They will be able to receive emails again.')) return
@@ -40,10 +70,22 @@ export default function Unsubscribes() {
   return (
     <div>
       <PageHeader title="Unsubscribe List" subtitle={`${unsubscribed.length} contacts opted out`}>
-        <Btn variant="secondary" onClick={exportList}><Download size={14} /> Export CSV</Btn>
+        <div className="flex gap-2">
+          <Btn variant="secondary" onClick={loadUnsubscribed} disabled={loading}>
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+          </Btn>
+          <Btn variant="secondary" onClick={exportList} disabled={loading}>
+            <Download size={14} /> Export CSV
+          </Btn>
+        </div>
       </PageHeader>
 
-      {unsubscribed.length === 0 ? (
+      {loading ? (
+        <div className="card p-16 text-center text-slate-400">
+          <RefreshCw size={24} className="animate-spin mx-auto mb-3" />
+          Loading unsubscribed contacts...
+        </div>
+      ) : unsubscribed.length === 0 ? (
         <div className="card p-16">
           <Empty icon={UserX} title="No unsubscribes yet" sub="Contacts who click unsubscribe will appear here" />
         </div>

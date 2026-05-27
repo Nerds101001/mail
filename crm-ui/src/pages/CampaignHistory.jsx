@@ -47,6 +47,7 @@ function parseBrowser(ua) {
 // ── Edit Scheduled Campaign Modal ─────────────────────────────────────────────
 function EditScheduledModal({ campaign, onClose, onSaved }) {
   const sc = campaign.schedule_config || {}
+  const rc = sc.resume_config || {}
   const [name, setName]           = useState(campaign.name || '')
   const [schedTime, setSchedTime] = useState(() => {
     if (!campaign.scheduled_at) return ''
@@ -57,6 +58,8 @@ function EditScheduledModal({ campaign, onClose, onSaved }) {
   const [variants, setVariants] = useState(() =>
     (campaign.variants || []).map(v => ({ ...v }))
   )
+  const [usePersonalization, setUsePersonalization] = useState(rc.usePersonalization || false)
+  const [attachmentText, setAttachmentText] = useState(rc.attachmentText || '')
   const [saving, setSaving] = useState(false)
   const authHdr = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
 
@@ -66,10 +69,21 @@ function EditScheduledModal({ campaign, onClose, onSaved }) {
     if (scheduledAt <= Date.now()) { toast('Time must be in the future', 'error'); return }
     setSaving(true)
     try {
+      const updatedResumeConfig = {
+        ...rc,
+        variants,
+        usePersonalization,
+        attachmentText,
+      }
       const res = await fetch(`/api/crm?type=campaigns&id=${campaign.id}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json', ...authHdr() },
-        body:    JSON.stringify({ name, scheduled_at: scheduledAt, schedule_config: { ...sc, variants }, variants }),
+        body:    JSON.stringify({
+          name,
+          scheduled_at: scheduledAt,
+          schedule_config: { ...sc, variants, resume_config: updatedResumeConfig },
+          variants
+        }),
       })
       if (!res.ok) throw new Error('Save failed')
       toast('Campaign updated ✓', 'success')
@@ -141,6 +155,35 @@ function EditScheduledModal({ campaign, onClose, onSaved }) {
               </div>
             </div>
           )}
+
+          <div className="border-t border-slate-200 pt-4 space-y-3">
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Additional Options</p>
+
+            <div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={usePersonalization}
+                  onChange={e => setUsePersonalization(e.target.checked)}
+                  className="rounded"
+                />
+                <span className="text-sm text-slate-700">Enable lead notes in email body</span>
+              </label>
+              <p className="text-xs text-slate-500 mt-1 ml-6">Include personalized notes from each lead's profile</p>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-600 block mb-2">Attachment Info / Links</label>
+              <textarea
+                rows={3}
+                placeholder="e.g., Download link or attachment information to append to email body"
+                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/30 resize-y"
+                value={attachmentText}
+                onChange={e => setAttachmentText(e.target.value)}
+              />
+              <p className="text-xs text-slate-500 mt-1">This text will be appended to the end of each email</p>
+            </div>
+          </div>
         </div>
 
         <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
