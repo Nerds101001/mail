@@ -39,7 +39,9 @@ export default function Campaign() {
         const res = await fetch('/api/campaigns', { headers: authHeader() })
         if (res.ok) {
           const data = await res.json()
-          setCampaigns((data.campaigns || []).filter(c => c.status === 'RUNNING' || c.status === 'COMPLETED'))
+          // /api/campaigns returns a plain array (not {campaigns:[...]})
+          const list = Array.isArray(data) ? data : (data.campaigns || [])
+          setCampaigns(list.filter(c => c.status === 'RUNNING' || c.status === 'COMPLETED'))
         }
       } catch (error) {
         console.warn('Failed to load campaigns:', error)
