@@ -31,6 +31,7 @@ export default function Campaign() {
   // Load available campaigns for follow-up targeting
   const [campaigns, setCampaigns] = useState([])
   const [followupCampaignLeads, setFollowupCampaignLeads] = useState(null)
+  const [hotCampaignLeads, setHotCampaignLeads]           = useState(null)
 
   useEffect(() => {
     async function loadCampaigns() {
@@ -59,6 +60,22 @@ export default function Campaign() {
         .catch(() => setFollowupCampaignLeads(new Set()))
     } else {
       setFollowupCampaignLeads(null)
+    }
+  }, [cfg.target, cfg.filterVal])
+
+  // When hot-campaign is selected, fetch campaign leads and cross-reference HOT pipeline stage
+  useEffect(() => {
+    if (cfg.target === 'hot-campaign' && cfg.filterVal) {
+      fetch(`/api/campaigns?id=${cfg.filterVal}`, { headers: authHeader() })
+        .then(r => r.json())
+        .then(d => {
+          // Get all lead IDs that were part of this campaign
+          const campaignLeadIds = new Set((d.leads || []).map(l => String(l.lead_id)))
+          setHotCampaignLeads(campaignLeadIds)
+        })
+        .catch(() => setHotCampaignLeads(new Set()))
+    } else {
+      setHotCampaignLeads(null)
     }
   }, [cfg.target, cfg.filterVal])
 
@@ -206,6 +223,11 @@ export default function Campaign() {
     if (cfg.target === 'valid')    return leads.filter(l => l.status === 'VALID')
     if (cfg.target === 'followup') return leads.filter(l => l.status === 'FOLLOW-UP')
     if (cfg.target === 'hot')      return leads.filter(l => l.pipelineStage === 'HOT' || (l.opens >= 2 || l.clicks >= 1))
+    if (cfg.target === 'hot-campaign') {
+      if (!hotCampaignLeads) return []
+      // Only HOT leads that were part of the selected campaign
+      return leads.filter(l => (l.pipelineStage === 'HOT' || l.opens >= 2 || l.clicks >= 1) && hotCampaignLeads.has(String(l.id)))
+    }
     if (cfg.target === 'category') return leads.filter(l => (l.category||'').toLowerCase() === fv)
     if (cfg.target === 'tag')      return leads.filter(l => (l.tags||[]).some(t => t.toLowerCase() === fv))
     if (cfg.target === 'group')    return leads.filter(l => (l.group||'').toLowerCase() === fv)
@@ -588,7 +610,8 @@ export default function Campaign() {
               <select className="input" value={cfg.target} onChange={e=>setCfg({...cfg,target:e.target.value})}>
                 <option value="valid">VALID Only</option>
                 <option value="all">All Contacts</option>
-                <option value="hot">HOT Leads</option>
+                <option value="hot">HOT Leads (All)</option>
+                <option value="hot-campaign">HOT Leads from Campaign</option>
                 <option value="followup">Follow-Up</option>
                 <option value="group">Specific Group</option>
                 <option value="stage">Specific Pipeline Stage</option>
@@ -616,6 +639,27 @@ export default function Campaign() {
                     <option key={stage} value={stage}>{stage}</option>
                   ))}
                 </select>
+              </div>
+            )}
+            {cfg.target === 'hot-campaign' && (
+              <div>
+                <label className="label">Select Campaign</label>
+                <select className="input" value={cfg.filterVal} onChange={e=>setCfg({...cfg,filterVal:e.target.value})}>
+                  <option value="">Choose a campaign...</option>
+                  {campaigns.length > 0 ? campaigns.map(camp => (
+                    <option key={camp.id} value={camp.id}>{camp.name} ({camp.stats?.sent || 0} sent)</option>
+                  )) : (
+                    <option disabled>No campaigns available</option>
+                  )}
+                </select>
+                {cfg.filterVal && hotCampaignLeads && (
+                  <p className="text-xs text-orange-600 mt-2 font-medium">
+                    🔥 {leads.filter(l => (l.pipelineStage === 'HOT' || l.opens >= 2 || l.clicks >= 1) && hotCampaignLeads.has(String(l.id))).length} HOT leads from this campaign
+                  </p>
+                )}
+                {cfg.filterVal && !hotCampaignLeads && (
+                  <p className="text-xs text-slate-400 mt-2">Loading campaign leads...</p>
+                )}
               </div>
             )}
             {cfg.target === 'campaign-stage' && (
