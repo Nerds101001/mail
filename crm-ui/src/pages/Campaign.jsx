@@ -612,8 +612,7 @@ export default function Campaign() {
               <select className="input" value={cfg.target} onChange={e=>setCfg({...cfg,target:e.target.value})}>
                 <option value="valid">VALID Only</option>
                 <option value="all">All Contacts</option>
-                <option value="hot">HOT Leads (All)</option>
-                <option value="hot-campaign">HOT Leads from Campaign</option>
+                <option value="hot-campaign">HOT Leads</option>
                 <option value="followup">Follow-Up</option>
                 <option value="group">Specific Group</option>
                 <option value="stage">Specific Pipeline Stage</option>
@@ -649,7 +648,7 @@ export default function Campaign() {
                 <select className="input" value={cfg.filterVal} onChange={e=>setCfg({...cfg,filterVal:e.target.value})}>
                   <option value="">Choose a campaign...</option>
                   {campaigns.length > 0 ? campaigns.map(camp => (
-                    <option key={camp.id} value={camp.id}>{camp.name} ({camp.stats?.sent || 0} sent)</option>
+                    <option key={camp.id} value={camp.id}>{camp.name} ({camp.total_sent || 0} sent)</option>
                   )) : (
                     <option disabled>No campaigns available</option>
                   )}
@@ -674,7 +673,7 @@ export default function Campaign() {
                   }}>
                     <option value="">Choose a campaign...</option>
                     {campaigns.length > 0 ? campaigns.map(camp => (
-                      <option key={camp.id} value={camp.id}>{camp.name} ({camp.stats?.sent || 0} sent)</option>
+                      <option key={camp.id} value={camp.id}>{camp.name} ({camp.total_sent || 0} sent)</option>
                     )) : (
                       <option disabled>No campaigns available</option>
                     )}
@@ -707,7 +706,7 @@ export default function Campaign() {
                 <select className="input" value={cfg.filterVal} onChange={e=>setCfg({...cfg,filterVal:e.target.value})}>
                   <option value="">Choose a campaign for follow-ups...</option>
                   {campaigns.length > 0 ? campaigns.map(camp => (
-                    <option key={camp.id} value={camp.id}>{camp.name} ({camp.stats?.sent || 0} sent)</option>
+                    <option key={camp.id} value={camp.id}>{camp.name} ({camp.total_sent || 0} sent)</option>
                   )) : (
                     <option disabled>No campaigns available</option>
                   )}
