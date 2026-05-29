@@ -19,7 +19,7 @@ async function fetchAttachmentData(attachments) {
 
 // ─── HTML body builder ────────────────────────────────────────────────────────
 // Files are now sent as real MIME attachments — no link section in the body.
-function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
+function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, interestHtml = '') {
   // Query-param tracking URLs — reliable across all Vercel rewrite configs.
   const pixelParams = campaignId
     ? `id=${leadId}&cid=${campaignId}`
@@ -55,6 +55,7 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
 <body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#000000;background:#ffffff;">
   <div style="padding:12px 16px;">
     ${paragraphs}
+    ${interestHtml}
     <p style="margin:24px 0 0 0;font-size:11px;color:#aaaaaa;">
       <a href="${unsubUrl}" style="color:#aaaaaa;text-decoration:underline;">Unsubscribe</a>
     </p>
@@ -69,7 +70,7 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { leadId, to, subject, body, senderName, replyTo, smtpConfig, campaignId, attachments } = req.body;
+  const { leadId, to, subject, body, senderName, replyTo, smtpConfig, campaignId, attachments, interestHtml } = req.body;
   const appUrl = process.env.APP_URL || "https://enginerdsmail.vercel.app";
 
   if (!leadId || !to || !subject || !body || !smtpConfig)
@@ -98,7 +99,7 @@ module.exports = async (req, res) => {
       socketTimeout:     8000,  // any idle period during send
     });
 
-    const htmlBody       = buildHtmlBody(body, leadId, to, appUrl, campaignId || null);
+    const htmlBody       = buildHtmlBody(body, leadId, to, appUrl, campaignId || null, interestHtml || '');
     const attachmentData = await fetchAttachmentData(attachments || []);
 
     // First-hit filter: set key = 'pending' BEFORE sending.

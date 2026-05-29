@@ -118,18 +118,36 @@ function _getAvailableProfile(senderProfiles, exhaustedIds, slot) {
   return available.length === 0 ? null : available[slot % available.length]
 }
 
+function _buildInterestHtml(lead, config) {
+  if (!config.showInterested && !config.showNotInterested) return ''
+  const base = (typeof window !== 'undefined' && window.location?.origin) ? window.location.origin : 'https://crm.enginerds.in'
+  const lid  = encodeURIComponent(lead.id)
+  const cid  = encodeURIComponent(config.campaignId || '')
+  let html = `<div style="margin:20px 0 8px 0;padding:14px 16px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">`
+  html += `<p style="margin:0 0 10px 0;font-size:13px;color:#475569;font-weight:500;">Quick Response:</p>`
+  if (config.showInterested) {
+    html += `<a href="${base}/api/interest?action=demo&lead=${lid}&campaign=${cid}" style="display:inline-block;margin-right:8px;margin-bottom:6px;padding:8px 18px;background:#10b981;color:#ffffff;text-decoration:none;border-radius:6px;font-size:13px;font-weight:600;">&#9989; Yes, I'm Interested</a>`
+  }
+  if (config.showNotInterested) {
+    html += `<a href="${base}/api/interest?action=unsub&lead=${lid}&campaign=${cid}" style="display:inline-block;margin-bottom:6px;padding:8px 18px;background:#f1f5f9;color:#64748b;text-decoration:none;border-radius:6px;font-size:13px;">&#10060; Not Interested</a>`
+  }
+  html += `</div>`
+  return html
+}
+
 async function _sendOne(lead, subject, body, profile, campaignId, config) {
   try {
     const endpoint = profile.type === 'gmail' ? '/api/send-email' : '/api/send-smtp'
     const payload = {
-      leadId:     lead.id,
-      to:         lead.email,
+      leadId:       lead.id,
+      to:           lead.email,
       subject,
       body,
-      senderName: config.senderName,
-      replyTo:    config.replyTo,
+      senderName:   config.senderName,
+      replyTo:      config.replyTo,
       campaignId,
-      attachments: config.selectedAtts || [],
+      attachments:  config.selectedAtts || [],
+      interestHtml: _buildInterestHtml(lead, config),
     }
     if (profile.type === 'smtp')  payload.smtpConfig = profile
     if (profile.type === 'gmail') {
@@ -262,6 +280,8 @@ async function _handlePause(fromIndex, config, reason) {
         attachmentText:     config.attachmentText,
         senderName:         config.senderName,
         replyTo:            config.replyTo,
+        showInterested:     config.showInterested || false,
+        showNotInterested:  config.showNotInterested || false,
       },
     },
   }, config.token)
@@ -531,6 +551,8 @@ export async function resume(campaign, token, fallbackProfiles = []) {
     selectedAtts:       rc.selectedAtts       || [],
     usePersonalization: rc.usePersonalization || false,
     attachmentText:     rc.attachmentText     || '',
+    showInterested:     rc.showInterested     || false,
+    showNotInterested:  rc.showNotInterested  || false,
     token,
     preInsertLeads: false,   // ← PENDING rows already exist from initial insert
     batchSize:          resumeBatchSize,     // ← Pass batchSize to start() for auto-batching

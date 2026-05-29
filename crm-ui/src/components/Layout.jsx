@@ -30,7 +30,7 @@ const NAV = [
   { label: 'Analytics', items: [
     { to: '/analytics',    icon: TrendingUp, label: 'Analytics' },
     { to: '/tracking',     icon: BarChart2,  label: 'Tracking' },
-    { to: '/unsubscribes', icon: UserX,      label: 'Unsubscribes' },
+    { to: '/unsubscribes', icon: UserX,      label: 'Interests' },
   ]},
   { label: 'Config', items: [
     { to: '/users',    icon: Users,     label: 'Users',    adminOnly: true },

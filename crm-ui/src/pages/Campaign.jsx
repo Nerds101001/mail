@@ -100,6 +100,10 @@ export default function Campaign() {
   const [customSubj,    setCustomSubj]    = useState('')
   const [customBodyHtml, setCustomBodyHtml] = useState('')   // stores raw HTML
 
+  // Interest response buttons
+  const [showInterested, setShowInterested]       = useState(false)
+  const [showNotInterested, setShowNotInterested] = useState(false)
+
   // Link attachments (legacy — appear as plain text in email body)
   const [attachments, setAttachments]   = useState([{ type:'link', label:'', url:'' }])
 
@@ -421,6 +425,8 @@ export default function Campaign() {
               attachmentText,
               senderName:        cfg.sender,
               replyTo:           cfg.replyTo,
+              showInterested,
+              showNotInterested,
             },
           },
         }),
@@ -447,9 +453,11 @@ export default function Campaign() {
       selectedAtts,
       usePersonalization,
       attachmentText,
+      showInterested,
+      showNotInterested,
       token,
-      preInsertLeads: true,  // pre-log ALL leads as PENDING before sending starts
-      batchSize:      cfg.batch || undefined,  // send cfg.batch leads then pause
+      preInsertLeads: true,
+      batchSize:      cfg.batch || undefined,
     })
 
     const batchMsg = cfg.batch && cfg.batch < targets.length
@@ -491,6 +499,8 @@ export default function Campaign() {
             selectedAttachments,
             usePersonalization,
             attachmentText:     buildAttachmentText(),
+            showInterested,
+            showNotInterested,
           },
         }),
       })
@@ -1043,6 +1053,45 @@ export default function Campaign() {
             <div className="flex items-center justify-between mb-4">
               <label className="text-sm font-bold text-slate-900">Email Attachments</label>
               <span className="text-xs text-slate-500">Manage files and links to include in emails</span>
+            </div>
+
+            {/* ── Interest Response Buttons ────────────────────────────────── */}
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="mb-3">
+                <h4 className="text-sm font-semibold text-blue-800">🙋 Interest Response Buttons</h4>
+                <p className="text-xs text-blue-600 mt-0.5">Add response buttons below the email content. Leads who click will be automatically categorised.</p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showInterested}
+                    onChange={e => setShowInterested(e.target.checked)}
+                    className="w-4 h-4 accent-emerald-500"
+                  />
+                  <span className="text-sm text-slate-700">
+                    <span className="font-semibold text-emerald-700">✅ Yes, I'm Interested</span>
+                    <span className="text-xs text-slate-400 ml-2">→ Moves lead to DEMO stage</span>
+                  </span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={showNotInterested}
+                    onChange={e => setShowNotInterested(e.target.checked)}
+                    className="w-4 h-4 accent-red-400"
+                  />
+                  <span className="text-sm text-slate-700">
+                    <span className="font-semibold text-red-600">❌ Not Interested</span>
+                    <span className="text-xs text-slate-400 ml-2">→ Unsubscribes the lead</span>
+                  </span>
+                </label>
+              </div>
+              {(showInterested || showNotInterested) && (
+                <p className="text-xs text-blue-600 mt-3 bg-blue-100 rounded px-3 py-2">
+                  📩 Buttons will appear below email content, above the signature
+                </p>
+              )}
             </div>
 
             {/* ── File Attachments (Recommended) ─────────────────────────── */}

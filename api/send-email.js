@@ -183,7 +183,7 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, a
 
 // ─── HTML body builder (improved deliverability) ─────────────────────────────────
 // Files are now sent as real MIME attachments — no link section in the body.
-function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
+function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, interestHtml = '') {
   // Query-param tracking URLs — reliable across all Vercel rewrite configs.
   // Path-based URLs (/api/track/open/id/cid) lost the path after Vercel rewrite;
   // query params are passed through intact.
@@ -222,6 +222,7 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null) {
 <body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#000000;background:#ffffff;">
   <div style="padding:12px 16px;">
     ${paragraphs}
+    ${interestHtml}
     <p style="margin:24px 0 0 0;font-size:11px;color:#aaaaaa;">
       <a href="${unsubUrl}" style="color:#aaaaaa;text-decoration:underline;">Unsubscribe</a>
     </p>
@@ -236,7 +237,7 @@ module.exports = async (req, res) => {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { leadId, to, subject, body, senderName, replyTo, gmailUser, fromEmail, campaignId, attachments } = req.body;
+  const { leadId, to, subject, body, senderName, replyTo, gmailUser, fromEmail, campaignId, attachments, interestHtml } = req.body;
   const appUrl = process.env.APP_URL || "https://enginerdsmail.vercel.app";
 
   if (!leadId || !to || !subject || !body)
@@ -256,7 +257,7 @@ module.exports = async (req, res) => {
     const effectiveFrom = fromEmail || gmailAccount;
     const from          = `${senderName || "Enginerds Tech"} <${effectiveFrom}>`;
     const unsubUrl   = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}`;
-    const htmlBody      = buildHtmlBody(body, leadId, to, appUrl, campaignId);
+    const htmlBody      = buildHtmlBody(body, leadId, to, appUrl, campaignId, interestHtml || '');
     const attachmentData = await fetchAttachmentData(attachments || []);
     const raw           = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, unsubscribeUrl: unsubUrl, attachmentData });
 

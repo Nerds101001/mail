@@ -1325,6 +1325,44 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
     }
   }
 
+  // ── INTERESTED LIST (leads who clicked Interested in email) ──────────────────
+  if (type === "interested-list") {
+    try {
+      await ensureTable();
+      const sql = getSql();
+      await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS interest_action TEXT`.catch(() => {});
+
+      const rows = await sql`
+        SELECT DISTINCT
+          cl.lead_id,
+          cl.lead_name  AS name,
+          cl.lead_email AS email,
+          cl.lead_company AS company,
+          cl.campaign_id,
+          MAX(cl.sent_at) AS last_sent_at
+        FROM campaign_leads cl
+        WHERE cl.interest_action = 'demo'
+        GROUP BY cl.lead_id, cl.lead_name, cl.lead_email, cl.lead_company, cl.campaign_id
+        ORDER BY MAX(cl.sent_at) DESC NULLS LAST
+        LIMIT 1000
+      `.catch(() => []);
+
+      const interested = rows.map(r => ({
+        id:        r.lead_id,
+        name:      r.name      || '',
+        email:     r.email     || '',
+        company:   r.company   || '',
+        campaignId: r.campaign_id || '',
+        lastSent:  r.last_sent_at,
+      }));
+
+      return res.json({ interested });
+    } catch (err) {
+      console.error("Interested list error:", err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   // ── DEBUG: Show what's in Redis for this user ──────────────────────────────
   if (type === "debug-redis") {
     try {

@@ -34,6 +34,7 @@ const trackClick  = require("./api/track-click");
 const trackPixel  = require("./api/track-pixel");
 const sse         = require("./api/sse");
 const unsubscribe = require("./api/unsubscribe");
+const interest    = require("./api/interest");
 const dbCheck     = require("./api/db-check");
 
 // Helper: merge extra query params before handing off to a handler
@@ -94,6 +95,9 @@ app.get("/api/sse", sse);
 
 // Unsubscribe
 app.all("/api/unsubscribe", unsubscribe);
+
+// Interest response (Interested / Not Interested from email buttons)
+app.all("/api/interest", interest);
 
 // DB diagnostic (temporary)
 app.all("/api/db-check", dbCheck);
