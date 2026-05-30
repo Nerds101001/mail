@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react'
 import { useCRM } from '../store'
 import { enrichLead, isValidEmail, PIPELINE_STAGES, STAGE_COLORS, STATUS_COLORS, fmtDate } from '../utils'
 import { Modal, Btn, Input, Select, Textarea, Badge, Empty, PageHeader, toast } from '../components/ui'
-import { Plus, Upload, CheckCircle, Zap, Trash2, UserCheck, Search, Filter, Flame, Users, Download, MessageSquare, RefreshCw } from 'lucide-react'
+import { Plus, Upload, CheckCircle, Zap, Trash2, UserCheck, Search, Filter, Flame, Users, Download, MessageSquare, RefreshCw, RotateCcw, AlertTriangle } from 'lucide-react'
 
 export default function Leads() {
   const { leads, setLeads, profiles, settings, logActivity, pushToRedis, saveLeads } = useCRM()
   const isAdmin = localStorage.getItem('crm_role') === 'admin'
+  const [showTrash, setShowTrash] = useState(false)
   const [search, setSearch]   = useState('')
   const [stageF, setStageF]   = useState('')
   const [statusF, setStatusF] = useState('')
@@ -47,18 +48,23 @@ export default function Leads() {
     if (leads.length > 0) fetchScores(leads.slice(0, PAGE_SIZE))
   }, []) // eslint-disable-line
 
-  // Get unique groups for filter
-  const uniqueGroups = [...new Set(leads.map(l => l.group).filter(Boolean))].sort()
+  // Active (non-deleted) leads — basis for all normal views
+  const activeLeads  = leads.filter(l => !l.deleted)
+  const deletedLeads = leads.filter(l => !!l.deleted)
 
-  // Calculate group statistics
+  // Get unique groups for filter (exclude deleted)
+  const uniqueGroups = [...new Set(activeLeads.map(l => l.group).filter(Boolean))].sort()
+
+  // Calculate group statistics (exclude deleted)
   const groupStats = uniqueGroups.map(group => ({
     name: group,
-    count: leads.filter(l => l.group === group).length,
-    validCount: leads.filter(l => l.group === group && l.status === 'VALID').length
+    count: activeLeads.filter(l => l.group === group).length,
+    validCount: activeLeads.filter(l => l.group === group && l.status === 'VALID').length
   }))
-  const defaultGroupCount = leads.filter(l => !l.group || l.group === 'Default').length
+  const defaultGroupCount = activeLeads.filter(l => !l.group || l.group === 'Default').length
 
-  const filtered = leads.filter(l => {
+  // Normal filtered view (always excludes deleted)
+  const filtered = activeLeads.filter(l => {
     const s = search.toLowerCase()
     return (!s || [l.name||'',l.email||'',l.company||''].join(' ').toLowerCase().includes(s))
       && (!stageF  || l.pipelineStage === stageF)
@@ -67,8 +73,15 @@ export default function Leads() {
       && (!groupF  || l.group === groupF)
   })
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
-  const paginated  = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  // Trash filtered view
+  const filteredTrash = deletedLeads.filter(l => {
+    const s = search.toLowerCase()
+    return !s || [l.name||'',l.email||'',l.company||''].join(' ').toLowerCase().includes(s)
+  })
+
+  const displayList = showTrash ? filteredTrash : filtered
+  const totalPages  = Math.ceil(displayList.length / PAGE_SIZE)
+  const paginated   = displayList.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   function save(newLeads) {
     setLeads(newLeads)
@@ -152,17 +165,57 @@ export default function Leads() {
   }
 
   function deleteLead(id) {
-    if (!confirm('Delete this lead?')) return
-    save(leads.filter(l => l.id !== id))
-    toast('Lead deleted', 'info')
+    if (!confirm('Move this lead to Trash?')) return
+    const deletedAt = new Date().toISOString()
+    const deletedBy = localStorage.getItem('crm_email') || localStorage.getItem('crm_role') || 'user'
+    save(leads.map(l => l.id === id ? { ...l, deleted: true, deletedAt, deletedBy } : l))
+    toast('Lead moved to Trash — admins can restore it', 'info')
   }
 
   function bulkDelete() {
     if (!selected.size) { toast('Select leads first', 'info'); return }
-    if (!confirm(`Delete ${selected.size} leads?`)) return
+    if (!confirm(`Move ${selected.size} leads to Trash?`)) return
+    const deletedAt = new Date().toISOString()
+    const deletedBy = localStorage.getItem('crm_email') || localStorage.getItem('crm_role') || 'user'
+    save(leads.map(l => selected.has(l.id) ? { ...l, deleted: true, deletedAt, deletedBy } : l))
+    setSelected(new Set())
+    toast(`${selected.size} leads moved to Trash`, 'info')
+  }
+
+  function restoreLead(id) {
+    const updated = leads.map(l => l.id === id ? { ...l, deleted: false, deletedAt: undefined, deletedBy: undefined } : l)
+    save(updated)
+    toast('Lead restored ✓', 'success')
+  }
+
+  function bulkRestore() {
+    if (!selected.size) { toast('Select leads first', 'info'); return }
+    const updated = leads.map(l => selected.has(l.id) ? { ...l, deleted: false, deletedAt: undefined, deletedBy: undefined } : l)
+    save(updated)
+    setSelected(new Set())
+    toast(`${selected.size} leads restored ✓`, 'success')
+  }
+
+  function permanentDelete(id) {
+    if (!confirm('Permanently delete this lead? This CANNOT be undone.')) return
+    save(leads.filter(l => l.id !== id))
+    toast('Lead permanently deleted', 'info')
+  }
+
+  function bulkPermanentDelete() {
+    if (!selected.size) { toast('Select leads first', 'info'); return }
+    if (!confirm(`Permanently delete ${selected.size} leads? This CANNOT be undone.`)) return
     save(leads.filter(l => !selected.has(l.id)))
     setSelected(new Set())
-    toast(`Deleted ${selected.size} leads`, 'info')
+    toast(`${selected.size} leads permanently deleted`, 'info')
+  }
+
+  function emptyTrash() {
+    if (!deletedLeads.length) return
+    if (!confirm(`Permanently delete ALL ${deletedLeads.length} trashed leads? This CANNOT be undone.`)) return
+    save(leads.filter(l => !l.deleted))
+    setSelected(new Set())
+    toast('Trash emptied', 'info')
   }
 
   function changeStage(id, stage) {
@@ -389,7 +442,7 @@ export default function Leads() {
   }
 
   const toggleSelect = (id) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
-  const toggleAll = () => setSelected(selected.size === filtered.length ? new Set() : new Set(filtered.map(l => l.id)))
+  const toggleAll = () => setSelected(selected.size === displayList.length ? new Set() : new Set(displayList.map(l => l.id)))
 
   function bulkChangeStage() {
     if (!selected.size || !bulkStage) { toast('Select leads and a stage', 'info'); return }
@@ -443,20 +496,25 @@ export default function Leads() {
 
   return (
     <div>
-      <PageHeader title="Lead Management" subtitle={`${leads.length} total leads`}>
-        <Btn variant="secondary" size="sm" onClick={() => setImportOpen(true)}><Upload size={14} /> Import CSV</Btn>
-        {isAdmin && (
-          <Btn variant="secondary" size="sm" onClick={exportCSV} title={filtered.length < leads.length ? `Export ${filtered.length} filtered leads` : `Export all ${leads.length} leads`}>
+      <PageHeader title="Lead Management" subtitle={`${activeLeads.length} active leads${deletedLeads.length > 0 ? ` · ${deletedLeads.length} in trash` : ''}`}>
+        {!showTrash && <Btn variant="secondary" size="sm" onClick={() => setImportOpen(true)}><Upload size={14} /> Import CSV</Btn>}
+        {isAdmin && !showTrash && (
+          <Btn variant="secondary" size="sm" onClick={exportCSV} title={filtered.length < activeLeads.length ? `Export ${filtered.length} filtered leads` : `Export all ${activeLeads.length} leads`}>
             <Download size={14} /> Export CSV
           </Btn>
         )}
-        <Btn variant="secondary" size="sm" onClick={verifyAllEmails} disabled={verifying}>{verifying ? 'Verifying...' : <><CheckCircle size={14}/> Re-Verify</>}</Btn>
-        <Btn variant="secondary" size="sm" onClick={doCheckReplies} disabled={checkReplies}><RefreshCw size={14}/>{checkReplies?'Checking…':'Check Replies'}</Btn>
-        <Btn variant="primary" onClick={() => setAddOpen(true)}><Plus size={14} /> Add Lead</Btn>
+        {!showTrash && <Btn variant="secondary" size="sm" onClick={verifyAllEmails} disabled={verifying}>{verifying ? 'Verifying...' : <><CheckCircle size={14}/> Re-Verify</>}</Btn>}
+        {!showTrash && <Btn variant="secondary" size="sm" onClick={doCheckReplies} disabled={checkReplies}><RefreshCw size={14}/>{checkReplies?'Checking…':'Check Replies'}</Btn>}
+        {isAdmin && deletedLeads.length > 0 && (
+          <Btn variant={showTrash ? 'primary' : 'secondary'} size="sm" onClick={() => { setShowTrash(t => !t); setSelected(new Set()); setPage(0) }}>
+            <Trash2 size={14} /> {showTrash ? 'Back to Leads' : `Trash (${deletedLeads.length})`}
+          </Btn>
+        )}
+        {!showTrash && <Btn variant="primary" onClick={() => setAddOpen(true)}><Plus size={14} /> Add Lead</Btn>}
       </PageHeader>
 
       {/* Group Statistics */}
-      {(groupStats.length > 0 || defaultGroupCount > 0) && (
+      {!showTrash && (groupStats.length > 0 || defaultGroupCount > 0) && (
         <div className="mb-6">
           <h3 className="text-sm font-bold text-slate-900 mb-3">📊 Group Statistics</h3>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
@@ -464,7 +522,7 @@ export default function Leads() {
               <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
                 <div className="text-xs text-slate-500 mb-1">Default</div>
                 <div className="text-lg font-bold text-slate-900">{defaultGroupCount}</div>
-                <div className="text-xs text-slate-500">{leads.filter(l => (!l.group || l.group === 'Default') && l.status === 'VALID').length} valid</div>
+                <div className="text-xs text-slate-500">{activeLeads.filter(l => (!l.group || l.group === 'Default') && l.status === 'VALID').length} valid</div>
               </div>
             )}
             {groupStats.map(stat => (
@@ -487,38 +545,58 @@ export default function Leads() {
         </div>
       )}
 
+      {/* Trash banner */}
+      {showTrash && (
+        <div className="mb-4 flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
+          <AlertTriangle size={15} className="text-red-500 flex-shrink-0" />
+          <p className="text-sm text-red-700 flex-1">
+            <strong>Trash</strong> — {deletedLeads.length} deleted lead{deletedLeads.length !== 1 ? 's' : ''}. Restore to bring them back, or permanently delete to erase forever.
+          </p>
+          {deletedLeads.length > 0 && (
+            <Btn variant="danger" size="sm" onClick={emptyTrash}>Empty Trash</Btn>
+          )}
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex gap-2 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input className="input pl-9" placeholder="Search name, email, company..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-        <select className="input w-36" value={stageF} onChange={e => setStageF(e.target.value)}>
-          <option value="">All Stages</option>
-          {PIPELINE_STAGES.map(s => <option key={s}>{s}</option>)}
-        </select>
-        <select className="input w-36" value={statusF} onChange={e => setStatusF(e.target.value)}>
-          <option value="">All Status</option>
-          {['VALID','SENT','REPLIED','FOLLOW-UP','INVALID','DUPLICATE','PERSONAL','ROLE-BASED'].map(s => <option key={s}>{s}</option>)}
-        </select>
-        <select className="input w-32" value={priF} onChange={e => setPriF(e.target.value)}>
-          <option value="">All Priority</option>
-          <option>HIGH</option><option>MEDIUM</option><option>LOW</option>
-        </select>
-        <select className="input w-36" value={groupF} onChange={e => setGroupF(e.target.value)}>
-          <option value="">All Groups</option>
-          {uniqueGroups.map(g => <option key={g} value={g}>{g}</option>)}
-        </select>
+        {!showTrash && <>
+          <select className="input w-36" value={stageF} onChange={e => setStageF(e.target.value)}>
+            <option value="">All Stages</option>
+            {PIPELINE_STAGES.map(s => <option key={s}>{s}</option>)}
+          </select>
+          <select className="input w-36" value={statusF} onChange={e => setStatusF(e.target.value)}>
+            <option value="">All Status</option>
+            {['VALID','SENT','REPLIED','FOLLOW-UP','INVALID','DUPLICATE','PERSONAL','ROLE-BASED'].map(s => <option key={s}>{s}</option>)}
+          </select>
+          <select className="input w-32" value={priF} onChange={e => setPriF(e.target.value)}>
+            <option value="">All Priority</option>
+            <option>HIGH</option><option>MEDIUM</option><option>LOW</option>
+          </select>
+          <select className="input w-36" value={groupF} onChange={e => setGroupF(e.target.value)}>
+            <option value="">All Groups</option>
+            {uniqueGroups.map(g => <option key={g} value={g}>{g}</option>)}
+          </select>
+        </>}
         {selected.size > 0 && (
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-indigo-600">{selected.size} selected</span>
-            <select className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              value={bulkStage} onChange={e => setBulkStage(e.target.value)}>
-              <option value="">→ Change stage</option>
-              {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            {bulkStage && <Btn variant="secondary" size="sm" onClick={bulkChangeStage}>Apply</Btn>}
-            <Btn variant="danger" size="sm" onClick={bulkDelete}><Trash2 size={13} /> Delete</Btn>
+            {showTrash ? (<>
+              <Btn variant="secondary" size="sm" onClick={bulkRestore}><RotateCcw size={13} /> Restore</Btn>
+              <Btn variant="danger" size="sm" onClick={bulkPermanentDelete}><Trash2 size={13} /> Delete Forever</Btn>
+            </>) : (<>
+              <select className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                value={bulkStage} onChange={e => setBulkStage(e.target.value)}>
+                <option value="">→ Change stage</option>
+                {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              {bulkStage && <Btn variant="secondary" size="sm" onClick={bulkChangeStage}>Apply</Btn>}
+              <Btn variant="danger" size="sm" onClick={bulkDelete}><Trash2 size={13} /> Delete</Btn>
+            </>)}
           </div>
         )}
       </div>
@@ -528,24 +606,29 @@ export default function Leads() {
         <div className="overflow-x-auto -webkit-overflow-scrolling-touch">
         <table className="w-full text-sm min-w-[700px]">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-4 py-3 w-10"><input type="checkbox" className="rounded" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleAll} /></th>
+            <tr className={`border-b border-slate-200 ${showTrash ? 'bg-red-50' : 'bg-slate-50'}`}>
+              <th className="px-4 py-3 w-10"><input type="checkbox" className="rounded" checked={selected.size === displayList.length && displayList.length > 0} onChange={toggleAll} /></th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Name</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Email</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Phone</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Company</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Group</th>
-              <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Stage</th>
-              <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Status</th>
-              <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Score</th>
-              <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Opens</th>
-              <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Last Sent</th>
+              {showTrash ? (<>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Deleted At</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Deleted By</th>
+              </>) : (<>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Stage</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Score</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Opens</th>
+                <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Last Sent</th>
+              </>)}
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
-              <tr><td colSpan={12}><Empty icon={Users} title="No leads found" sub="Try adjusting your filters" /></td></tr>
+            {displayList.length === 0 ? (
+              <tr><td colSpan={showTrash ? 9 : 12}><Empty icon={showTrash ? Trash2 : Users} title={showTrash ? 'Trash is empty' : 'No leads found'} sub={showTrash ? 'Deleted leads will appear here' : 'Try adjusting your filters'} /></td></tr>
             ) : paginated.map(l => {
               const sc = STAGE_COLORS[l.pipelineStage] || STAGE_COLORS.COLD
               const stc = STATUS_COLORS[l.status] || 'bg-slate-100 text-slate-600'
@@ -568,56 +651,70 @@ export default function Leads() {
                   <td className="px-4 py-3">
                     <span className="badge text-[11px] bg-blue-100 text-blue-700">{l.group || 'Default'}</span>
                   </td>
-                  <td className="px-4 py-3">
-                    <span className={`badge text-[11px] ${sc.bg} ${sc.text}`}>{l.pipelineStage || 'COLD'}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`badge text-[11px] ${stc}`}>{l.status || '—'}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {scores[l.id] ? (
-                      <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${
-                        scores[l.id].label === 'Hot'     ? 'bg-red-100 text-red-700' :
-                        scores[l.id].label === 'Warm'    ? 'bg-amber-100 text-amber-700' :
-                        scores[l.id].label === 'Engaged' ? 'bg-blue-100 text-blue-700' :
-                                                           'bg-slate-100 text-slate-500'}`}>
-                        {scores[l.id].label === 'Hot' ? '🔥' : scores[l.id].label === 'Warm' ? '🌡' : ''} {scores[l.id].score}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400 text-xs">{l.score || 0}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">{l.opens||0}👁 {l.clicks||0}🖱</td>
-                  <td className="px-4 py-3 text-slate-400 text-xs">{fmtDate(l.lastSent)}</td>
+                  {showTrash ? (<>
+                    <td className="px-4 py-3 text-slate-400 text-xs">{l.deletedAt ? new Date(l.deletedAt).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—'}</td>
+                    <td className="px-4 py-3 text-slate-400 text-xs">{l.deletedBy || '—'}</td>
+                  </>) : (<>
+                    <td className="px-4 py-3">
+                      <span className={`badge text-[11px] ${sc.bg} ${sc.text}`}>{l.pipelineStage || 'COLD'}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`badge text-[11px] ${stc}`}>{l.status || '—'}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {scores[l.id] ? (
+                        <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${
+                          scores[l.id].label === 'Hot'     ? 'bg-red-100 text-red-700' :
+                          scores[l.id].label === 'Warm'    ? 'bg-amber-100 text-amber-700' :
+                          scores[l.id].label === 'Engaged' ? 'bg-blue-100 text-blue-700' :
+                                                             'bg-slate-100 text-slate-500'}`}>
+                          {scores[l.id].label === 'Hot' ? '🔥' : scores[l.id].label === 'Warm' ? '🌡' : ''} {scores[l.id].score}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-xs">{l.score || 0}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-500 text-xs">{l.opens||0}👁 {l.clicks||0}🖱</td>
+                    <td className="px-4 py-3 text-slate-400 text-xs">{fmtDate(l.lastSent)}</td>
+                  </>)}
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1">
-                      <button className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors" title="Send Email" onClick={() => { setEmailLead(l); setEmailBody(''); setEmailSubject(''); setEmailOpen(true) }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-                      </button>
-                      <button className="p-1.5 rounded-lg hover:bg-green-50 text-green-500 transition-colors" title="Edit Lead" onClick={() => openEditLead(l)}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                      </button>
-                      <button
-                        className="p-1.5 rounded-lg hover:bg-purple-50 text-purple-400 transition-colors disabled:opacity-40"
-                        title={l.notes ? `Notes: ${l.notes.slice(0,80)}...` : 'AI Research — auto-generate personalization note'}
-                        disabled={researchingId === l.id}
-                        onClick={() => researchLead(l, leads)}
-                      >
-                        {researchingId === l.id
-                          ? <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                          : <span className="text-xs font-bold">{l.notes ? '📝' : '✦'}</span>
-                        }
-                      </button>
-                      <select className="text-xs border border-slate-200 rounded-lg px-1.5 py-1 bg-white text-slate-600 hover:border-slate-300 transition-colors" value="" onChange={e => { if(e.target.value) changeStage(l.id, e.target.value) }}>
-                        <option value="">Stage</option>
-                        {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                      <button className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-500 transition-colors" title="Notes & Activity" onClick={() => openNotes(l)}>
-                        <MessageSquare size={13} />
-                      </button>
-                      <button className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition-colors" onClick={() => deleteLead(l.id)}>
-                        <Trash2 size={13} />
-                      </button>
+                      {showTrash ? (<>
+                        <button className="p-1.5 rounded-lg hover:bg-green-50 text-green-500 transition-colors" title="Restore Lead" onClick={() => restoreLead(l.id)}>
+                          <RotateCcw size={13} />
+                        </button>
+                        <button className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition-colors" title="Delete Forever" onClick={() => permanentDelete(l.id)}>
+                          <Trash2 size={13} />
+                        </button>
+                      </>) : (<>
+                        <button className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors" title="Send Email" onClick={() => { setEmailLead(l); setEmailBody(''); setEmailSubject(''); setEmailOpen(true) }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                        </button>
+                        <button className="p-1.5 rounded-lg hover:bg-green-50 text-green-500 transition-colors" title="Edit Lead" onClick={() => openEditLead(l)}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </button>
+                        <button
+                          className="p-1.5 rounded-lg hover:bg-purple-50 text-purple-400 transition-colors disabled:opacity-40"
+                          title={l.notes ? `Notes: ${l.notes.slice(0,80)}...` : 'AI Research — auto-generate personalization note'}
+                          disabled={researchingId === l.id}
+                          onClick={() => researchLead(l, leads)}
+                        >
+                          {researchingId === l.id
+                            ? <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                            : <span className="text-xs font-bold">{l.notes ? '📝' : '✦'}</span>
+                          }
+                        </button>
+                        <select className="text-xs border border-slate-200 rounded-lg px-1.5 py-1 bg-white text-slate-600 hover:border-slate-300 transition-colors" value="" onChange={e => { if(e.target.value) changeStage(l.id, e.target.value) }}>
+                          <option value="">Stage</option>
+                          {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                        <button className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-500 transition-colors" title="Notes & Activity" onClick={() => openNotes(l)}>
+                          <MessageSquare size={13} />
+                        </button>
+                        <button className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition-colors" title="Move to Trash" onClick={() => deleteLead(l.id)}>
+                          <Trash2 size={13} />
+                        </button>
+                      </>)}
                     </div>
                   </td>
                 </tr>
@@ -628,7 +725,10 @@ export default function Leads() {
         </div>
         <div className="px-4 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between flex-wrap gap-2">
           <span className="text-xs text-slate-500">
-            Showing {filtered.length === 0 ? 0 : page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}{filtered.length !== leads.length ? ` filtered` : ''} leads (total: {leads.length}){groupF ? ` in "${groupF}"` : ''}
+            {showTrash
+              ? `Showing ${displayList.length === 0 ? 0 : page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, displayList.length)} of ${displayList.length} trashed leads`
+              : `Showing ${displayList.length === 0 ? 0 : page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, displayList.length)} of ${displayList.length}${displayList.length !== activeLeads.length ? ' filtered' : ''} leads (total: ${activeLeads.length})${groupF ? ` in "${groupF}"` : ''}`
+            }
           </span>
           {totalPages > 1 && (
             <div className="flex items-center gap-1.5">
@@ -751,7 +851,7 @@ export default function Leads() {
                 >
                   <option value="">— Select existing group —</option>
                   {uniqueGroups.map(g => (
-                    <option key={g} value={g}>{g} ({leads.filter(l => l.group === g).length} leads)</option>
+                    <option key={g} value={g}>{g} ({activeLeads.filter(l => l.group === g).length} leads)</option>
                   ))}
                 </select>
               </div>
@@ -768,7 +868,7 @@ export default function Leads() {
             {groupName && (
               <p className="text-xs text-emerald-600 pl-5">
                 ✓ Leads will be added to: <strong>"{groupName}"</strong>
-                {uniqueGroups.includes(groupName) && <span className="text-blue-500 ml-1">(existing group — {leads.filter(l => l.group === groupName).length} leads already)</span>}
+                {uniqueGroups.includes(groupName) && <span className="text-blue-500 ml-1">(existing group — {activeLeads.filter(l => l.group === groupName).length} leads already)</span>}
               </p>
             )}
           </div>

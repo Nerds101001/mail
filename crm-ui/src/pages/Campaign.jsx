@@ -222,29 +222,29 @@ export default function Campaign() {
   const currentVariant = variants[variantIdx] || { subject: 'Subject will appear here', body: 'Fill the Campaign Brief and click Generate Variants...' }
 
   function getTargets() {
-    if (followupIds) return leads.filter(l => followupIds.has(l.id))
-    if (followupCampaignLeads) return leads.filter(l => followupCampaignLeads.has(l.id))
+    // Always exclude soft-deleted leads from campaign targeting
+    const activeLeads = leads.filter(l => !l.deleted)
+    if (followupIds) return activeLeads.filter(l => followupIds.has(l.id))
+    if (followupCampaignLeads) return activeLeads.filter(l => followupCampaignLeads.has(l.id))
     const fv = cfg.filterVal.trim().toLowerCase()
-    if (cfg.target === 'all')      return leads.slice()
-    if (cfg.target === 'valid')    return leads.filter(l => l.status === 'VALID')
-    if (cfg.target === 'followup') return leads.filter(l => l.status === 'FOLLOW-UP')
-    if (cfg.target === 'hot')      return leads.filter(l => l.pipelineStage === 'HOT' || (l.opens >= 2 || l.clicks >= 1))
+    if (cfg.target === 'all')      return activeLeads.slice()
+    if (cfg.target === 'valid')    return activeLeads.filter(l => l.status === 'VALID')
+    if (cfg.target === 'followup') return activeLeads.filter(l => l.status === 'FOLLOW-UP')
+    if (cfg.target === 'hot')      return activeLeads.filter(l => l.pipelineStage === 'HOT' || (l.opens >= 2 || l.clicks >= 1))
     if (cfg.target === 'hot-campaign') {
       if (!hotCampaignLeads) return []
-      // Only HOT leads that were part of the selected campaign
-      return leads.filter(l => (l.pipelineStage === 'HOT' || l.opens >= 2 || l.clicks >= 1) && hotCampaignLeads.has(String(l.id)))
+      return activeLeads.filter(l => (l.pipelineStage === 'HOT' || l.opens >= 2 || l.clicks >= 1) && hotCampaignLeads.has(String(l.id)))
     }
-    if (cfg.target === 'category') return leads.filter(l => (l.category||'').toLowerCase() === fv)
-    if (cfg.target === 'tag')      return leads.filter(l => (l.tags||[]).some(t => t.toLowerCase() === fv))
-    if (cfg.target === 'group')    return leads.filter(l => (l.group||'').toLowerCase() === fv)
-    if (cfg.target === 'stage')    return leads.filter(l => (l.pipelineStage||'').toLowerCase() === fv)
+    if (cfg.target === 'category') return activeLeads.filter(l => (l.category||'').toLowerCase() === fv)
+    if (cfg.target === 'tag')      return activeLeads.filter(l => (l.tags||[]).some(t => t.toLowerCase() === fv))
+    if (cfg.target === 'group')    return activeLeads.filter(l => (l.group||'').toLowerCase() === fv)
+    if (cfg.target === 'stage')    return activeLeads.filter(l => (l.pipelineStage||'').toLowerCase() === fv)
     if (cfg.target === 'campaign-stage') {
       const [campaignId, stage] = cfg.filterVal.split('|')
       if (!stage) return []
-      // Returns all leads in the specified stage (will be filtered to campaign leads when campaign is fetched)
-      return leads.filter(l => (l.pipelineStage||'').toLowerCase() === stage.toLowerCase())
+      return activeLeads.filter(l => (l.pipelineStage||'').toLowerCase() === stage.toLowerCase())
     }
-    if (cfg.target === 'followup-campaign') return followupCampaignLeads ? leads.filter(l => followupCampaignLeads.has(l.id)) : []
+    if (cfg.target === 'followup-campaign') return followupCampaignLeads ? activeLeads.filter(l => followupCampaignLeads.has(l.id)) : []
     return []
   }
 
