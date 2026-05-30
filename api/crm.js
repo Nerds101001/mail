@@ -196,6 +196,42 @@ module.exports = async (req, res) => {
   // ── SAVE ALL ─────────────────────────────────────────────────────────
   if (type === "save" && req.method === "POST") {
     const { leads, profiles, settings, activity, clients, deals } = req.body;
+
+    // ── AUDIT LOGGING — track every save to catch silent overwrites ──────
+    if (leads !== undefined) {
+      try {
+        const prevLeads = await safeGet(ns("crm:leads", userId), []);
+        const prevCount = Array.isArray(prevLeads) ? prevLeads.length : 0;
+        const newCount  = Array.isArray(leads) ? leads.length : 0;
+        const ip        = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+        const ua        = (req.headers['user-agent'] || '').substring(0, 80);
+        const diff      = newCount - prevCount;
+        const diffStr   = diff >= 0 ? `+${diff}` : `${diff}`;
+        const level     = Math.abs(diff) > 50 ? '⚠️ LARGE CHANGE' : 'ℹ️';
+        console.log(`${level} [LEADS SAVE] user=${userId} ip=${ip} prev=${prevCount} new=${newCount} diff=${diffStr} ua="${ua}"`);
+
+        // Persist audit record to database for long-term investigation
+        try {
+          const sql = getSql();
+          await sql`CREATE TABLE IF NOT EXISTS lead_save_audit (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT,
+            prev_count INT,
+            new_count INT,
+            diff INT,
+            ip TEXT,
+            user_agent TEXT,
+            saved_at BIGINT
+          )`.catch(()=>{});
+          await sql`INSERT INTO lead_save_audit (user_id, prev_count, new_count, diff, ip, user_agent, saved_at)
+            VALUES (${userId}, ${prevCount}, ${newCount}, ${diff}, ${ip}, ${ua}, ${Date.now()})`.catch(()=>{});
+          // Keep only last 500 audit rows to avoid unbounded growth
+          await sql`DELETE FROM lead_save_audit WHERE id NOT IN (SELECT id FROM lead_save_audit ORDER BY saved_at DESC LIMIT 500)`.catch(()=>{});
+        } catch(_e) { /* audit DB write is non-blocking */ }
+      } catch(_e) { /* audit is non-blocking */ }
+    }
+    // ── END AUDIT LOGGING ────────────────────────────────────────────────
+
     await Promise.all([
       leads    !== undefined ? safeSet(ns("crm:leads",    userId), leads) : null,
       profiles !== undefined ? safeSet(ns("crm:profiles", userId), sanitizeProfiles(profiles)) : null, // per-user

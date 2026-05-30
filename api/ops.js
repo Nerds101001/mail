@@ -1510,5 +1510,41 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
     }
   }
 
+  // ── LEAD SAVE AUDIT LOG ─────────────────────────────────────────────────────
+  if (type === "lead-save-audit") {
+    try {
+      const sql = getSql();
+      await sql`CREATE TABLE IF NOT EXISTS lead_save_audit (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT,
+        prev_count INT,
+        new_count INT,
+        diff INT,
+        ip TEXT,
+        user_agent TEXT,
+        saved_at BIGINT
+      )`.catch(()=>{});
+      const rows = await sql`
+        SELECT id, user_id, prev_count, new_count, diff, ip, user_agent, saved_at
+        FROM lead_save_audit
+        ORDER BY saved_at DESC
+        LIMIT 100
+      `.catch(()=>[]);
+      return res.json({ audit: rows.map(r => ({
+        id:         r.id,
+        userId:     r.user_id,
+        prevCount:  r.prev_count,
+        newCount:   r.new_count,
+        diff:       r.diff,
+        ip:         r.ip,
+        userAgent:  r.user_agent,
+        savedAt:    r.saved_at,
+        savedAtHuman: r.saved_at ? new Date(parseInt(r.saved_at)).toISOString() : null,
+      })) });
+    } catch(err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   res.status(400).json({ error: "Invalid type" });
 };
