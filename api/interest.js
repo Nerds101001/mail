@@ -1,6 +1,47 @@
-const { get, set } = require('./_redis');
-const { getSql } = require('./_db');
+// api/interest.js — Handles Interested / Not Interested button clicks from campaign emails
+// These are SEPARATE from the tracking system (opens/clicks).
+// We NEVER touch: simple_tracking, tracking_events, tracking columns in campaign_leads.
 
+const { get, set } = require('./_redis');
+const { getSql }   = require('./_db');
+
+// ── Find a lead across ALL user namespaces ────────────────────────────────────
+// First tries the campaign's own user_id (fastest), then scans all crm:leads* keys.
+async function findLeadInStore(leadId, campaignId, sql) {
+  // 1. If we have a campaignId, look up the campaign's user_id → target key directly
+  if (campaignId) {
+    try {
+      const camps = await sql`SELECT user_id FROM campaigns WHERE id = ${campaignId} LIMIT 1`;
+      if (camps.length) {
+        const userId = camps[0].user_id || 'admin';
+        const lKey   = userId === 'admin' ? 'crm:leads' : `crm:leads:${userId}`;
+        const rows   = await sql`SELECT value FROM kv_store WHERE key = ${lKey} LIMIT 1`;
+        if (rows.length && rows[0].value) {
+          const leads = JSON.parse(rows[0].value);
+          const lead  = Array.isArray(leads) ? leads.find(l => l.id === leadId) : null;
+          if (lead) return { lead, leads, lKey };
+        }
+      }
+    } catch (e) { console.warn('[Interest] campaign lookup failed:', e.message); }
+  }
+
+  // 2. Fallback: scan ALL crm:leads* keys (catches any namespace)
+  try {
+    const allKeys = await sql`SELECT key, value FROM kv_store WHERE key LIKE 'crm:leads%'`;
+    for (const row of allKeys) {
+      try {
+        const leads = JSON.parse(row.value);
+        if (!Array.isArray(leads)) continue;
+        const lead = leads.find(l => l.id === leadId);
+        if (lead) return { lead, leads, lKey: row.key };
+      } catch {}
+    }
+  } catch (e) { console.warn('[Interest] namespace scan failed:', e.message); }
+
+  return null; // lead not found in any namespace
+}
+
+// ── Confirmation page served to the lead's browser ───────────────────────────
 function confirmationPage(action) {
   const isDemo = action === 'demo';
   return `<!DOCTYPE html>
@@ -28,6 +69,7 @@ function confirmationPage(action) {
 </html>`;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
 module.exports = async (req, res) => {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -40,28 +82,37 @@ module.exports = async (req, res) => {
   try {
     const sql = getSql();
 
-    // Ensure interest_action column exists
+    // Ensure interest_action column exists (non-blocking, safe to re-run)
     await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS interest_action TEXT`.catch(() => {});
 
-    if (action === 'demo') {
-      // 1. Update lead pipelineStage → DEMO in Redis
-      try {
-        const rawLeads = await get('crm:leads');
-        if (rawLeads) {
-          const leads = JSON.parse(rawLeads);
-          const idx = leads.findIndex(l => l.id === leadId);
-          if (idx !== -1) {
-            leads[idx] = {
-              ...leads[idx],
-              pipelineStage: 'DEMO',
-              notes: (leads[idx].notes || '') + `\n[${new Date().toISOString()}] Clicked Interested via email`,
-            };
-            await set('crm:leads', JSON.stringify(leads));
-          }
-        }
-      } catch (e) { console.warn('[Interest] Redis update failed:', e.message); }
+    // ── Find the lead in kv_store ─────────────────────────────────────────────
+    const found = await findLeadInStore(leadId, campaignId, sql);
 
-      // 2. Mark campaign_leads with interest_action = 'demo'
+    // ── INTERESTED → stage moves to DEMO ─────────────────────────────────────
+    if (action === 'demo') {
+      if (found) {
+        const { lead, leads, lKey } = found;
+
+        // Only update pipelineStage — do NOT touch opens, clicks, status, or any tracking field
+        const updatedLeads = leads.map(l =>
+          l.id === leadId
+            ? {
+                ...l,
+                pipelineStage: 'DEMO',
+                // Append a note so there's a human-readable audit trail
+                notes: (l.notes || '') + `\n[${new Date().toISOString()}] Clicked "Interested" via campaign email`,
+              }
+            : l
+        );
+
+        await sql`UPDATE kv_store SET value = ${JSON.stringify(updatedLeads)} WHERE key = ${lKey}`.catch(() => {});
+        console.log(`[Interest] ✅ Lead ${leadId} stage → DEMO  (key: ${lKey})`);
+      } else {
+        console.warn(`[Interest] ⚠️  Lead ${leadId} not found in any namespace — skipping kv update`);
+      }
+
+      // Record interest_action in campaign_leads — ONLY the interest_action column.
+      // Do NOT update opens, clicks, status, subject, body, or any tracking column.
       if (campaignId) {
         await sql`
           UPDATE campaign_leads
@@ -69,52 +120,77 @@ module.exports = async (req, res) => {
           WHERE lead_id = ${leadId} AND campaign_id = ${campaignId}
         `.catch(() => {});
       } else {
+        // No campaign context — update the most recent row only
         await sql`
           UPDATE campaign_leads
           SET interest_action = 'demo'
-          WHERE lead_id = ${leadId}
-          AND id = (SELECT id FROM campaign_leads WHERE lead_id = ${leadId} ORDER BY id DESC LIMIT 1)
+          WHERE id = (
+            SELECT id FROM campaign_leads
+            WHERE lead_id = ${leadId}
+            ORDER BY id DESC LIMIT 1
+          )
         `.catch(() => {});
       }
 
-      console.log(`[Interest] Lead ${leadId} marked as DEMO (campaign: ${campaignId || 'unknown'})`);
+      console.log(`[Interest] ✅ interest_action=demo recorded for lead ${leadId} (camp: ${campaignId || 'latest'})`);
       return res.send(confirmationPage('demo'));
 
+    // ── NOT INTERESTED → unsubscribe ─────────────────────────────────────────
     } else if (action === 'unsub') {
       let resolvedEmail = null;
-      try {
-        const rawLeads = await get('crm:leads');
-        if (rawLeads) {
-          const leads = JSON.parse(rawLeads);
-          const lead = leads.find(l => l.id === leadId);
-          if (lead) {
-            resolvedEmail = lead.email;
-            const updated = leads.map(l =>
-              l.id === leadId
-                ? { ...l, status: 'UNSUBSCRIBED', notes: (l.notes || '') + `\n[${new Date().toISOString()}] Clicked Not Interested via email` }
-                : l
-            );
-            await set('crm:leads', JSON.stringify(updated));
-          }
-        }
-      } catch (e) { console.warn('[Interest] Redis update failed:', e.message); }
 
+      if (found) {
+        const { lead, leads, lKey } = found;
+        resolvedEmail = lead.email;
+
+        // Update the lead: mark status UNSUBSCRIBED + append note.
+        // Do NOT touch pipelineStage, opens, clicks, or any tracking field.
+        const updatedLeads = leads.map(l =>
+          l.id === leadId
+            ? {
+                ...l,
+                status: 'UNSUBSCRIBED',
+                notes: (l.notes || '') + `\n[${new Date().toISOString()}] Clicked "Not Interested" via campaign email — unsubscribed`,
+              }
+            : l
+        );
+
+        await sql`UPDATE kv_store SET value = ${JSON.stringify(updatedLeads)} WHERE key = ${lKey}`.catch(() => {});
+        console.log(`[Interest] ✅ Lead ${leadId} status → UNSUBSCRIBED  (key: ${lKey}, email: ${resolvedEmail})`);
+      } else {
+        console.warn(`[Interest] ⚠️  Lead ${leadId} not found in any namespace — skipping kv update`);
+      }
+
+      // Set the global unsub flag so future campaigns skip this email address
       if (resolvedEmail) {
         await set(`unsub:${resolvedEmail}`, 'true');
+        console.log(`[Interest] ✅ unsub:${resolvedEmail} = true`);
+      }
+
+      // Record interest_action in campaign_leads — ONLY the interest_action column.
+      // We deliberately do NOT update campaign_leads.status here because:
+      //   - status tracks whether the email was sent/failed/pending (delivery state)
+      //   - interest_action tracks what the lead chose to do after receiving it
+      // These are orthogonal — leave delivery status intact.
+      if (campaignId) {
         await sql`
           UPDATE campaign_leads
-          SET status = 'UNSUBSCRIBED', interest_action = 'unsub'
-          WHERE lead_email = ${resolvedEmail} AND status IN ('SENT','REPLIED')
+          SET interest_action = 'unsub'
+          WHERE lead_id = ${leadId} AND campaign_id = ${campaignId}
         `.catch(() => {});
       } else {
         await sql`
           UPDATE campaign_leads
-          SET status = 'UNSUBSCRIBED', interest_action = 'unsub'
-          WHERE lead_id = ${leadId} AND status IN ('SENT','REPLIED')
+          SET interest_action = 'unsub'
+          WHERE id = (
+            SELECT id FROM campaign_leads
+            WHERE lead_id = ${leadId}
+            ORDER BY id DESC LIMIT 1
+          )
         `.catch(() => {});
       }
 
-      console.log(`[Interest] Lead ${leadId} marked as UNSUBSCRIBED (email: ${resolvedEmail || 'unknown'})`);
+      console.log(`[Interest] ✅ interest_action=unsub recorded for lead ${leadId} (camp: ${campaignId || 'latest'})`);
       return res.send(confirmationPage('unsub'));
 
     } else {
@@ -122,7 +198,7 @@ module.exports = async (req, res) => {
     }
 
   } catch (err) {
-    console.error('[Interest] Error:', err);
+    console.error('[Interest] Error:', err.message, err.stack);
     return res.status(500).send('<h2>Error processing your request. Please try again.</h2>');
   }
 };
