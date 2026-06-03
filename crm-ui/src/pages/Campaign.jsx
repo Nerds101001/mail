@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCRM } from '../store'
 import { Btn, Card, PageHeader, toast } from '../components/ui'
@@ -99,6 +99,15 @@ export default function Campaign() {
   const [editingVariant, setEditingVariant] = useState(false)
   const [customSubj,    setCustomSubj]    = useState('')
   const [customBodyHtml, setCustomBodyHtml] = useState('')   // stores raw HTML
+  // Refs ensure runCampaign() always reads the latest values even with React batching
+  const customSubjRef    = useRef('')
+  const customBodyHtmlRef = useRef('')
+  const modeRef          = useRef('ai')
+
+  // Keep refs in sync so runCampaign() always reads the latest values (avoids React stale closures)
+  useEffect(() => { modeRef.current = mode },             [mode])
+  useEffect(() => { customSubjRef.current = customSubj }, [customSubj])
+  useEffect(() => { customBodyHtmlRef.current = customBodyHtml }, [customBodyHtml])
 
   // Interest response buttons
   const [showInterested, setShowInterested]       = useState(false)
@@ -361,13 +370,24 @@ export default function Campaign() {
   }
 
   async function runCampaign() {
+    // Always read from refs — avoids stale React closure when button is clicked rapidly
+    const currentMode        = modeRef.current
+    const currentCustomSubj  = customSubjRef.current.trim()
+    const currentCustomBody  = htmlToPlain(customBodyHtmlRef.current).trim()
+
+    // Validate custom mode has content before allowing send
+    if (currentMode === 'custom') {
+      if (!currentCustomSubj) { toast('Custom mode: enter a Subject line first', 'error'); return }
+      if (!currentCustomBody) { toast('Custom mode: write your email content first', 'error'); return }
+    }
+
     const senderProfiles = activeProfiles.filter(p => selectedSenders.has(p.user||p.email||''))
     const targets = getTargets()
     if (!senderProfiles.length || !targets.length) { toast('Missing senders or leads', 'error'); return }
 
     // ── Deliverability pre-check ──
-    const checkSubject = mode === 'custom' ? customSubj : (currentVariant.subject || '')
-    const checkBody    = mode === 'custom' ? htmlToPlain(customBodyHtml) : (currentVariant.body || '')
+    const checkSubject = currentMode === 'custom' ? currentCustomSubj : (currentVariant.subject || '')
+    const checkBody    = currentMode === 'custom' ? currentCustomBody  : (currentVariant.body   || '')
     if (checkSubject || checkBody) {
       try {
         const dr = await fetch('/api/ops?type=deliverability', {
@@ -416,9 +436,9 @@ export default function Campaign() {
             resume_config: {
               senderProfiles,
               variants,
-              mode,
-              customSubj,
-              customBody:        htmlToPlain(customBodyHtml),
+              mode:              currentMode,
+              customSubj:        currentCustomSubj,
+              customBody:        currentCustomBody,
               cfg:               { rate: cfg.rate, batch: cfg.batch, target: cfg.target, filterVal: cfg.filterVal },
               selectedAtts,
               usePersonalization,
@@ -444,9 +464,9 @@ export default function Campaign() {
       targets,
       senderProfiles,
       variants,
-      mode,
-      customSubj,
-      customBody:         htmlToPlain(customBodyHtml),
+      mode:               currentMode,
+      customSubj:         currentCustomSubj,
+      customBody:         currentCustomBody,
       cfg:                { rate: cfg.rate, batch: cfg.batch, target: cfg.target, filterVal: cfg.filterVal },
       senderName:         cfg.sender,
       replyTo:            cfg.replyTo,
@@ -524,9 +544,14 @@ export default function Campaign() {
           <Btn variant="secondary" onClick={checkDeliverability} disabled={delivLoading||runnerState.status==='RUNNING'}>
             {delivLoading ? '...' : '🎯 Check Score'}
           </Btn>
-          <Btn variant="primary" onClick={runCampaign} disabled={runnerState.status==='RUNNING'||schedSaving}>
-            <Play size={14} /> {runnerState.status === 'RUNNING' ? 'Running...' : 'Run Campaign'}
-          </Btn>
+          <div className="flex items-center gap-2">
+            <span className={`text-[11px] font-semibold px-2 py-1 rounded-full ${mode === 'custom' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+              {mode === 'custom' ? '✏️ Custom' : '🤖 AI'}
+            </span>
+            <Btn variant="primary" onClick={runCampaign} disabled={runnerState.status==='RUNNING'||schedSaving}>
+              <Play size={14} /> {runnerState.status === 'RUNNING' ? 'Running...' : 'Run Campaign'}
+            </Btn>
+          </div>
         </div>
       </PageHeader>
 

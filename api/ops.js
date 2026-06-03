@@ -739,7 +739,19 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
           const cfgRaw = typeof camp.schedule_config === 'string'
             ? JSON.parse(camp.schedule_config || '{}')
             : (camp.schedule_config || {});
-          const { cfg = {}, variants = [], selectedSenders = [], selectedAttachments = [], usePersonalization = false, attachmentText = '' } = cfgRaw;
+          // resume_config is the canonical source of campaign settings (mode, customSubj, customBody, variants, etc.)
+          // Fall back to top-level cfgRaw keys for older campaigns that predate resume_config
+          const rc = cfgRaw.resume_config || cfgRaw;
+          const cfg              = rc.cfg              || cfgRaw.cfg              || {};
+          const variants         = rc.variants?.length ? rc.variants : (cfgRaw.variants || []);
+          const selectedSenders  = rc.senderProfiles   ? rc.senderProfiles.map(p => p.user || p.email || '') : (cfgRaw.selectedSenders || []);
+          const selectedAttachments = rc.selectedAtts  || cfgRaw.selectedAttachments || [];
+          const usePersonalization  = rc.usePersonalization  ?? cfgRaw.usePersonalization  ?? false;
+          const attachmentText      = rc.attachmentText      || cfgRaw.attachmentText      || '';
+          const sendMode         = rc.mode             || (variants.length ? 'ai' : 'fallback');
+          const customSubj       = rc.customSubj       || '';
+          const customBody       = rc.customBody       || '';
+          console.log(`[OPS SCHED] camp=${camp.id} mode=${sendMode} customBody=${customBody ? 'YES ('+customBody.length+' chars)' : 'EMPTY'} variants=${variants.length}`);
           const uid = camp.user_id;
           if (!uid) throw new Error("campaign.user_id missing");
 
@@ -773,11 +785,20 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
             const sub     = s => (s||'').replace(/\[Name\]/gi,nameT).replace(/\[Company\]/gi,compT).replace(/\[Role\]/gi,l.role||'').replace(/their company/gi,compT);
 
             let subject, body;
-            if (variants.length) {
+            if (sendMode === 'custom' && customBody) {
+              // Custom mode — use exactly what the user typed, with token substitution
+              subject = sub(customSubj) || `Message for ${l.company||'your business'}`;
+              body    = sub(customBody);
+              if (usePersonalization && l.notes?.trim()) {
+                const hook = `Given that ${compT} ${l.notes.trim().replace(/^(is |are |has |have )/i, '')},`;
+                body = body.replace(/^(Hi [^\n,]+,\n\n)/i, `$1${hook} `);
+              }
+            } else if (variants.length) {
+              // AI mode — rotate through variants
               subject = sub(variants[varIdx].subject);
               body    = sub(variants[varIdx].body);
               if (usePersonalization && l.notes?.trim()) {
-                const hook = `Given that ${compT} ${l.notes.trim().replace(/^(is |are |has |have )/i,''  )},`;
+                const hook = `Given that ${compT} ${l.notes.trim().replace(/^(is |are |has |have )/i, '')},`;
                 body = body.replace(/^(Hi [^\n,]+,\n\n)/i, `$1${hook} `);
               }
             } else {
