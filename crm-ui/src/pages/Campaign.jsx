@@ -99,15 +99,24 @@ export default function Campaign() {
   const [editingVariant, setEditingVariant] = useState(false)
   const [customSubj,    setCustomSubj]    = useState('')
   const [customBodyHtml, setCustomBodyHtml] = useState('')   // stores raw HTML
-  // Refs ensure runCampaign() always reads the latest values even with React batching
-  const customSubjRef    = useRef('')
+  // Refs — updated IMMEDIATELY in change handlers (not via useEffect) so runCampaign()
+  // always reads the very latest value even when clicked while editor is still focused.
+  const customSubjRef     = useRef('')
   const customBodyHtmlRef = useRef('')
-  const modeRef          = useRef('ai')
+  const modeRef           = useRef('ai')
+  const variantsRef       = useRef([])
 
-  // Keep refs in sync so runCampaign() always reads the latest values (avoids React stale closures)
-  useEffect(() => { modeRef.current = mode },             [mode])
-  useEffect(() => { customSubjRef.current = customSubj }, [customSubj])
-  useEffect(() => { customBodyHtmlRef.current = customBodyHtml }, [customBodyHtml])
+  // Wrapped setters that keep refs in sync atomically with state updates
+  const setModeSync = (v)  => { modeRef.current = v;  setMode(v) }
+  const setCustomSubjSync  = (v)  => { customSubjRef.current = v;  setCustomSubj(v) }
+  const setCustomBodySync  = (html) => { customBodyHtmlRef.current = html; setCustomBodyHtml(html) }
+  const setVariantsSync    = (fn)  => {
+    setVariants(prev => {
+      const next = typeof fn === 'function' ? fn(prev) : fn
+      variantsRef.current = next
+      return next
+    })
+  }
 
   // Interest response buttons
   const [showInterested, setShowInterested]       = useState(false)
@@ -338,7 +347,7 @@ export default function Campaign() {
       if (!res.ok) throw new Error(data.error || 'AI generation failed')
       const v = data.variants || [{ subject: data.subject, body: data.body }]
       const real = v.filter(x => !x.fallback)
-      setVariants(v)
+      setVariantsSync(v)
       setVariantIdx(0)
       setEditingVariant(false)
       if (data.failedCount > 0) {
@@ -370,10 +379,13 @@ export default function Campaign() {
   }
 
   async function runCampaign() {
-    // Always read from refs — avoids stale React closure when button is clicked rapidly
+    // Always read from refs — avoids stale React closure when button is clicked rapidly.
+    // Refs are updated IMMEDIATELY in setModeSync/setCustomBodySync/setVariantsSync
+    // so they always reflect the latest editor content regardless of React's render cycle.
     const currentMode        = modeRef.current
     const currentCustomSubj  = customSubjRef.current.trim()
     const currentCustomBody  = htmlToPlain(customBodyHtmlRef.current).trim()
+    const currentVariants    = variantsRef.current
 
     // Validate custom mode has content before allowing send
     if (currentMode === 'custom') {
@@ -386,8 +398,9 @@ export default function Campaign() {
     if (!senderProfiles.length || !targets.length) { toast('Missing senders or leads', 'error'); return }
 
     // ── Deliverability pre-check ──
-    const checkSubject = currentMode === 'custom' ? currentCustomSubj : (currentVariant.subject || '')
-    const checkBody    = currentMode === 'custom' ? currentCustomBody  : (currentVariant.body   || '')
+    const latestVariant = currentVariants[variantIdx] || currentVariants[0] || {}
+    const checkSubject = currentMode === 'custom' ? currentCustomSubj : (latestVariant.subject || '')
+    const checkBody    = currentMode === 'custom' ? currentCustomBody  : (latestVariant.body   || '')
     if (checkSubject || checkBody) {
       try {
         const dr = await fetch('/api/ops?type=deliverability', {
@@ -428,14 +441,14 @@ export default function Campaign() {
           target:  cfg.target,
           sender:  cfg.sender,
           brief,
-          variants,
+          variants: currentVariants,
           stats:   { sent: 0, failed: 0, skipped: 0 },
           status:  'RUNNING',
           // Store send config (no target list — first checkpoint will write lead IDs)
           schedule_config: {
             resume_config: {
               senderProfiles,
-              variants,
+              variants: currentVariants,
               mode:              currentMode,
               customSubj:        currentCustomSubj,
               customBody:        currentCustomBody,
@@ -463,7 +476,7 @@ export default function Campaign() {
       campaignName,
       targets,
       senderProfiles,
-      variants,
+      variants: currentVariants,
       mode:               currentMode,
       customSubj:         currentCustomSubj,
       customBody:         currentCustomBody,
@@ -858,8 +871,8 @@ export default function Campaign() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-slate-900">Email Composer</h3>
             <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
-              <button onClick={() => setMode('ai')} className={`px-3 py-1 text-xs rounded-md ${mode==='ai'?'bg-white shadow text-emerald-600':'text-slate-500'}`}>AI</button>
-              <button onClick={() => setMode('custom')} className={`px-3 py-1 text-xs rounded-md ${mode==='custom'?'bg-white shadow text-blue-600':'text-slate-500'}`}>Custom</button>
+              <button onClick={() => setModeSync('ai')} className={`px-3 py-1 text-xs rounded-md ${mode==='ai'?'bg-white shadow text-emerald-600':'text-slate-500'}`}>AI</button>
+              <button onClick={() => setModeSync('custom')} className={`px-3 py-1 text-xs rounded-md ${mode==='custom'?'bg-white shadow text-blue-600':'text-slate-500'}`}>Custom</button>
             </div>
           </div>
 
@@ -933,8 +946,8 @@ export default function Campaign() {
             </div>
           ) : (
             <div className="space-y-3">
-              <input className="input" placeholder="Subject" value={customSubj} onChange={e=>setCustomSubj(e.target.value)} />
-              <RichEditor value={customBodyHtml} onChange={setCustomBodyHtml} minHeight={150} />
+              <input className="input" placeholder="Subject" value={customSubj} onChange={e=>setCustomSubjSync(e.target.value)} />
+              <RichEditor value={customBodyHtml} onChange={setCustomBodySync} minHeight={150} />
             </div>
           )}
 
@@ -983,7 +996,7 @@ export default function Campaign() {
                     <input
                       className="w-full text-sm font-semibold border border-blue-300 rounded-lg px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400/30"
                       value={currentVariant.subject}
-                      onChange={e => setVariants(vs => vs.map((v, i) => i === variantIdx ? { ...v, subject: e.target.value } : v))}
+                      onChange={e => setVariantsSync(vs => vs.map((v, i) => i === variantIdx ? { ...v, subject: e.target.value } : v))}
                       placeholder="Subject line..."
                     />
                   </div>
@@ -999,7 +1012,7 @@ export default function Campaign() {
                           onChange={e => {
                             if (!e.target.value) return
                             const sig = e.target.value
-                            setVariants(vs => vs.map((v, i) => {
+                            setVariantsSync(vs => vs.map((v, i) => {
                               if (i !== variantIdx) return v
                               // Strip existing signature from plain text, append new one
                               const plain = v.body.replace(/\n+Best,[\s\S]*$/i, '').trimEnd()
@@ -1021,7 +1034,7 @@ export default function Campaign() {
                     {/* Rich editor — value is HTML; stores both html and plain versions */}
                     <RichEditor
                       value={currentVariant.bodyHtml || plainToHtml(currentVariant.body || '')}
-                      onChange={html => setVariants(vs => vs.map((v, i) =>
+                      onChange={html => setVariantsSync(vs => vs.map((v, i) =>
                         i === variantIdx ? { ...v, body: htmlToPlain(html), bodyHtml: html } : v
                       ))}
                       minHeight={260}

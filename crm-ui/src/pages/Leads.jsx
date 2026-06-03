@@ -420,8 +420,10 @@ export default function Leads() {
     const activeProfiles = profiles.filter(p => p.active)
     if (!activeProfiles.length) { toast('Add a sender profile in Settings', 'error'); return }
     const profile = activeProfiles[0]
-    const body = emailBody || `Hi ${emailLead.name},\n\nI came across ${emailLead.company||'your company'} and was impressed by what you're building. At Enginerds Tech Solution, we specialize in ERP & SaaS solutions.\n\nWould you be open to a quick 15-minute call?\n\nBest,\nPawan Kumar\nEnginerds Tech Solution`
-    const subject = emailSubject || `Quick idea for ${emailLead.company||'your company'}`
+    const body    = emailBody.trim()
+    const subject = emailSubject.trim()
+    if (!subject) { toast('Enter a subject line', 'error'); return }
+    if (!body)    { toast('Enter email content', 'error'); return }
     setSendLoading(true)
     try {
       const endpoint = profile.type === 'gmail' ? '/api/send-email' : '/api/send-smtp'
