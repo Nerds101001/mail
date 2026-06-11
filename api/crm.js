@@ -474,8 +474,8 @@ module.exports = async (req, res) => {
         [tracking, lastEmails] = await Promise.all([
           sql`
             SELECT lead_id,
-              COUNT(*) FILTER (WHERE event_type = 'open')  AS opens,
-              COUNT(*) FILTER (WHERE event_type = 'click') AS clicks
+              COUNT(*) FILTER (WHERE event_type = 'open'  AND (is_bot IS NOT TRUE)) AS opens,
+              COUNT(*) FILTER (WHERE event_type = 'click' AND (is_bot IS NOT TRUE)) AS clicks
             FROM tracking_events
             WHERE lead_id = ANY(${userLeadIds}) AND campaign_id = ${campId}
             GROUP BY lead_id

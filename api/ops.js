@@ -610,8 +610,8 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       // Only return scores for leads in campaigns belonging to this user
       const rows = await sql`
         SELECT te.lead_id,
-          COUNT(*) FILTER (WHERE te.event_type = 'open')  AS opens,
-          COUNT(*) FILTER (WHERE te.event_type = 'click') AS clicks
+          COUNT(*) FILTER (WHERE te.event_type = 'open'  AND (te.is_bot IS NOT TRUE)) AS opens,
+          COUNT(*) FILTER (WHERE te.event_type = 'click' AND (te.is_bot IS NOT TRUE)) AS clicks
         FROM tracking_events te
         JOIN campaigns c ON c.id = te.campaign_id
         WHERE te.lead_id = ANY(${leadIds})
@@ -678,12 +678,12 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
       const rows = await sql`
         SELECT cl.variant_index,
           COUNT(DISTINCT cl.lead_id) AS sends,
-          COUNT(DISTINCT te.lead_id) FILTER (WHERE te.event_type = 'open') AS openers
+          COUNT(DISTINCT te.lead_id) FILTER (WHERE te.event_type = 'open' AND (te.is_bot IS NOT TRUE)) AS openers
         FROM campaign_leads cl
         LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
         WHERE cl.campaign_id = ${campaignId} AND cl.status = 'sent'
         GROUP BY cl.variant_index
-        ORDER BY (COUNT(DISTINCT te.lead_id) FILTER (WHERE te.event_type = 'open')::float /
+        ORDER BY (COUNT(DISTINCT te.lead_id) FILTER (WHERE te.event_type = 'open' AND (te.is_bot IS NOT TRUE))::float /
                   NULLIF(COUNT(DISTINCT cl.lead_id), 0)) DESC NULLS LAST
         LIMIT 1
       `;
@@ -1023,7 +1023,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
             // Check what the lead has done in ANY previous campaign or drip step
             const prevEvents = await sql`
               SELECT event_type FROM tracking_events
-              WHERE lead_id = ${enroll.lead_id}
+              WHERE lead_id = ${enroll.lead_id} AND (is_bot IS NOT TRUE)
               LIMIT 50
             `.catch(() => []);
             const hasOpened  = prevEvents.some(e => e.event_type === 'open');
@@ -1106,10 +1106,10 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
           c.created_at,
           c.status AS campaign_status,
           COUNT(DISTINCT cl.lead_id) FILTER (WHERE cl.status IN ('SENT','REPLIED','BOUNCED','UNSUBSCRIBED')) AS total_sent,
-          COUNT(DISTINCT te.lead_id) FILTER (WHERE te.event_type = 'open')  AS unique_opens,
-          COUNT(*)                   FILTER (WHERE te.event_type = 'open')  AS total_opens,
-          COUNT(DISTINCT te.lead_id) FILTER (WHERE te.event_type = 'click') AS unique_clicks,
-          COUNT(*)                   FILTER (WHERE te.event_type = 'click') AS total_clicks,
+          COUNT(DISTINCT te.lead_id) FILTER (WHERE te.event_type = 'open'  AND (te.is_bot IS NOT TRUE)) AS unique_opens,
+          COUNT(*)                   FILTER (WHERE te.event_type = 'open'  AND (te.is_bot IS NOT TRUE)) AS total_opens,
+          COUNT(DISTINCT te.lead_id) FILTER (WHERE te.event_type = 'click' AND (te.is_bot IS NOT TRUE)) AS unique_clicks,
+          COUNT(*)                   FILTER (WHERE te.event_type = 'click' AND (te.is_bot IS NOT TRUE)) AS total_clicks,
           COUNT(DISTINCT cl.lead_id) FILTER (WHERE cl.status = 'REPLIED')      AS replies,
           COUNT(DISTINCT cl.lead_id) FILTER (WHERE cl.status = 'BOUNCED')      AS bounces,
           COUNT(DISTINCT cl.lead_id) FILTER (WHERE cl.status = 'UNSUBSCRIBED') AS unsubscribes,
@@ -1189,7 +1189,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
           COUNT(*) AS opens
         FROM tracking_events te
         JOIN campaigns c ON c.id = te.campaign_id
-        WHERE te.event_type = 'open' AND te.created_at IS NOT NULL
+        WHERE te.event_type = 'open' AND te.created_at IS NOT NULL AND (te.is_bot IS NOT TRUE)
           AND (c.user_id = ${userId} OR ${userId} = 'admin')
         GROUP BY hour, dow
         ORDER BY opens DESC
