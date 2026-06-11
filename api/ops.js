@@ -129,8 +129,8 @@ module.exports = async (req, res) => {
                 SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
                        cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
                        COALESCE(c.name,'Unknown Campaign') as campaign_name,
-                       COUNT(te.id) FILTER (WHERE te.event_type = 'open')  AS opens,
-                       COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'open'  AND (te.is_bot IS NOT TRUE)) AS opens,
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'click' AND (te.is_bot IS NOT TRUE)) AS clicks
                 FROM campaign_leads cl
                 LEFT JOIN campaigns c ON c.id = cl.campaign_id
                 LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
@@ -143,8 +143,8 @@ module.exports = async (req, res) => {
                 SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
                        cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
                        COALESCE(c.name,'Unknown Campaign') as campaign_name,
-                       COUNT(te.id) FILTER (WHERE te.event_type = 'open')  AS opens,
-                       COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'open'  AND (te.is_bot IS NOT TRUE)) AS opens,
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'click' AND (te.is_bot IS NOT TRUE)) AS clicks
                 FROM campaign_leads cl
                 LEFT JOIN campaigns c ON c.id = cl.campaign_id
                 LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
@@ -158,8 +158,8 @@ module.exports = async (req, res) => {
                 SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
                        cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
                        COALESCE(c.name,'Unknown Campaign') as campaign_name,
-                       COUNT(te.id) FILTER (WHERE te.event_type = 'open')  AS opens,
-                       COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'open'  AND (te.is_bot IS NOT TRUE)) AS opens,
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'click' AND (te.is_bot IS NOT TRUE)) AS clicks
                 FROM campaign_leads cl
                 LEFT JOIN campaigns c ON c.id = cl.campaign_id
                 LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
@@ -171,8 +171,8 @@ module.exports = async (req, res) => {
                 SELECT cl.id, cl.campaign_id, cl.lead_id, cl.lead_name, cl.lead_email,
                        cl.lead_company, cl.status, cl.subject, cl.sent_at, cl.variant_index,
                        COALESCE(c.name,'Unknown Campaign') as campaign_name,
-                       COUNT(te.id) FILTER (WHERE te.event_type = 'open')  AS opens,
-                       COUNT(te.id) FILTER (WHERE te.event_type = 'click') AS clicks
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'open'  AND (te.is_bot IS NOT TRUE)) AS opens,
+                       COUNT(te.id) FILTER (WHERE te.event_type = 'click' AND (te.is_bot IS NOT TRUE)) AS clicks
                 FROM campaign_leads cl
                 LEFT JOIN campaigns c ON c.id = cl.campaign_id
                 LEFT JOIN tracking_events te ON te.lead_id = cl.lead_id AND te.campaign_id = cl.campaign_id
