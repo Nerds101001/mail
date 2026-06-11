@@ -519,6 +519,13 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
           const elapsed = now - sentAt;
           if (elapsed < 10_000) {
             console.log(`🛡️ [10s-GUARD] Blocked after ${elapsed}ms (< 10s) for lead ${leadId} (${ip})`);
+            await sql`
+              INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id,
+                device_type, device_client, country, city, is_bot, created_at)
+              VALUES (${leadId}, 'open', ${ip}, ${userAgent}, ${campaignId ? `campaign:${campaignId}` : null},
+                ${campaignId || null}, ${device.type}, ${device.client},
+                ${geo.country || null}, ${geo.city || null}, ${true}, ${now})
+            `.catch(() => {});
             return { counted: false, reason: '10s guard', count: 0 };
           }
           // Past 10s → real open; remove key so this branch doesn't run again
