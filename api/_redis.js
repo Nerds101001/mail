@@ -499,28 +499,38 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       return { counted: false, reason: 'bot ip', count: 0 };
     }
 
-    // ── Step 1: First-hit filter — delivery scan is always the first pixel hit ──
-    // When an email is sent, we set key = 'pending'.
-    // First pixel hit (delivery scan by Gmail/provider) → mark 'seen', return 204.
-    //   → 204 means Gmail has nothing to cache → re-requests on real user open.
-    // Second pixel hit (real user open) → key is 'seen' → count it.
-    // No key → email was sent a long time ago or no campaign → count it.
-    // This works for campaigns of any size — each lead has its own key, no TTL race.
+    // ── Step 1: 10-second send-guard — block ALL pixel hits within 10s of send ──
+    // send-smtp.js / send-email.js stores String(Date.now()) in this key before
+    // handing off to the SMTP/Gmail API.  Any pixel hit that arrives within 10s
+    // is a delivery scanner (Gmail, Apple MPP, Outlook), never a real user.
+    // After 10s the key is deleted and the open is counted normally.
+    // Backward-compat: old 'pending' value is still handled as a single-block.
     {
       const fhKey = `email:first-hit:${leadId}:${campaignId || 'direct'}`;
       const fhRaw = await sql`
         SELECT value FROM kv_store WHERE key = ${fhKey}
           AND (expires_at IS NULL OR expires_at > ${now}) LIMIT 1
       `.catch(() => []);
-      if (fhRaw.length > 0 && fhRaw[0].value === 'pending') {
-        // First hit = delivery scan → mark seen, return 204 so Gmail re-requests later
-        await sql`
-          UPDATE kv_store SET value = 'seen' WHERE key = ${fhKey}
-        `.catch(() => {});
-        console.log(`🛡️ [FIRST-HIT] Delivery scan blocked for ${leadId} (${ip}) — marked seen`);
-        return { counted: false, reason: 'first hit', count: 0 };
+      if (fhRaw.length > 0) {
+        const val    = fhRaw[0].value;
+        const sentAt = parseInt(val, 10);
+        if (!isNaN(sentAt) && sentAt > 1_000_000_000_000) {
+          // New format — timestamp in ms
+          const elapsed = now - sentAt;
+          if (elapsed < 10_000) {
+            console.log(`🛡️ [10s-GUARD] Blocked after ${elapsed}ms (< 10s) for lead ${leadId} (${ip})`);
+            return { counted: false, reason: '10s guard', count: 0 };
+          }
+          // Past 10s → real open; remove key so this branch doesn't run again
+          await sql`DELETE FROM kv_store WHERE key = ${fhKey}`.catch(() => {});
+        } else if (val === 'pending') {
+          // Old format — single-block first hit
+          await sql`UPDATE kv_store SET value = 'seen' WHERE key = ${fhKey}`.catch(() => {});
+          console.log(`🛡️ [FIRST-HIT] Delivery scan blocked for ${leadId} (${ip}) — marked seen`);
+          return { counted: false, reason: 'first hit', count: 0 };
+        }
+        // 'seen' or unknown value → fall through and count
       }
-      // 'seen' or no key → real open, fall through to count
     }
 
     // ── Step 2: Count the real open ──────────────────────────────────────────

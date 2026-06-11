@@ -102,11 +102,10 @@ module.exports = async (req, res) => {
     const htmlBody       = buildHtmlBody(body, leadId, to, appUrl, campaignId || null, interestHtml || '');
     const attachmentData = await fetchAttachmentData(attachments || []);
 
-    // First-hit filter: set key = 'pending' BEFORE sending.
-    // First pixel hit (delivery scan) → _redis.js marks it 'seen', returns 204.
-    // Second pixel hit (real user open) → counted. Works for attachments too.
+    // 10-second guard: store send timestamp before handing off to SMTP.
+    // trackOpen() in _redis.js rejects any pixel hit within 10s of this value.
     const fhKey = `email:first-hit:${leadId}:${campaignId || 'direct'}`;
-    await set(fhKey, 'pending', 7 * 24 * 3600).catch(() => {});
+    await set(fhKey, String(Date.now()), 7 * 24 * 3600).catch(() => {});
 
     const info = await transporter.sendMail({
       from:    `"${senderName}" <${user}>`,
