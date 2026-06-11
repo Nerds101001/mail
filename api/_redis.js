@@ -334,7 +334,7 @@ async function getTrackingEvents(leadId, campaignId = null, limit = 100) {
 
 // ── IP / UA classification ────────────────────────────────────────────────────
 //
-// TWO categories (5s guard is universal — no IP bypasses it):
+// TWO categories (30s send-guard is universal — no IP bypasses it):
 //
 // 1. BOT IPs — hard-blocked forever, return 204, NEVER count, log as is_bot=true
 //    17.x.x.x        Apple MPP — pre-fetches ALL images on delivery
@@ -346,9 +346,12 @@ async function getTrackingEvents(leadId, campaignId = null, limit = 100) {
 //    172.253.x       Google SafeBrowse link scanner
 //    34.x / 35.x     Google Cloud infrastructure scanners
 //    54.240.x        Amazon SES scanner
+//    EXCEPTION: requests with a GoogleImageProxy (ggpht.com) user-agent skip
+//    this block even from Google IPs — every real Gmail open routes through
+//    that proxy. The 30s send-guard still filters its delivery prefetch.
 //
-// 2. ALL OTHER IPs (including 74.125.x Gmail proxy) — apply universal 5s guard.
-//    Anything that hits AFTER 5s is counted as a real open regardless of IP.
+// 2. ALL OTHER IPs — apply the universal 30s send-guard in trackOpen().
+//    Anything that hits AFTER the window is counted as a real open.
 
 // Hard-blocked bot IPs — NEVER count these, not even after 5s.
 function isBotIp(ip) {
@@ -486,8 +489,12 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
     // ── Step 0: Hard-block known scanner IPs — NEVER count, always 204 ─────────
     // Apple MPP (17.x), MS SafeLinks (40.94/107.x, 52.100.x), Google (66.249.x,
     // 66.102.x, 172.253.x, 34.x, 35.x), Amazon SES (54.240.x).
-    // These are server-side scanners — a real user never opens from these IPs.
-    if (isBotIp(ip)) {
+    // EXCEPTION: GoogleImageProxy (ggpht.com UA) — ALL real Gmail opens are
+    // fetched through this proxy from Google IPs. Blocking it by IP kills every
+    // real Gmail open. Proxy hits skip the IP block; the send-guard below
+    // still filters Gmail's delivery prefetch (arrives ~15s after send).
+    const isGmailImageProxy = /googleimageproxy|ggpht\.com/i.test(userAgent || '');
+    if (isBotIp(ip) && !isGmailImageProxy) {
       console.log(`🤖 [BOT-OPEN] Hard-blocked IP ${ip} for lead ${leadId}`);
       await sql`
         INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id,
@@ -499,12 +506,14 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       return { counted: false, reason: 'bot ip', count: 0 };
     }
 
-    // ── Step 1: 10-second send-guard — block ALL pixel hits within 10s of send ──
+    // ── Step 1: Send-guard — block ALL pixel hits within 30s of send ───────────
     // send-smtp.js / send-email.js stores String(Date.now()) in this key before
-    // handing off to the SMTP/Gmail API.  Any pixel hit that arrives within 10s
-    // is a delivery scanner (Gmail, Apple MPP, Outlook), never a real user.
-    // After 10s the key is deleted and the open is counted normally.
+    // handing off to the SMTP/Gmail API.  Any pixel hit inside the guard window
+    // is a delivery scanner, never a real user. Measured from real campaigns:
+    // Gmail's delivery prefetch (GoogleImageProxy) arrives 14–16s after send,
+    // so the window is 30s. After that the key is deleted and opens count.
     // Backward-compat: old 'pending' value is still handled as a single-block.
+    const GUARD_MS = 30_000;
     {
       const fhKey = `email:first-hit:${leadId}:${campaignId || 'direct'}`;
       const fhRaw = await sql`
@@ -517,8 +526,8 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
         if (!isNaN(sentAt) && sentAt > 1_000_000_000_000) {
           // New format — timestamp in ms
           const elapsed = now - sentAt;
-          if (elapsed < 10_000) {
-            console.log(`🛡️ [10s-GUARD] Blocked after ${elapsed}ms (< 10s) for lead ${leadId} (${ip})`);
+          if (elapsed < GUARD_MS) {
+            console.log(`🛡️ [SEND-GUARD] Blocked after ${elapsed}ms (< ${GUARD_MS / 1000}s) for lead ${leadId} (${ip})`);
             await sql`
               INSERT INTO tracking_events (lead_id, event_type, ip, user_agent, target_url, campaign_id,
                 device_type, device_client, country, city, is_bot, created_at)
@@ -526,9 +535,9 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
                 ${campaignId || null}, ${device.type}, ${device.client},
                 ${geo.country || null}, ${geo.city || null}, ${true}, ${now})
             `.catch(() => {});
-            return { counted: false, reason: '10s guard', count: 0 };
+            return { counted: false, reason: 'send guard', count: 0 };
           }
-          // Past 10s → real open; remove key so this branch doesn't run again
+          // Past the guard window → real open; remove key so this branch doesn't run again
           await sql`DELETE FROM kv_store WHERE key = ${fhKey}`.catch(() => {});
         } else if (val === 'pending') {
           // Old format — single-block first hit
