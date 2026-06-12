@@ -288,6 +288,40 @@ module.exports = async (req, res) => {
     }
   }
 
+  // ── CAMPAIGN TEMPLATES ────────────────────────────────────────────────
+  // Reusable campaign setups — brief, composer mode, variants, custom email,
+  // targeting config, interest buttons, attachments. Stored per-user in
+  // kv_store under crm:campaign-templates (namespaced like other CRM data).
+  if (type === "campaign-templates") {
+    const key = ns("crm:campaign-templates", userId);
+    const templates = await safeGet(key, []);
+
+    if (req.method === "GET") {
+      return res.json({ templates });
+    }
+    if (req.method === "POST") {
+      const { name, data } = req.body || {};
+      if (!name || !data) return res.status(400).json({ error: "Missing name or data" });
+      const tpl = {
+        id:        `tpl_${Date.now()}`,
+        name:      String(name).slice(0, 120),
+        createdAt: new Date().toISOString(),
+        data,
+      };
+      // Replace template with the same name (case-insensitive) — acts as "update"
+      const next = templates.filter(t => t.name.toLowerCase() !== tpl.name.toLowerCase());
+      next.unshift(tpl);
+      await safeSet(key, next.slice(0, 50)); // cap at 50 templates per user
+      return res.json({ ok: true, template: tpl });
+    }
+    if (req.method === "DELETE") {
+      if (!id) return res.status(400).json({ error: "Missing id" });
+      await safeSet(key, templates.filter(t => t.id !== id));
+      return res.json({ ok: true });
+    }
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
   // ── CAMPAIGNS (history) ───────────────────────────────────────────────
   if (type === "campaigns") {
     try {

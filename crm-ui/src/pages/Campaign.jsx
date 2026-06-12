@@ -140,6 +140,101 @@ export default function Campaign() {
   const [usePersonalization, setUsePersonalization]   = useState(false)
   const authHeader = () => ({ Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` })
 
+  // ── Campaign Templates — save the whole composer setup, reuse anytime ──────
+  const [templates, setTemplates]       = useState([])
+  const [selectedTpl, setSelectedTpl]   = useState('')
+  const [tplSaving, setTplSaving]       = useState(false)
+
+  useEffect(() => { loadTemplates() }, [viewAs]) // eslint-disable-line
+
+  async function loadTemplates() {
+    try {
+      const res = await fetch(`/api/crm?type=campaign-templates${vaParam()}`, { headers: authHeader() })
+      const data = await res.json()
+      setTemplates(data.templates || [])
+    } catch { /* non-blocking */ }
+  }
+
+  async function saveAsTemplate() {
+    const name = prompt('Template name:', campaignName)
+    if (!name || !name.trim()) return
+    setTplSaving(true)
+    try {
+      const res = await fetch(`/api/crm?type=campaign-templates${vaParam()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({
+          name: name.trim(),
+          data: {
+            campaignName,
+            mode,
+            cfg,
+            brief,
+            aiPrompt,
+            contentPurpose,
+            minWords,
+            variantCount,
+            variants,
+            customSubj,
+            customBodyHtml,
+            usePersonalization,
+            showInterested,
+            showNotInterested,
+            attachments,
+            selectedAttachments,
+          },
+        }),
+      })
+      if (!res.ok) throw new Error('Save failed')
+      toast(`Template "${name.trim()}" saved ✓`, 'success')
+      await loadTemplates()
+    } catch (e) {
+      toast('Could not save template: ' + e.message, 'error')
+    }
+    setTplSaving(false)
+  }
+
+  function applyTemplate(tplId) {
+    setSelectedTpl(tplId)
+    const tpl = templates.find(t => t.id === tplId)
+    if (!tpl || !tpl.data) return
+    const d = tpl.data
+    if (d.campaignName)                setCampaignName(d.campaignName)
+    if (d.mode)                        setModeSync(d.mode)
+    if (d.cfg)                         setCfg(prev => ({ ...prev, ...d.cfg }))
+    if (d.brief)                       setBrief(prev => ({ ...prev, ...d.brief }))
+    if (d.aiPrompt !== undefined)      setAiPrompt(d.aiPrompt)
+    if (d.contentPurpose)              setContentPurpose(d.contentPurpose)
+    if (d.minWords !== undefined)      setMinWords(d.minWords)
+    if (d.variantCount !== undefined)  setVariantCount(d.variantCount)
+    if (Array.isArray(d.variants))     { setVariantsSync(d.variants); setVariantIdx(0) }
+    if (d.customSubj !== undefined)    setCustomSubjSync(d.customSubj)
+    if (d.customBodyHtml !== undefined) setCustomBodySync(d.customBodyHtml)
+    if (d.usePersonalization !== undefined) setUsePersonalization(d.usePersonalization)
+    if (d.showInterested !== undefined)     setShowInterested(d.showInterested)
+    if (d.showNotInterested !== undefined)  setShowNotInterested(d.showNotInterested)
+    if (Array.isArray(d.attachments) && d.attachments.length) setAttachments(d.attachments)
+    if (Array.isArray(d.selectedAttachments)) setSelectedAttachments(d.selectedAttachments)
+    toast(`Template "${tpl.name}" applied — all fields filled`, 'success')
+  }
+
+  async function deleteTemplate() {
+    const tpl = templates.find(t => t.id === selectedTpl)
+    if (!tpl) { toast('Select a template first', 'info'); return }
+    if (!confirm(`Delete template "${tpl.name}"?`)) return
+    try {
+      const res = await fetch(`/api/crm?type=campaign-templates&id=${tpl.id}${vaParam()}`, {
+        method: 'DELETE', headers: authHeader(),
+      })
+      if (!res.ok) throw new Error('Delete failed')
+      setSelectedTpl('')
+      toast(`Template "${tpl.name}" deleted`, 'success')
+      await loadTemplates()
+    } catch (e) {
+      toast('Could not delete: ' + e.message, 'error')
+    }
+  }
+
   useEffect(() => { loadFileAttachments() }, [viewAs]) // eslint-disable-line
 
   async function loadFileAttachments() {
@@ -567,6 +662,30 @@ export default function Campaign() {
           </div>
         </div>
       </PageHeader>
+
+      {/* ── Campaign Templates bar ── */}
+      <div className="bg-violet-50 border border-violet-200 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap">
+        <span className="text-sm font-bold text-violet-700 flex items-center gap-1.5">📋 Templates</span>
+        <select
+          className="input text-xs py-1.5 min-w-[220px] flex-1 max-w-xs"
+          value={selectedTpl}
+          onChange={e => applyTemplate(e.target.value)}
+        >
+          <option value="">— Load a saved template —</option>
+          {templates.map(t => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+        <Btn variant="secondary" onClick={saveAsTemplate} disabled={tplSaving}>
+          {tplSaving ? '⏳ Saving…' : '💾 Save Current as Template'}
+        </Btn>
+        {selectedTpl && (
+          <button onClick={deleteTemplate} className="text-xs text-red-500 hover:text-red-700 font-semibold" title="Delete selected template">
+            🗑 Delete
+          </button>
+        )}
+        <span className="text-[11px] text-violet-500">Loads brief, email content, variants, targeting &amp; options</span>
+      </div>
 
       {delivScore && (
         <div className={`rounded-xl border p-4 ${delivScore.score >= 8 ? 'bg-emerald-50 border-emerald-200' : delivScore.score >= 6 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'}`}>
