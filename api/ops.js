@@ -389,7 +389,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
             method: 'POST',
             headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              model: 'meta/llama-3.3-70b-instruct',
+              model: process.env.NVIDIA_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct',
               messages: [{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }],
               temperature,
               max_tokens: 900,
@@ -646,7 +646,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "meta/llama-3.3-70b-instruct",
+          model: process.env.NVIDIA_MODEL || "nvidia/llama-3.1-nemotron-70b-instruct",
           messages: [{ role: "user", content: "Reply with just the word OK" }],
           max_tokens: 5,
           temperature: 0,
