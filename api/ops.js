@@ -389,11 +389,14 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
             method: 'POST',
             headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              model: process.env.NVIDIA_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct',
+              model: process.env.NVIDIA_MODEL || 'nvidia/nemotron-3.5-lightning-30b-a3b',
               messages: [{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }],
               temperature,
               max_tokens: 900,
               top_p: 0.95,
+              // Nemotron-3.x are reasoning models — turn thinking OFF so `content`
+              // returns the clean email JSON instead of chain-of-thought.
+              chat_template_kwargs: { enable_thinking: false },
             })
           });
 
@@ -646,10 +649,11 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: process.env.NVIDIA_MODEL || "nvidia/llama-3.1-nemotron-70b-instruct",
+          model: process.env.NVIDIA_MODEL || "nvidia/nemotron-3.5-lightning-30b-a3b",
           messages: [{ role: "user", content: "Reply with just the word OK" }],
-          max_tokens: 5,
+          max_tokens: 64,
           temperature: 0,
+          chat_template_kwargs: { enable_thinking: false },
         }),
       });
       const data = await r.json();
