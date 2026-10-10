@@ -475,7 +475,7 @@ function sseEmit(event, data) {
   try { require('./sse').emit(event, data); } catch {}
 }
 
-// Deduplicated tracking for opens (only count unique opens within 1 hour window)
+// Open tracking: bot-IP block → 30s send-guard → 30s dedup → count.
 async function trackOpen(leadId, ip, userAgent, campaignId = null) {
   try {
     await ensureTable();
@@ -549,16 +549,28 @@ async function trackOpen(leadId, ip, userAgent, campaignId = null) {
       }
     }
 
-    // ── Step 2: Count the real open ──────────────────────────────────────────
+    // ── Step 2: Count the real open (30s dedup) ──────────────────────────────
+    // Gmail's image proxy often fetches the pixel 2–3× from different IPs within
+    // a couple of seconds for ONE open. Any hit inside DEDUP_MS of the last
+    // counted open is the same session: don't bump the counter and don't log a
+    // second event (per-campaign counts are derived from tracking_events rows).
+    // Done atomically in the upsert so two near-simultaneous fetches can't race.
+    const DEDUP_MS = 30_000;
     const rows = await sql`
       INSERT INTO simple_tracking (lead_id, opens, last_open)
       VALUES (${leadId}, 1, ${now})
       ON CONFLICT (lead_id) DO UPDATE
-        SET opens = simple_tracking.opens + 1,
-            last_open = ${now}
-      RETURNING opens
+        SET opens     = CASE WHEN COALESCE(simple_tracking.last_open, 0) > ${now - DEDUP_MS}
+                             THEN simple_tracking.opens ELSE simple_tracking.opens + 1 END,
+            last_open = CASE WHEN COALESCE(simple_tracking.last_open, 0) > ${now - DEDUP_MS}
+                             THEN simple_tracking.last_open ELSE ${now} END
+      RETURNING opens, (last_open = ${now}) AS counted
     `;
     const count = parseInt(rows[0].opens);
+    if (!rows[0].counted) {
+      console.log(`🔁 [DEDUP] Duplicate pixel fetch within ${DEDUP_MS / 1000}s for lead ${leadId} (${ip}) — not counted`);
+      return { counted: false, reason: 'dedup', count };
+    }
 
     // Log event
     try {

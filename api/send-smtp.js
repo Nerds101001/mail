@@ -29,13 +29,22 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, inte
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .split(/\n{2,}/)
     .map(para => {
+      // Wrap links through /api/track-click. Matches full http(s) URLs AND bare
+      // "www.example.com" domains — Gmail auto-links those, so an unwrapped one
+      // sends the click straight to the destination and we never see it.
+      // Text is already HTML-escaped here ('&' is '&amp;'): recover the real URL
+      // for the redirect target, and keep trailing punctuation out of the link.
       const tracked = para.replace(/\n/g, "<br>").replace(
-        /https?:\/\/[^\s<"&]+/g,
-        (url) => {
+        /(https?:\/\/[^\s<"]+|(?<![\w@.\/-])www\.[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/[^\s<"]*)?)/gi,
+        (m) => {
+          const trail = (m.match(/[.,;:!?)\]]+$/) || [''])[0];
+          const shown = trail ? m.slice(0, -trail.length) : m;
+          const real  = shown.replace(/&amp;/g, '&');
+          const dest  = /^https?:\/\//i.test(real) ? real : `https://${real}`;
           const clickParams = campaignId
-            ? `id=${leadId}&cid=${campaignId}&url=${encodeURIComponent(url)}`
-            : `id=${leadId}&url=${encodeURIComponent(url)}`;
-          return `<a href="${appUrl}/api/track-click?${clickParams}" style="color:#1a73e8;text-decoration:none;">${url}</a>`;
+            ? `id=${leadId}&cid=${campaignId}&url=${encodeURIComponent(dest)}`
+            : `id=${leadId}&url=${encodeURIComponent(dest)}`;
+          return `<a href="${appUrl}/api/track-click?${clickParams}" style="color:#1a73e8;text-decoration:none;">${shown}</a>${trail}`;
         }
       )
       return `<p style="margin:0 0 14px 0;">${tracked}</p>`

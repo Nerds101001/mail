@@ -1063,7 +1063,12 @@ export default function CampaignHistory() {
               {['body','events'].map(t => (
                 <button key={t} onClick={() => setModalTab(t)}
                   className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors capitalize ${modalTab===t ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
-                  {t === 'body' ? '📧 Email Body' : `📋 Events${modalEvents.length > 0 ? ` (${modalEvents.length})` : ''}`}
+                  {t === 'body' ? '📧 Email Body' : (() => {
+                    // Real interactions vs. scanner / pre-fetch hits (is_bot) that are logged but never counted
+                    const real = modalEvents.filter(e => !e.is_bot).length
+                    const bots = modalEvents.length - real
+                    return `📋 Events${modalEvents.length > 0 ? ` (${real}${bots > 0 ? ` · ${bots} blocked` : ''})` : ''}`
+                  })()}
                 </button>
               ))}
             </div>
@@ -1106,13 +1111,21 @@ export default function CampaignHistory() {
                       </thead>
                       <tbody>
                         {modalEvents.map((ev, i) => {
+                          const isBot    = !!ev.is_bot
                           const clickUrl = ev.event_type === 'click' && ev.target_url && !ev.target_url.startsWith('campaign:') ? ev.target_url : null
                           return (
-                            <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                            <tr key={i} className={`border-b border-slate-100 hover:bg-slate-50 ${isBot ? 'opacity-50' : ''}`}>
                               <td className="px-3 py-2">
-                                <span className={`badge text-[10px] ${ev.event_type==='open' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
-                                  {ev.event_type==='open' ? '👁 Opened' : '🖱 Clicked'}
-                                </span>
+                                {isBot ? (
+                                  <span className="badge text-[10px] bg-red-50 text-red-400 border border-red-200"
+                                        title="Automated scanner / delivery pre-fetch (Gmail, Apple, Microsoft…). Not a real open — not counted.">
+                                    🤖 Scanner · not counted
+                                  </span>
+                                ) : (
+                                  <span className={`badge text-[10px] ${ev.event_type==='open' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                                    {ev.event_type==='open' ? '👁 Opened' : '🖱 Clicked'}
+                                  </span>
+                                )}
                               </td>
                               <td className="px-3 py-2 text-slate-600 font-mono whitespace-nowrap">{new Date(parseInt(ev.created_at)).toLocaleString('en-IN')}</td>
                               <td className="px-3 py-2 text-slate-500 font-mono">{ev.ip||'—'}</td>
