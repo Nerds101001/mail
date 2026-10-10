@@ -52,7 +52,6 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, inte
     .join('')
 
   const trackingPixel = `<img src="${appUrl}/api/track-open?${pixelParams}" width="1" height="1" alt="" style="display:none;border:0;"/>`
-  const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -65,9 +64,6 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, inte
   <div style="padding:12px 16px;">
     ${paragraphs}
     ${interestHtml}
-    <p style="margin:24px 0 0 0;font-size:11px;color:#aaaaaa;">
-      <a href="${unsubUrl}" style="color:#aaaaaa;text-decoration:underline;">Unsubscribe</a>
-    </p>
   </div>
   ${trackingPixel}
 </body>
@@ -92,8 +88,7 @@ module.exports = async (req, res) => {
       return res.status(200).json({ success: false, skipped: true, reason: "UNSUBSCRIBED" });
 
     const { host, port, user, pass, secure } = smtpConfig;
-    const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}`;
-    const msgId    = `<${Date.now()}.${Math.random().toString(36).slice(2)}@${host}>`;
+    const msgId    =`<${Date.now()}.${Math.random().toString(36).slice(2)}@${host}>`;
 
     const transporter = nodemailer.createTransport({
       host,
@@ -128,8 +123,6 @@ module.exports = async (req, res) => {
       html:    htmlBody,
       headers: {
         "Message-ID":              msgId,
-        "List-Unsubscribe":        `<${unsubUrl}>`,
-        "List-Unsubscribe-Post":   "List-Unsubscribe=One-Click",
       },
       // Real file attachments — shown as native attachment in email clients
       attachments: attachmentData.map(att => ({

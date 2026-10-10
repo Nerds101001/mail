@@ -1,5 +1,6 @@
 // api/send-email.js — Gmail OAuth sender (MNC-grade)
 const { get, set } = require("./_redis");
+const { getGmailSignature, signOffCloser } = require("./_signature");
 
 // ─── Token refresh with better error handling ────────────────────────────────────
 async function getValidAccessToken(accountEmail = null) {
@@ -81,13 +82,14 @@ async function fetchAttachmentData(attachments) {
 }
 
 // ─── RFC 2822 builder with proper MIME multipart structure ─────────────────
-function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, attachmentData = [] }) {
+function buildEmailRaw({ from, replyTo, to, subject, htmlBody, attachmentData = [] }) {
   const msgId = `<${Date.now()}.${Math.random().toString(36).slice(2)}@enginerds.in>`;
 
   // Extract plain text from HTML for text/plain version
   const plainText = htmlBody
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<(?:br|\/p|\/div|\/tr|\/h[1-6]|\/li)\s*\/?>/gi, '\n')   // keep line breaks (signature, paragraphs)
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
@@ -119,8 +121,6 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, a
       `Subject: ${subject}`, `Date: ${new Date().toUTCString()}`,
       `Message-ID: ${msgId}`, `MIME-Version: 1.0`,
       `Content-Type: multipart/alternative; boundary="${boundary}"`,
-      `List-Unsubscribe: <${unsubscribeUrl}>`,
-      `List-Unsubscribe-Post: List-Unsubscribe=One-Click`,
       ``,
       `--${boundary}`,
       `Content-Type: text/plain; charset="UTF-8"`,
@@ -145,8 +145,6 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, a
     `Subject: ${subject}`, `Date: ${new Date().toUTCString()}`,
     `Message-ID: ${msgId}`, `MIME-Version: 1.0`,
     `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`,
-    `List-Unsubscribe: <${unsubscribeUrl}>`,
-    `List-Unsubscribe-Post: List-Unsubscribe=One-Click`,
     ``,
     `--${mixedBoundary}`,
     `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
@@ -183,7 +181,10 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, unsubscribeUrl, a
 
 // ─── HTML body builder (improved deliverability) ─────────────────────────────────
 // Files are now sent as real MIME attachments — no link section in the body.
-function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, interestHtml = '') {
+// signatureHtml = the sender's Gmail signature (optional). When present it replaces
+// the name/company lines after the closing word ("Best,\nName\nCompany" → "Best," +
+// signature); if the body has no sign-off it is appended after the last paragraph.
+function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, interestHtml = '', signatureHtml = '') {
   // Query-param tracking URLs — reliable across all Vercel rewrite configs.
   // Path-based URLs (/api/track/open/id/cid) lost the path after Vercel rewrite;
   // query params are passed through intact.
@@ -192,10 +193,23 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, inte
     : `id=${leadId}`;
   const trackingPixelUrl = `${appUrl}/api/track-open?${pixelParams}`;
 
-  const paragraphs = plainText
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .split(/\n{2,}/)
-    .map(para => {
+  const sigBlock = signatureHtml
+    ? `<div style="margin:0 0 14px 0;">${signatureHtml}</div>`
+    : '';
+
+  const rawParas = plainText.split(/\n{2,}/);
+  let sigAfter = -1;                       // paragraph index after which the signature is inserted
+  if (signatureHtml) {
+    for (let i = rawParas.length - 1; i >= 0; i--) {
+      const closer = signOffCloser(rawParas[i]);
+      if (closer) { rawParas[i] = closer; sigAfter = i; break; }
+    }
+    if (sigAfter < 0) sigAfter = rawParas.length - 1;
+  }
+
+  const paragraphs = rawParas
+    .map(p => p.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"))
+    .map((para, idx) => {
       // Wrap links through /api/track-click. Matches full http(s) URLs AND bare
       // "www.example.com" domains — Gmail auto-links those, so an unwrapped one
       // sends the click straight to the destination and we never see it.
@@ -214,12 +228,13 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, inte
           return `<a href="${appUrl}/api/track-click?${clickParams}" style="color:#1a73e8;text-decoration:none;">${shown}</a>${trail}`;
         }
       )
-      return `<p style="margin:0 0 14px 0;">${tracked}</p>`
+      // Closing line sits tight against the signature (like a normal Gmail compose)
+      const gap = idx === sigAfter && sigBlock ?'0 0 2px 0' : '0 0 14px 0';
+      return `<p style="margin:${gap};">${tracked}</p>` + (idx === sigAfter ? sigBlock : '')
     })
     .join('')
 
   const trackingPixel = `<img src="${trackingPixelUrl}" width="1" height="1" alt="" style="display:none;border:0;">`;
-  const unsubUrl = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(email)}&id=${leadId}`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -232,9 +247,6 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, inte
   <div style="padding:12px 16px;">
     ${paragraphs}
     ${interestHtml}
-    <p style="margin:24px 0 0 0;font-size:11px;color:#aaaaaa;">
-      <a href="${unsubUrl}" style="color:#aaaaaa;text-decoration:underline;">Unsubscribe</a>
-    </p>
   </div>
   ${trackingPixel}
 </body>
@@ -265,10 +277,12 @@ module.exports = async (req, res) => {
     // Falls back to the OAuth Gmail address if no alias is set
     const effectiveFrom = fromEmail || gmailAccount;
     const from          = `${senderName || "Enginerds Tech"} <${effectiveFrom}>`;
-    const unsubUrl   = `${appUrl}/api/unsubscribe?email=${encodeURIComponent(to)}&id=${leadId}`;
-    const htmlBody      = buildHtmlBody(body, leadId, to, appUrl, campaignId, interestHtml || '');
+    // The sender's real Gmail signature (alias first, then the account itself).
+    // Never blocks a send — returns '' on any problem.
+    const signatureHtml = await getGmailSignature(accessToken, effectiveFrom, gmailAccount);
+    const htmlBody      = buildHtmlBody(body, leadId, to, appUrl, campaignId, interestHtml || '', signatureHtml);
     const attachmentData = await fetchAttachmentData(attachments || []);
-    const raw           = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, unsubscribeUrl: unsubUrl, attachmentData });
+    const raw           = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, attachmentData });
 
     // 10-second guard: store send timestamp before handing off to Gmail API.
     // trackOpen() in _redis.js rejects any pixel hit within 10s of this value.
@@ -311,3 +325,7 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// Exposed for tests / diagnostics (the default export stays the request handler).
+module.exports.buildHtmlBody = buildHtmlBody;
+module.exports.getValidAccessToken = getValidAccessToken;
