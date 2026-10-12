@@ -50,6 +50,10 @@ module.exports = async (req, res) => {
     userId = req.query.viewAs;
   }
 
+  // ── EMAIL SIGNATURE (upload / preview / on-off / remove) ──────────────
+  // Has its own strict session check — see _signature.js handleRequest.
+  if (type === "signature") return require("./_signature").handleRequest(req, res);
+
   // ── TRACKING STATS ─────────────────────────────────────────────────────
   // With campaignId: per-campaign counts from tracking_events (accurate)
   // Without campaignId: cumulative from simple_tracking (fallback/dashboard use)
@@ -1075,6 +1079,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
             body:    step.body    || 'Hi, just following up!',
             senderName: step.senderName || 'EnginErds',
             gmailUser,
+            userId: enroll.user_id || enroll.seq_user_id || undefined,   // whose uploaded signature to attach
           };
           const sendRes = await fetch(`${appUrl}/api/send-email`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)

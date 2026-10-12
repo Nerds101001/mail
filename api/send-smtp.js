@@ -1,6 +1,7 @@
 // api/send-smtp.js — SMTP sender (MNC-grade, nodemailer)
 const nodemailer = require("nodemailer");
 const { get, set } = require("./_redis");
+const { pickSignature, resolveSignatureUser, placeSignature, signatureBlock } = require("./_signature");
 
 // ─── Fetch real file data from Postgres for MIME attachments ────────────────
 async function fetchAttachmentData(attachments) {
@@ -19,16 +20,20 @@ async function fetchAttachmentData(attachments) {
 
 // ─── HTML body builder ────────────────────────────────────────────────────────
 // Files are now sent as real MIME attachments — no link section in the body.
-function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, interestHtml = '') {
+// signatureHtml = the signature uploaded in Settings (optional, see _signature.js):
+// replaces the name lines under the closing word, or goes after the last paragraph.
+function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, interestHtml = '', signatureHtml = '') {
   // Query-param tracking URLs — reliable across all Vercel rewrite configs.
   const pixelParams = campaignId
     ? `id=${leadId}&cid=${campaignId}`
     : `id=${leadId}`;
 
-  const paragraphs = plainText
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .split(/\n{2,}/)
-    .map(para => {
+  const sigBlock = signatureBlock(signatureHtml);
+  const { paras: rawParas, sigAfter } = placeSignature(plainText.split(/\n{2,}/), signatureHtml);
+
+  const paragraphs = rawParas
+    .map(p => p.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"))
+    .map((para, idx) => {
       // Wrap links through /api/track-click. Matches full http(s) URLs AND bare
       // "www.example.com" domains — Gmail auto-links those, so an unwrapped one
       // sends the click straight to the destination and we never see it.
@@ -47,7 +52,9 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, inte
           return `<a href="${appUrl}/api/track-click?${clickParams}" style="color:#1a73e8;text-decoration:none;">${shown}</a>${trail}`;
         }
       )
-      return `<p style="margin:0 0 14px 0;">${tracked}</p>`
+      // Closing line sits tight against the signature (like a normal compose window)
+      const gap = idx === sigAfter && sigBlock ? '0 0 2px 0' : '0 0 14px 0';
+      return `<p style="margin:${gap};">${tracked}</p>` + (idx === sigAfter ? sigBlock : '')
     })
     .join('')
 
@@ -103,7 +110,10 @@ module.exports = async (req, res) => {
       socketTimeout:     8000,  // any idle period during send
     });
 
-    const htmlBody       = buildHtmlBody(body, leadId, to, appUrl, campaignId || null, interestHtml || '');
+    // Uploaded signature of whoever owns this send (SMTP has no Gmail identity to read one from).
+    const sigUserId      = await resolveSignatureUser({ campaignId, authorization: req.headers.authorization, userId: req.body.userId });
+    const signatureHtml  = await pickSignature({ userId: sigUserId });
+    const htmlBody       = buildHtmlBody(body, leadId, to, appUrl, campaignId || null, interestHtml || '', signatureHtml);
     const attachmentData = await fetchAttachmentData(attachments || []);
 
     // 10-second guard: store send timestamp before handing off to SMTP.
@@ -163,3 +173,6 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: msg })
   }
 };
+
+// Exposed for tests (the default export stays the request handler).
+module.exports.buildHtmlBody = buildHtmlBody;

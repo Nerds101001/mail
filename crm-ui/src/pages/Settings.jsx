@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useCRM } from '../store'
 import { Card, Btn, Input, PageHeader, toast } from '../components/ui'
+import SignatureCard from '../components/SignatureCard'
 import { Plus, Trash2, Zap, Mail, Download, AlertTriangle, RefreshCw, Clock } from 'lucide-react'
 
 // Token expiry countdown — updates every 30s
@@ -438,6 +439,9 @@ export default function Settings() {
             )}
           </Card>
         )}
+
+        {/* Email signature — every user manages their own */}
+        <SignatureCard />
 
         {/* Sender Profiles */}
         <Card className="p-5">

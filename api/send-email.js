@@ -1,6 +1,6 @@
 // api/send-email.js — Gmail OAuth sender (MNC-grade)
 const { get, set } = require("./_redis");
-const { getGmailSignature, signOffCloser } = require("./_signature");
+const { pickSignature, resolveSignatureUser, placeSignature, signatureBlock } = require("./_signature");
 
 // ─── Token refresh with better error handling ────────────────────────────────────
 async function getValidAccessToken(accountEmail = null) {
@@ -181,9 +181,9 @@ function buildEmailRaw({ from, replyTo, to, subject, htmlBody, attachmentData = 
 
 // ─── HTML body builder (improved deliverability) ─────────────────────────────────
 // Files are now sent as real MIME attachments — no link section in the body.
-// signatureHtml = the sender's Gmail signature (optional). When present it replaces
-// the name/company lines after the closing word ("Best,\nName\nCompany" → "Best," +
-// signature); if the body has no sign-off it is appended after the last paragraph.
+// signatureHtml = the uploaded / Gmail signature (optional, see _signature.js). When
+// present it replaces the name/company lines after the closing word ("Best,\nName\n
+// Company" → "Best," + signature); with no sign-off it goes after the last paragraph.
 function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, interestHtml = '', signatureHtml = '') {
   // Query-param tracking URLs — reliable across all Vercel rewrite configs.
   // Path-based URLs (/api/track/open/id/cid) lost the path after Vercel rewrite;
@@ -193,19 +193,8 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, inte
     : `id=${leadId}`;
   const trackingPixelUrl = `${appUrl}/api/track-open?${pixelParams}`;
 
-  const sigBlock = signatureHtml
-    ? `<div style="margin:0 0 14px 0;">${signatureHtml}</div>`
-    : '';
-
-  const rawParas = plainText.split(/\n{2,}/);
-  let sigAfter = -1;                       // paragraph index after which the signature is inserted
-  if (signatureHtml) {
-    for (let i = rawParas.length - 1; i >= 0; i--) {
-      const closer = signOffCloser(rawParas[i]);
-      if (closer) { rawParas[i] = closer; sigAfter = i; break; }
-    }
-    if (sigAfter < 0) sigAfter = rawParas.length - 1;
-  }
+  const sigBlock = signatureBlock(signatureHtml);
+  const { paras: rawParas, sigAfter } = placeSignature(plainText.split(/\n{2,}/), signatureHtml);
 
   const paragraphs = rawParas
     .map(p => p.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"))
@@ -229,7 +218,7 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, inte
         }
       )
       // Closing line sits tight against the signature (like a normal Gmail compose)
-      const gap = idx === sigAfter && sigBlock ?'0 0 2px 0' : '0 0 14px 0';
+      const gap = idx === sigAfter && sigBlock ? '0 0 2px 0' : '0 0 14px 0';
       return `<p style="margin:${gap};">${tracked}</p>` + (idx === sigAfter ? sigBlock : '')
     })
     .join('')
@@ -277,9 +266,11 @@ module.exports = async (req, res) => {
     // Falls back to the OAuth Gmail address if no alias is set
     const effectiveFrom = fromEmail || gmailAccount;
     const from          = `${senderName || "Enginerds Tech"} <${effectiveFrom}>`;
-    // The sender's real Gmail signature (alias first, then the account itself).
+    // Signature: the one uploaded in Settings by whoever owns this send, else the
+    // Gmail "Send mail as" signature (alias first, then the account itself).
     // Never blocks a send — returns '' on any problem.
-    const signatureHtml = await getGmailSignature(accessToken, effectiveFrom, gmailAccount);
+    const sigUserId     = await resolveSignatureUser({ campaignId, authorization: req.headers.authorization, userId: req.body.userId });
+    const signatureHtml = await pickSignature({ userId: sigUserId, gmail: { accessToken, addresses: [effectiveFrom, gmailAccount] } });
     const htmlBody      = buildHtmlBody(body, leadId, to, appUrl, campaignId, interestHtml || '', signatureHtml);
     const attachmentData = await fetchAttachmentData(attachments || []);
     const raw           = buildEmailRaw({ from, replyTo: replyTo || gmailAccount, to, subject, htmlBody, attachmentData });

@@ -154,7 +154,8 @@ async function _sendOne(lead, subject, body, profile, campaignId, config) {
       payload.gmailUser = profile.user
       if (profile.alias) payload.fromEmail = profile.alias
     }
-    const res  = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    // Token lets the server attach this user's uploaded signature (see api/_signature.js)
+    const res  = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` }, body: JSON.stringify(payload) })
     const data = await res.json().catch(() => ({}))
     if (data.rateLimited) return { ok: false, rateLimited: true }
     if (data.bounced)     return { ok: false, bounced: true }
