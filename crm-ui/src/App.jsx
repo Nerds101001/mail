@@ -1,7 +1,8 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { CRMProvider, useCRM } from './store'
 import Layout from './components/Layout'
+import ErrorBoundary from './components/ErrorBoundary'
 import { ToastContainer } from './components/ui'
 import Login    from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -24,6 +25,7 @@ import Analytics          from './pages/Analytics'
 function ProtectedApp() {
   const { loadFromRedis, checkGmailStatus, setProfiles, profiles, logActivity } = useCRM()
   const [taskCount, setTaskCount] = useState(0)
+  const { pathname } = useLocation()
 
   useEffect(() => {
     // Handle Gmail OAuth redirect params
@@ -58,6 +60,8 @@ function ProtectedApp() {
 
   return (
     <Layout taskCount={taskCount}>
+      {/* A crash inside one page shows a message here instead of blanking the whole app */}
+      <ErrorBoundary scope="page" resetKey={pathname}>
       <Routes>
         <Route path="/"         element={<Dashboard />} />
         <Route path="/tasks"    element={<Tasks />} />
@@ -76,6 +80,7 @@ function ProtectedApp() {
         <Route path="/drip"          element={<Drip />} />
         <Route path="/analytics"     element={<Analytics />} />
       </Routes>
+      </ErrorBoundary>
     </Layout>
   )
 }

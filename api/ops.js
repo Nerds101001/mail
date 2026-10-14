@@ -50,6 +50,28 @@ module.exports = async (req, res) => {
     userId = req.query.viewAs;
   }
 
+  // ── CLIENT ERROR REPORT ────────────────────────────────────────────────
+  // Sent by the UI's ErrorBoundary when a page crashes, so a "blank page" report can
+  // be traced to the real exception (grep pm2 logs for CLIENT-ERROR). Needs a real
+  // session; capped per user so it can't flood the logs.
+  if (type === "client-error" && req.method === "POST") {
+    const uid = await require("./_signature").sessionUserId(token);
+    if (!uid) return res.status(401).json({ ok: false });
+    const bucket = (global.__clientErrBuckets ||= new Map());
+    const hour   = Math.floor(Date.now() / 3600000);
+    const b      = bucket.get(uid);
+    const count  = b && b.hour === hour ? b.n + 1 : 1;
+    bucket.set(uid, { hour, n: count });
+    if (count > 20) return res.status(429).json({ ok: false });
+    const clip = (v, n) => String(v ?? "").slice(0, n);
+    console.error("🖥️ [CLIENT-ERROR]", JSON.stringify({
+      user: uid, scope: clip(req.body?.scope, 10), url: clip(req.body?.url, 200),
+      viewport: clip(req.body?.viewport, 20), ua: clip(req.headers["user-agent"], 160),
+      message: clip(req.body?.message, 500), stack: clip(req.body?.stack, 3000), componentStack: clip(req.body?.componentStack, 1500),
+    }));
+    return res.json({ ok: true });
+  }
+
   // ── EMAIL SIGNATURE (upload / preview / on-off / remove) ──────────────
   // Has its own strict session check — see _signature.js handleRequest.
   if (type === "signature") return require("./_signature").handleRequest(req, res);

@@ -51,6 +51,30 @@ const COLOURS = [
   '#6b7280', // grey
 ]
 
+// ─── Toolbar pieces ──────────────────────────────────────────────────────────
+// Defined at MODULE level on purpose. When these were declared inside RichEditor
+// they were a brand-new component type on every render, so React destroyed and
+// rebuilt the whole toolbar (13 DOM nodes) on EVERY keystroke anywhere on the
+// Campaign page. If anything else had touched those nodes (a browser extension,
+// translator, password manager) React threw "removeChild: not a child of this
+// node" mid-commit and, with no error boundary, the whole app went blank.
+function TB({ onClick, title, children }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onMouseDown={e => { e.preventDefault(); onClick() }}
+      className="p-1.5 rounded hover:bg-slate-200 active:bg-slate-300 transition-colors text-slate-600"
+    >
+      {children}
+    </button>
+  )
+}
+
+function Sep() {
+  return <div className="w-px h-4 bg-slate-300 mx-0.5 self-center flex-shrink-0" />
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function RichEditor({
   value,          // HTML string
@@ -94,20 +118,6 @@ export default function RichEditor({
     emitChange()
     setShowColours(false)
   }
-
-  // ── Toolbar button ─────────────────────────────────────────────────────────
-  const TB = ({ onClick, title, children }) => (
-    <button
-      type="button"
-      title={title}
-      onMouseDown={e => { e.preventDefault(); onClick() }}
-      className="p-1.5 rounded hover:bg-slate-200 active:bg-slate-300 transition-colors text-slate-600"
-    >
-      {children}
-    </button>
-  )
-
-  const Sep = () => <div className="w-px h-4 bg-slate-300 mx-0.5 self-center flex-shrink-0" />
 
   return (
     <div className="border border-slate-200 rounded-lg overflow-visible focus-within:ring-2 focus-within:ring-emerald-500 focus-within:border-transparent transition-all">
