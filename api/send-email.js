@@ -1,6 +1,6 @@
 // api/send-email.js — Gmail OAuth sender (MNC-grade)
 const { get, set } = require("./_redis");
-const { pickSignature, resolveSignatureUser, placeSignature, signatureBlock } = require("./_signature");
+const { pickSignature, resolveSignatureUser, placeSignature, signatureBlock, stripAttachmentIcon } = require("./_signature");
 const { classifyGmailApiError, classifyGmailThrown } = require("./_sendErrors");
 
 // ─── Token refresh with better error handling ────────────────────────────────────
@@ -195,7 +195,10 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, inte
   const trackingPixelUrl = `${appUrl}/api/track-open?${pixelParams}`;
 
   const sigBlock = signatureBlock(signatureHtml);
-  const { paras: rawParas, sigAfter } = placeSignature(plainText.split(/\n{2,}/), signatureHtml);
+  const { paras: rawParas, sigAfter, closerIdx } = placeSignature(stripAttachmentIcon(plainText).split(/\n{2,}/), signatureHtml);
+  // Quick Response buttons sit ABOVE the signature (above "Best," when the body has a sign-off).
+  // With no signature they stay at the very end, as before.
+  const buttonsAbove = !!(signatureHtml && interestHtml);
 
   const paragraphs = rawParas
     .map(p => p.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"))
@@ -220,7 +223,14 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, inte
       )
       // Closing line sits tight against the signature (like a normal Gmail compose)
       const gap = idx === sigAfter && sigBlock ? '0 0 2px 0' : '0 0 14px 0';
-      return `<p style="margin:${gap};">${tracked}</p>` + (idx === sigAfter ? sigBlock : '')
+      let html = '';
+      if (buttonsAbove && closerIdx >= 0 && idx === closerIdx) html += interestHtml;       // above "Best,"
+      html += `<p style="margin:${gap};">${tracked}</p>`;
+      if (idx === sigAfter) {
+        if (buttonsAbove && closerIdx < 0) html += interestHtml;                           // no sign-off: right above the signature
+        html += sigBlock;
+      }
+      return html;
     })
     .join('')
 
@@ -236,7 +246,7 @@ function buildHtmlBody(plainText, leadId, email, appUrl, campaignId = null, inte
 <body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#000000;background:#ffffff;">
   <div style="padding:12px 16px;">
     ${paragraphs}
-    ${interestHtml}
+    ${buttonsAbove ? '' : interestHtml}
   </div>
   ${trackingPixel}
 </body>

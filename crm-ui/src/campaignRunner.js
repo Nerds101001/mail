@@ -123,8 +123,8 @@ function _buildInterestHtml(lead, config) {
   const base = (typeof window !== 'undefined' && window.location?.origin) ? window.location.origin : 'https://crm.enginerds.in'
   const lid  = encodeURIComponent(lead.id)
   const cid  = encodeURIComponent(config.campaignId || '')
-  let html = `<div style="margin:20px 0 8px 0;padding:14px 16px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">`
-  html += `<p style="margin:0 0 10px 0;font-size:13px;color:#475569;font-weight:500;">Quick Response:</p>`
+  // Just the buttons: no grey box, no "Quick Response:" label.
+  let html = `<div style="margin:6px 0 18px 0;">`
   if (config.showInterested) {
     html += `<a href="${base}/api/interest?action=demo&lead=${lid}&campaign=${cid}" style="display:inline-block;margin-right:8px;margin-bottom:6px;padding:8px 18px;background:#10b981;color:#ffffff;text-decoration:none;border-radius:6px;font-size:13px;font-weight:600;">&#9989; Yes, I'm Interested</a>`
   }

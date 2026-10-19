@@ -364,7 +364,7 @@ export default function Campaign() {
   function buildAttachmentText() {
     const linkAttachments = attachments.filter(a => a.url && a.label)
     if (linkAttachments.length === 0) return ''
-    return '\n\n' + linkAttachments.map(a => `📎 ${a.label}: ${a.url}`).join('\n')
+    return '\n\n' + linkAttachments.map(a => `${a.label}: ${a.url}`).join('\n')
   }
 
   async function getContent(lead, variantPool, index = 0) {

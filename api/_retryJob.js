@@ -37,14 +37,13 @@ async function defaultSend(endpoint, payload) {
 }
 const defaultSleep = ms => new Promise(r => setTimeout(r, ms));
 
-// "Quick Response" buttons — same markup the campaign runner builds in the browser.
+// Interested / Not Interested buttons — same markup the campaign runner builds in the browser.
 function interestHtml(leadId, campaignId, rc) {
   if (!rc.showInterested && !rc.showNotInterested) return "";
   const base = process.env.APP_URL || "https://crm.enginerds.in";
   const lid = encodeURIComponent(leadId), cid = encodeURIComponent(campaignId || "");
-  let h = `<div style="margin:20px 0 8px 0;padding:14px 16px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">`;
-  h += `<p style="margin:0 0 10px 0;font-size:13px;color:#475569;font-weight:500;">Quick Response:</p>`;
-  if (rc.showInterested)    h += `<a href="${base}/api/interest?action=demo&lead=${lid}&campaign=${cid}" style="display:inline-block;margin-right:8px;margin-bottom:6px;padding:8px 18px;background:#10b981;color:#ffffff;text-decoration:none;border-radius:6px;font-size:13px;font-weight:600;">&#9989; Yes, I'm Interested</a>`;
+  let h = `<div style="margin:6px 0 18px 0;">`;      // just the buttons: no grey box, no label
+  if (rc.showInterested)   h += `<a href="${base}/api/interest?action=demo&lead=${lid}&campaign=${cid}" style="display:inline-block;margin-right:8px;margin-bottom:6px;padding:8px 18px;background:#10b981;color:#ffffff;text-decoration:none;border-radius:6px;font-size:13px;font-weight:600;">&#9989; Yes, I'm Interested</a>`;
   if (rc.showNotInterested) h += `<a href="${base}/api/interest?action=unsub&lead=${lid}&campaign=${cid}" style="display:inline-block;margin-bottom:6px;padding:8px 18px;background:#f1f5f9;color:#64748b;text-decoration:none;border-radius:6px;font-size:13px;">&#10060; Not Interested</a>`;
   return h + `</div>`;
 }

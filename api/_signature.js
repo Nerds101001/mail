@@ -179,20 +179,25 @@ function signOffCloser(para) {
 }
 
 // rawParas = plain-text paragraphs. Returns the paragraphs (sign-off name lines
-// dropped when a signature will replace them) and the index after which the
-// signature block goes (-1 = none).
+// dropped when a signature will replace them), the index after which the
+// signature block goes (-1 = none), and closerIdx = the index of the closing
+// paragraph ("Best,") or -1 when the body has none.
 function placeSignature(rawParas, signatureHtml) {
   const paras = rawParas.slice();
-  let sigAfter = -1;
+  let sigAfter = -1, closerIdx = -1;
   if (signatureHtml) {
     for (let i = paras.length - 1; i >= 0; i--) {
       const closer = signOffCloser(paras[i]);
-      if (closer) { paras[i] = closer; sigAfter = i; break; }
+      if (closer) { paras[i] = closer; sigAfter = i; closerIdx = i; break; }
     }
     if (sigAfter < 0) sigAfter = paras.length - 1;
   }
-  return { paras, sigAfter };
+  return { paras, sigAfter, closerIdx };
 }
+
+// The 📎 emoji that older versions put in front of link attachments ("📎 Brochure: https://…").
+// Removed from the start of any line at send time, so campaigns/templates saved earlier are cleaned too.
+const stripAttachmentIcon = text => String(text).replace(/^[ \t]*📎️?[ \t]*/gmu, "");
 
 const signatureBlock = (html) => (html ? `<div style="margin:0 0 14px 0;">${html}</div>` : "");
 
@@ -243,7 +248,7 @@ async function handleRequest(req, res) {
 
 module.exports = {
   // used by the senders
-  pickSignature, resolveSignatureUser, placeSignature, signatureBlock,
+  pickSignature, resolveSignatureUser, placeSignature, signatureBlock, stripAttachmentIcon,
   // building blocks (also used by tests)
   getUploadedSignature, getGmailSignature, signOffCloser, sanitizeSignatureHtml, sessionUserId,
   handleRequest,
