@@ -26,6 +26,7 @@ const gmail       = require("./api/gmail");
 const crm         = require("./api/crm");
 const ops         = require("./api/ops");
 const auth        = require("./api/auth");
+const { requireSendAuth } = require("./api/_internal");
 const sendEmail   = require("./api/send-email");
 const sendSmtp    = require("./api/send-smtp");
 const attachments = require("./api/attachments");
@@ -79,8 +80,9 @@ app.all("/api/ops",            ops);
 app.all("/api/auth", auth);
 
 // Email sending
-app.all("/api/send-email", sendEmail);
-app.all("/api/send-smtp",  sendSmtp);
+// These send real email from the connected accounts → logged-in users or the server's own jobs only.
+app.all("/api/send-email", requireSendAuth, sendEmail);
+app.all("/api/send-smtp",  requireSendAuth, sendSmtp);
 
 // Attachments
 app.all("/api/attachments", attachments);

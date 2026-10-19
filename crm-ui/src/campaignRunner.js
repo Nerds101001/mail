@@ -267,6 +267,8 @@ async function _handlePause(fromIndex, config, reason) {
 
   const msg = reason === 'cap'
     ? `🚫 All senders hit daily limit — ${pendingCount} leads pending. They continue automatically tomorrow.`
+    : reason === 'auth'
+    ? `🔐 Your CRM login expired — ${pendingCount} leads still pending, nothing was lost. Sign in again, then press Resume on this campaign.`
     : reason === 'senders'
     ? `🔌 Every sender account has a problem (expired login or wrong password?) — ${pendingCount} leads still pending, nothing was lost. Fix the accounts in Settings, then press Resume.`
     : `⏸ Paused — ${pendingCount} leads pending.`
@@ -413,6 +415,13 @@ export async function start(config) {
       exhaustedProfiles.add(profile.id)
       _notify()
       continue
+    }
+
+    // ── The CRM login expired mid-run: nothing was sent. Stop here, every remaining lead stays
+    //    queued (PENDING) — never fail them all because the session ran out. ──
+    if (result.kind === 'auth') {
+      await _handlePause(i, config, 'auth')
+      return
     }
 
     // ── The ACCOUNT is the problem (expired login, wrong password) — not this lead. ──

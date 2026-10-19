@@ -17,6 +17,7 @@
 
 const { getSql } = require("./_db");
 const { get }    = require("./_redis");
+const { internalFetch } = require("./_internal");
 const { nextRetryAt, inSendWindow, ensureRetryColumns, retryEnabled, MAX_ATTEMPTS } = require("./_retry");
 
 const DAY = 86400000;
@@ -29,12 +30,9 @@ const parseJson = v => {
 const profileKey = p => p.user || p.email || "";
 const dailyCap   = p => p.dailyCap || (p.type === "gmail" ? 500 : 50);
 
-// Real sender: the app's own endpoint on this machine (no internet round-trip).
+// Real sender: the app's own endpoint on this machine, authenticated with the in-memory internal key.
 async function defaultSend(endpoint, payload) {
-  const r = await fetch(`http://127.0.0.1:${process.env.PORT || 3000}${endpoint}`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload), signal: AbortSignal.timeout(60000),
-  });
+  const r = await internalFetch(endpoint, payload);
   return { status: r.status, data: await r.json().catch(() => ({})) };
 }
 const defaultSleep = ms => new Promise(r => setTimeout(r, ms));

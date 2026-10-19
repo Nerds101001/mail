@@ -14,6 +14,7 @@ const dns        = require("dns").promises;
 const { get, set, del, getTrackingStats, getTrackingEvents, ensureTable } = require("./_redis");
 const { getSql } = require("./_db");
 const nodemailer = require("nodemailer");
+const { internalFetch } = require("./_internal");
 
 async function safeGet(key, fallback) {
   try { const v = await get(key); return v ? JSON.parse(v) : fallback; } catch(e) { return fallback; }
@@ -838,7 +839,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
             // Append link attachments (legacy text links) if any were configured
             if (attachmentText) body = body + attachmentText;
 
-            const ep = profile.type === 'gmail' ? `${appUrl}/api/send-email` : `${appUrl}/api/send-smtp`;
+            const ep = profile.type === 'gmail' ? '/api/send-email' : '/api/send-smtp';
             const pl = { leadId:l.id, to:l.email, subject, body, senderName:cfg.sender||'Enginerds Tech', replyTo:cfg.replyTo||'', campaignId:camp.id, attachments:(selectedAttachments||[]).map(id=>({id})) };
             if (profile.type === 'smtp')  pl.smtpConfig = profile;
             if (profile.type === 'gmail') {
@@ -850,7 +851,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
             let failReason   = null;
             let msgId        = null;
             try {
-              const r    = await fetch(ep, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(pl) });
+              const r    = await internalFetch(ep, pl);
               const data = await r.json().catch(()=>({}));
               if      (data.skipped)        { sendStatus = 'SKIPPED'; result.skipped++;  failReason = data.reason || 'Unsubscribed'; }
               else if (data.bounced)        { sendStatus = 'BOUNCED'; result.failed++;   failReason = data.reason || 'Bounced'; }
@@ -1103,9 +1104,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
             gmailUser,
             userId: enroll.user_id || enroll.seq_user_id || undefined,   // whose uploaded signature to attach
           };
-          const sendRes = await fetch(`${appUrl}/api/send-email`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-          });
+          const sendRes = await internalFetch('/api/send-email', payload);
           const sendData = await sendRes.json().catch(()=>({}));
 
           const nextStepIdx = enroll.step_index + 1;
