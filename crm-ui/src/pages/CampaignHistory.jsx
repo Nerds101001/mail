@@ -198,7 +198,7 @@ function EditScheduledModal({ campaign, onClose, onSaved }) {
 }
 
 // ── Campaign row — defined outside to avoid Fast Refresh issues ───────────────
-function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail, trackingData, onExpand, onEdit, onCancel, onDelete, onViewEmail, onResume, onRequeue, requeueing, runnerState }) {
+function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail, trackingData, onExpand, onEdit, onCancel, onDelete, onViewEmail, onResume, onRequeue, onCancelRetries, requeueing, runnerState }) {
   const scheduledDate = c.scheduled_at
     ? new Date(parseInt(c.scheduled_at)).toLocaleString('en-IN', { dateStyle:'medium', timeStyle:'short' })
     : null
@@ -285,7 +285,7 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
             </p>
           ) : isPaused ? (
             <p className="text-xs text-orange-700 font-medium mt-0.5">
-              {capPause ? '🚫 Daily limit hit' : batchPause ? `📦 Batch done — ${pendingCount} leads still queued` : '⏸ Manually paused'}
+              {capPause ? '🚫 Daily limit hit — continues automatically tomorrow' : batchPause ? `📦 Batch done — ${pendingCount} leads still queued` : '⏸ Manually paused'}
               {pausedAt ? ` · ${new Date(pausedAt).toLocaleString('en-IN', { dateStyle:'short', timeStyle:'short' })}` : ''}
               {' '}· {c.target} · {c.sender}
             </p>
@@ -405,6 +405,30 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
       {isExpanded && detail && (
         <div className="border-t border-slate-100">
 
+          {/* Failed emails waiting for their automatic next-day retry */}
+          {(() => {
+            const waiting = (detail.leads || []).filter(l => l.status === 'FAILED' && l.retry_at)
+            if (!waiting.length) return null
+            const first = Math.min(...waiting.map(l => parseInt(l.retry_at)))
+            return (
+              <div className="px-5 py-3 bg-sky-50 border-b border-sky-100 flex items-center justify-between gap-4">
+                <div className="text-xs text-sky-800">
+                  <span className="font-semibold">🔁 {waiting.length} failed email{waiting.length === 1 ? '' : 's'} will be retried automatically</span>
+                  <span className="text-sky-600 ml-2">
+                    — from {new Date(first).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}, never the same day, up to 3 tries.
+                    Emails that may already have been delivered are never retried.
+                  </span>
+                </div>
+                <button
+                  onClick={e => { e.stopPropagation(); onCancelRetries(c) }}
+                  className="shrink-0 px-4 py-1.5 bg-white border border-sky-300 text-sky-700 hover:bg-sky-100 text-xs font-semibold rounded-lg transition-colors"
+                >
+                  Cancel auto-retry
+                </button>
+              </div>
+            )
+          })()}
+
           {/* Requeue unsent banner — shown for non-paused, non-scheduled completed campaigns */}
           {!isScheduled && !isPaused && !isInterrupted && (
             <div className="px-5 py-3 bg-violet-50 border-b border-violet-100 flex items-center justify-between gap-4">
@@ -471,7 +495,7 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
             // Human-readable labels for each status value
             const STATUS_LABEL = {
               SENT: 'sent', FAILED: 'failed', BOUNCED: 'bounced',
-              SKIPPED: 'skipped', PENDING: 'queued',
+              SKIPPED: 'skipped', PENDING: 'queued', QUEUED: 'sending now',
               sent: 'sent', failed: 'failed', bounced: 'bounced',
               skipped: 'skipped', pending: 'queued',
             }
@@ -541,6 +565,11 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
                                   {['FAILED','BOUNCED','failed','bounced'].includes(l.status) && l.failure_reason && (
                                     <span className="text-[10px] text-red-500 italic" title={l.failure_reason}>
                                       ⚠ {l.failure_reason.length > 50 ? l.failure_reason.slice(0,50)+'…' : l.failure_reason}
+                                    </span>
+                                  )}
+                                  {l.status === 'FAILED' && l.retry_at && (
+                                    <span className="text-[10px] text-sky-600">
+                                      ↻ retry {new Date(parseInt(l.retry_at)).toLocaleString('en-IN', { dateStyle:'short', timeStyle:'short' })} · after try {l.attempts || 1}
                                     </span>
                                   )}
                                 </div>
@@ -682,6 +711,21 @@ export default function CampaignHistory() {
         }
       }
     } catch(e) { console.error('Failed to load campaign details:', e) }
+  }
+
+  // Stop the automatic next-day retries of this campaign's failed emails (they stay FAILED)
+  async function cancelRetries(c) {
+    if (!confirm('Stop the automatic retries for this campaign?\n\nThe failed emails stay as FAILED and will not be sent again by the system.')) return
+    try {
+      const res = await fetch(`/api/crm?type=campaigns&id=${c.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeader() },
+        body: JSON.stringify({ cancel_retries: true }),
+      })
+      if (!res.ok) throw new Error('failed')
+      const d = await res.json()
+      setDetail(prev => prev && prev.id === c.id ? { ...prev, leads: (prev.leads || []).map(l => ({ ...l, retry_at: null })) } : prev)
+      toast(`Auto-retry cancelled (${d.cancelled ?? 0} email${d.cancelled === 1 ? '' : 's'})`, 'success')
+    } catch { toast('Could not cancel the retries', 'error') }
   }
 
   async function deleteCampaign(c, e) {
@@ -942,7 +986,7 @@ export default function CampaignHistory() {
                     expanded={expanded} detail={expanded === c.id ? detail : null} trackingData={trackingData}
                     onExpand={expand} onEdit={setEditingCamp} onCancel={cancelSchedule}
                     onDelete={deleteCampaign} onViewEmail={openEmailModal}
-                    onResume={resumeCampaign} onRequeue={requeueUnsent} requeueing={requeueing} runnerState={runnerState}
+                    onResume={resumeCampaign} onRequeue={requeueUnsent} onCancelRetries={cancelRetries} requeueing={requeueing} runnerState={runnerState}
                   />
                 ))}
               </div>
@@ -965,7 +1009,7 @@ export default function CampaignHistory() {
                     expanded={expanded} detail={expanded === c.id ? detail : null} trackingData={trackingData}
                     onExpand={expand} onEdit={setEditingCamp} onCancel={cancelSchedule}
                     onDelete={deleteCampaign} onViewEmail={openEmailModal}
-                    onResume={resumeCampaign} onRequeue={requeueUnsent} requeueing={requeueing} runnerState={runnerState}
+                    onResume={resumeCampaign} onRequeue={requeueUnsent} onCancelRetries={cancelRetries} requeueing={requeueing} runnerState={runnerState}
                   />
                 ))}
               </div>
@@ -988,7 +1032,7 @@ export default function CampaignHistory() {
                     expanded={expanded} detail={expanded === c.id ? detail : null} trackingData={trackingData}
                     onExpand={expand} onEdit={setEditingCamp} onCancel={cancelSchedule}
                     onDelete={deleteCampaign} onViewEmail={openEmailModal}
-                    onResume={resumeCampaign} onRequeue={requeueUnsent} requeueing={requeueing} runnerState={runnerState}
+                    onResume={resumeCampaign} onRequeue={requeueUnsent} onCancelRetries={cancelRetries} requeueing={requeueing} runnerState={runnerState}
                   />
                 ))}
               </div>
@@ -1011,7 +1055,7 @@ export default function CampaignHistory() {
                     expanded={expanded} detail={expanded === c.id ? detail : null} trackingData={trackingData}
                     onExpand={expand} onEdit={setEditingCamp} onCancel={cancelSchedule}
                     onDelete={deleteCampaign} onViewEmail={openEmailModal}
-                    onResume={resumeCampaign} onRequeue={requeueUnsent} requeueing={requeueing} runnerState={runnerState}
+                    onResume={resumeCampaign} onRequeue={requeueUnsent} onCancelRetries={cancelRetries} requeueing={requeueing} runnerState={runnerState}
                   />
                 ))}
               </div>

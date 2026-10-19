@@ -1,6 +1,7 @@
 // api/send-email.js — Gmail OAuth sender (MNC-grade)
 const { get, set } = require("./_redis");
 const { pickSignature, resolveSignatureUser, placeSignature, signatureBlock } = require("./_signature");
+const { classifyGmailApiError, classifyGmailThrown } = require("./_sendErrors");
 
 // ─── Token refresh with better error handling ────────────────────────────────────
 async function getValidAccessToken(accountEmail = null) {
@@ -307,13 +308,18 @@ module.exports = async (req, res) => {
         console.warn("send-email: Gmail quota —", gmailMsg)
         return res.json({ success: false, rateLimited: true, reason: gmailMsg })
       }
-      throw new Error(gmailMsg)
+      // Tell the caller WHY it failed (see _sendErrors.js): a bad address is permanent (bounce),
+      // an account problem is skipped, a Gmail 5xx is safe to retry tomorrow.
+      const kind = classifyGmailApiError(gmailCode, gmailMsg)
+      if (kind === 'permanent') return res.json({ success: false, bounced: true, reason: gmailMsg, kind })
+      console.error(`send-email: Gmail API ${gmailCode} (${kind}) — ${gmailMsg}`)
+      return res.status(500).json({ error: gmailMsg, reason: gmailMsg, kind })
     }
 
     res.json({ success: true, messageId: result.id });
   } catch (err) {
     console.error("send-email error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message, reason: err.message, kind: classifyGmailThrown(err.message) });
   }
 };
 

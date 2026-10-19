@@ -4,6 +4,7 @@
 
 const { get, set } = require("./_redis");
 const { getSql } = require("./_db");
+const { nextRetryAt, retryEnabled, ensureRetryColumns } = require("./_retry");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 async function safeGet(key, fallback) {
@@ -343,6 +344,8 @@ module.exports = async (req, res) => {
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS last_open BIGINT`.catch(()=>{});
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS last_click BIGINT`.catch(()=>{});
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS variant_index INT DEFAULT 0`.catch(()=>{});
+      // failure_reason / sender_email / attempts / retry_at (next-day retry — see _retry.js)
+      await ensureRetryColumns(sql).catch(()=>{});
 
       if (req.method === "GET" && id) {
         const [camp] = await sql`SELECT * FROM campaigns WHERE id=${id} AND (user_id=${userId} OR ${userId}='admin')`;
@@ -399,23 +402,38 @@ module.exports = async (req, res) => {
       // PATCH — update a campaign (time, name, variants, config, status, stats)
       if (req.method === "PATCH" && id) {
         const { name, scheduled_at, schedule_config, variants, status: newStatus,
-                total_sent, total_failed, total_skipped, update_lead } = req.body;
+                total_sent, total_failed, total_skipped, update_lead, cancel_retries } = req.body;
+
+        // cancel_retries: stop the automatic next-day retries of this campaign's failed emails
+        if (cancel_retries) {
+          const owns = await sql`SELECT 1 FROM campaigns WHERE id=${id} AND (user_id=${userId} OR ${userId}='admin')`;
+          if (!owns.length) return res.status(404).json({ error: "Not found" });
+          const done = await sql`UPDATE campaign_leads SET retry_at = NULL WHERE campaign_id=${id} AND retry_at IS NOT NULL RETURNING id`;
+          return res.json({ ok: true, cancelled: done.length });
+        }
 
         // update_lead: update a single campaign_lead row PENDING → final status
         // AND atomically increment the campaign's running totals.
         // Called by campaignRunner after each individual send so stats are live.
         if (update_lead) {
-          const { leadId, status: ls, subject, body, sentAt, variantIndex } = update_lead;
+          const { leadId, status: ls, subject, body, sentAt, variantIndex, failureReason, retry, senderEmail } = update_lead;
           const finalStatus = ls || 'SENT';
+          // A FAILED email the runner flagged as safe to retry (nothing was sent) is scheduled for
+          // tomorrow. Never the same day, and never for "outcome unknown" failures (could duplicate).
+          const retryAt = (finalStatus === 'FAILED' && retry === true && retryEnabled()) ? nextRetryAt() : null;
 
           // Update the individual lead row
           await sql`
             UPDATE campaign_leads
-            SET status        = ${finalStatus},
-                subject       = ${subject   || ''},
-                body          = ${body      || ''},
-                sent_at       = ${sentAt    || Date.now()},
-                variant_index = ${variantIndex || 0}
+            SET status         = ${finalStatus},
+                subject        = ${subject   || ''},
+                body           = ${body      || ''},
+                sent_at        = ${sentAt    || Date.now()},
+                variant_index  = ${variantIndex || 0},
+                failure_reason = ${finalStatus === 'SENT' ? null : (failureReason ? String(failureReason).slice(0, 500) : null)},
+                sender_email   = COALESCE(${senderEmail || null}, sender_email),
+                attempts       = COALESCE(attempts, 0) + 1,
+                retry_at       = ${retryAt}
             WHERE campaign_id = ${id}
               AND lead_id     = ${leadId}
               AND status      = 'PENDING'

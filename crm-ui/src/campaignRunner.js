@@ -158,10 +158,19 @@ async function _sendOne(lead, subject, body, profile, campaignId, config) {
     const res  = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` }, body: JSON.stringify(payload) })
     const data = await res.json().catch(() => ({}))
     if (data.rateLimited) return { ok: false, rateLimited: true }
-    if (data.bounced)     return { ok: false, bounced: true }
+    if (data.bounced)     return { ok: false, bounced: true, reason: data.reason }
     if (data.skipped)     return { ok: false, skipped: true }
-    return { ok: res.ok }
-  } catch { return { ok: false } }
+    if (res.ok)           return { ok: true }
+    // A failure. `kind` (from the sender, see api/_sendErrors.js) says whether the mail may
+    // have gone out: 'sender' = this account is broken · 'transient' = nothing was sent, safe to
+    // retry tomorrow · 'unknown' = may have been delivered, never auto-retried (could duplicate).
+    // A proxy timeout (502/504) means the server may already have sent it → unknown.
+    const kind = (res.status === 502 || res.status === 504) ? 'unknown' : (data.kind || 'unknown')
+    return { ok: false, kind, reason: data.reason || data.error || `HTTP ${res.status}` }
+  } catch {
+    // The browser lost the connection: the server may or may not have sent it.
+    return { ok: false, kind: 'unknown', reason: 'Connection lost while sending — outcome unknown' }
+  }
 }
 
 async function _patchCampaign(campaignId, updates, token) {
@@ -204,6 +213,9 @@ async function _markLeadSent(campaignId, lead, token) {
           body:         lead.body         || '',
           variantIndex: lead.variantIndex || 0,
           sentAt:       lead.sentAt       || Date.now(),
+          failureReason: lead.failureReason || '',
+          retry:         lead.retry === true,          // server schedules it for tomorrow (never today)
+          senderEmail:   lead.senderEmail  || '',
         },
       }),
     })
@@ -254,7 +266,9 @@ async function _handlePause(fromIndex, config, reason) {
   _state.batchPause = false
 
   const msg = reason === 'cap'
-    ? `🚫 All senders hit daily limit — ${pendingCount} leads pending.`
+    ? `🚫 All senders hit daily limit — ${pendingCount} leads pending. They continue automatically tomorrow.`
+    : reason === 'senders'
+    ? `🔌 Every sender account has a problem (expired login or wrong password?) — ${pendingCount} leads still pending, nothing was lost. Fix the accounts in Settings, then press Resume.`
     : `⏸ Paused — ${pendingCount} leads pending.`
   _addLog(msg, 'warn')
   _notify()
@@ -348,7 +362,8 @@ export async function start(config) {
     _notify()
   }
 
-  const exhaustedProfiles = new Set()
+  const exhaustedProfiles = new Set()   // hit their daily limit (cleared each batch)
+  const brokenProfiles    = new Set()   // account itself is broken (expired login…) — skipped for this whole run
   const actualBatchSize = config.batchSize || config.targets.length  // undefined = send all
 
   let i = 0
@@ -378,10 +393,13 @@ export async function start(config) {
     _state.progress    = Math.round(((priorSent + priorFailed + priorSkipped + i + 1) / _state.total) * 100)
     _notify()
 
-    // ── Pick a sender that hasn't hit its daily limit yet ──
-    const profile = _getAvailableProfile(config.senderProfiles, exhaustedProfiles, i)
+    // ── Pick a sender that hasn't hit its daily limit and isn't broken ──
+    const unavailable = new Set([...exhaustedProfiles, ...brokenProfiles])
+    const profile = _getAvailableProfile(config.senderProfiles, unavailable, i)
     if (!profile) {
-      await _handlePause(i, config, 'cap')
+      // Every account is broken → needs fixing (Resume anytime). Otherwise the daily limits are
+      // used up → leads stay queued and the server continues them tomorrow.
+      await _handlePause(i, config, brokenProfiles.size >= config.senderProfiles.length ? 'senders' : 'cap')
       return
     }
 
@@ -397,8 +415,18 @@ export async function start(config) {
       continue
     }
 
+    // ── The ACCOUNT is the problem (expired login, wrong password) — not this lead. ──
+    // Nothing was sent, so give the same lead to the next account; don't count a failure.
+    if (result.kind === 'sender') {
+      _addLog(`⚠ ${profile.name} can't send (${result.reason || 'login problem'}) — skipping this account for the rest of the run`, 'warn')
+      brokenProfiles.add(profile.id)
+      _notify()
+      continue
+    }
+
     const sentAt = Date.now()
-    let leadStatus
+    const senderEmail = profile.user || profile.email || ''
+    let leadStatus, failureReason = '', willRetry = false
     if (result.ok) {
       _addLog(`✓ ${l.name || l.email} → ${profile.name} (v${varIdx + 1})`, 'success')
       _state.sent++
@@ -407,11 +435,18 @@ export async function start(config) {
       _addLog(`⚡ BOUNCED: ${l.email}`, 'warn')
       _state.failed++
       leadStatus = 'BOUNCED'
+      failureReason = result.reason || 'Address rejected'
     } else if (result.skipped) {
       _state.skipped++
       leadStatus = 'SKIPPED'
     } else {
-      _addLog(`✗ Failed: ${l.email}`, 'error')
+      // A failed email is never re-sent today. If nothing was sent (temporary error) it is queued
+      // for tomorrow; if it MAY have been delivered (timeout, lost connection) it is left alone.
+      willRetry     = result.kind === 'transient'
+      failureReason = result.reason || 'Send failed'
+      const tail = willRetry ? ' → will be retried tomorrow'
+                 : result.kind === 'unknown' ? ' (may have been delivered — not retried automatically)' : ''
+      _addLog(`✗ Failed: ${l.email} — ${failureReason}${tail}`, 'error')
       _state.failed++
       leadStatus = 'FAILED'
     }
@@ -424,6 +459,7 @@ export async function start(config) {
     const updatePromise = _markLeadSent(config.campaignId, {
       id: l.id, status: leadStatus, subject: vData.subject,
       body: vData.body, variantIndex: varIdx, sentAt,
+      failureReason, retry: willRetry, senderEmail,
     }, config.token)
 
     if (i < config.targets.length - 1 && config.cfg?.rate > 0) {

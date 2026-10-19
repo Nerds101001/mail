@@ -168,3 +168,15 @@ setTimeout(() => {
   autoDrip();
   setInterval(autoDrip, 15 * 60 * 1000);
 }, 60 * 1000);
+
+// ── Next-day retry of failed emails + auto-continue after a daily limit ───────
+// Every 15 minutes (business hours IST only — enforced inside the job). A failed email is
+// never re-sent the same day. See api/_retryJob.js. Switch off with AUTO_RETRY=0.
+const { runRetryJob } = require("./api/_retryJob");
+function autoRetry() {
+  runRetryJob().catch(err => console.error("🔁 [RETRY] job error:", err.message));
+}
+setTimeout(() => {
+  autoRetry();
+  setInterval(autoRetry, 15 * 60 * 1000);
+}, 120 * 1000);

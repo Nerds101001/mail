@@ -2,6 +2,7 @@
 const nodemailer = require("nodemailer");
 const { get, set } = require("./_redis");
 const { pickSignature, resolveSignatureUser, placeSignature, signatureBlock } = require("./_signature");
+const { classifySmtpError } = require("./_sendErrors");
 
 // ─── Fetch real file data from Postgres for MIME attachments ────────────────
 async function fetchAttachmentData(attachments) {
@@ -162,15 +163,19 @@ module.exports = async (req, res) => {
                      /does not exist|no such user|user unknown|invalid address/i.test(msg)
     if (isBounce) return res.json({ success: false, bounced: true, reason: msg })
 
-    // Timeout — likely Vercel's 10s limit; treat as transient failure (not a bounce)
+    // Why it failed (see _sendErrors.js): a bad login → skip this account; couldn't connect or a
+    // 4xx refusal → safe to retry tomorrow; a timeout/reset mid-send → outcome unknown, never retried.
+    const kind = classifySmtpError(err)
+
+    // Timeout / connection trouble — not a bounce
     const isTimeout = err.code === 'ETIMEDOUT' || err.code === 'ESOCKET' ||
                       /timeout|ECONNREFUSED|ECONNRESET/i.test(msg)
     if (isTimeout) {
-      console.error("send-smtp: timeout — SMTP took too long for Vercel Hobby (10s limit)")
-      return res.status(504).json({ error: "SMTP timeout — connection too slow", timeout: true })
+      console.error(`send-smtp: connection problem (${kind}) — ${msg}`)
+      return res.status(504).json({ error: "SMTP timeout — connection too slow", reason: msg, timeout: true, kind })
     }
 
-    res.status(500).json({ error: msg })
+    res.status(500).json({ error: msg, reason: msg, kind })
   }
 };
 
