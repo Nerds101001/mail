@@ -2,6 +2,7 @@
 const { get, set } = require("./_redis");
 const { pickSignature, resolveSignatureUser, placeSignature, signatureBlock, stripAttachmentIcon } = require("./_signature");
 const { classifyGmailApiError, classifyGmailThrown } = require("./_sendErrors");
+const { isOptedOut } = require("./_optout");
 
 // ─── Token refresh with better error handling ────────────────────────────────────
 async function getValidAccessToken(accountEmail = null) {
@@ -265,9 +266,15 @@ module.exports = async (req, res) => {
     return res.status(400).json({ error: "Missing required fields: leadId, to, subject, body" });
 
   try {
-    const isUnsub = await get(`unsub:${to}`);
-    if (isUnsub === "true")
-      return res.status(200).json({ success: false, skipped: true, reason: "UNSUBSCRIBED" });
+    // Opt-out check (case-insensitive, one shared table — see _optout.js). If the check itself
+    // can't be made we do NOT send: better a delayed email than one to someone who opted out.
+    let optedOut;
+    try { optedOut = await isOptedOut(to); }
+    catch (e) {
+      console.error("send-email: opt-out check failed — not sending:", e.message);
+      return res.status(503).json({ success: false, error: "Could not verify the opt-out list — email not sent", reason: "Opt-out check unavailable", kind: "transient" });
+    }
+    if (optedOut) return res.status(200).json({ success: false, skipped: true, reason: "UNSUBSCRIBED" });
 
     // Use per-account token if gmailUser specified (multi-Gmail round-robin)
     const accessToken  = await getValidAccessToken(gmailUser || null);

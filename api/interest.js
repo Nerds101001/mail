@@ -2,8 +2,8 @@
 // These are SEPARATE from the tracking system (opens/clicks).
 // We NEVER touch: simple_tracking, tracking_events, tracking columns in campaign_leads.
 
-const { get, set } = require('./_redis');
 const { getSql }   = require('./_db');
+const { optOut }   = require('./_optout');
 
 // ── Find a lead across ALL user namespaces ────────────────────────────────────
 // First tries the campaign's own user_id (fastest), then scans all crm:leads* keys.
@@ -137,35 +137,11 @@ module.exports = async (req, res) => {
 
     // ── NOT INTERESTED → unsubscribe ─────────────────────────────────────────
     } else if (action === 'unsub') {
-      let resolvedEmail = null;
-
-      if (found) {
-        const { lead, leads, lKey } = found;
-        resolvedEmail = lead.email;
-
-        // Update the lead: mark status UNSUBSCRIBED + append note.
-        // Do NOT touch pipelineStage, opens, clicks, or any tracking field.
-        const updatedLeads = leads.map(l =>
-          l.id === leadId
-            ? {
-                ...l,
-                status: 'UNSUBSCRIBED',
-                notes: (l.notes || '') + `\n[${new Date().toISOString()}] Clicked "Not Interested" via campaign email — unsubscribed`,
-              }
-            : l
-        );
-
-        await sql`UPDATE kv_store SET value = ${JSON.stringify(updatedLeads)} WHERE key = ${lKey}`.catch(() => {});
-        console.log(`[Interest] ✅ Lead ${leadId} status → UNSUBSCRIBED  (key: ${lKey}, email: ${resolvedEmail})`);
-      } else {
-        console.warn(`[Interest] ⚠️  Lead ${leadId} not found in any namespace — skipping kv update`);
-      }
-
-      // Set the global unsub flag so future campaigns skip this email address
-      if (resolvedEmail) {
-        await set(`unsub:${resolvedEmail}`, 'true');
-        console.log(`[Interest] ✅ unsub:${resolvedEmail} = true`);
-      }
+      // One durable opt-out (see _optout.js): blocks every future send to this address in every
+      // campaign and route, shows up in the Unsubscribes list, and moves the lead's status AND
+      // pipeline stage to UNSUBSCRIBED. If the address can't be determined this THROWS → the
+      // visitor gets an error page instead of a false "you've been unsubscribed".
+      await optOut({ leadId, campaignId, source: 'not-interested-button' });
 
       // Record interest_action in campaign_leads — ONLY the interest_action column.
       // We deliberately do NOT update campaign_leads.status here because:

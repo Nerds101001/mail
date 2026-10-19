@@ -5,6 +5,7 @@
 const { get, set } = require("./_redis");
 const { getSql } = require("./_db");
 const { nextRetryAt, retryEnabled, ensureRetryColumns } = require("./_retry");
+const { applyOptOuts } = require("./_optout");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 async function safeGet(key, fallback) {
@@ -134,6 +135,11 @@ module.exports = async (req, res) => {
       leads = leadsRaw; // fallback to raw if tracking query fails
     }
 
+    // ── Opt-outs are authoritative: show opted-out addresses as UNSUBSCRIBED even if the stored
+    //    lead record is out of date (see _optout.js). Display only — never blocks the load.
+    try { leads = (await applyOptOuts(leads)).leads; }
+    catch (e) { console.warn('⚠ [CRM LOAD] opt-out overlay skipped:', e.message); }
+
     // ── Data cleanup (name + company) ────────────────────────────────────
     // Fixes leads stored before the enrichLead guards were added.
     // Runs on every load but only writes back when something is actually dirty.
@@ -233,8 +239,19 @@ module.exports = async (req, res) => {
     }
     // ── END AUDIT LOGGING ────────────────────────────────────────────────
 
+    // A browser tab holding an OLD copy of the leads must not be able to un-unsubscribe anyone:
+    // re-apply the opt-out table to whatever it sends before storing it.
+    let leadsToStore = leads;
+    if (leads !== undefined) {
+      try {
+        const o = await applyOptOuts(leads);
+        leadsToStore = o.leads;
+        if (o.changed) console.log(`🚫 [OPT-OUT] kept ${o.changed} opted-out lead(s) UNSUBSCRIBED in a save from user=${userId}`);
+      } catch (e) { console.warn('⚠ [CRM SAVE] opt-out overlay skipped:', e.message); }
+    }
+
     await Promise.all([
-      leads    !== undefined ? safeSet(ns("crm:leads",    userId), leads) : null,
+      leads    !== undefined ? safeSet(ns("crm:leads",    userId), leadsToStore) : null,
       profiles !== undefined ? safeSet(ns("crm:profiles", userId), sanitizeProfiles(profiles)) : null, // per-user
       settings !== undefined ? safeSet("crm:settings", (({openaiKey,...s})=>s)(settings||{})) : null,
       settings?.openaiKey    ? safeSet("crm:apikey", settings.openaiKey) : null,

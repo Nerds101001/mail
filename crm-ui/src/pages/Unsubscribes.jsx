@@ -5,7 +5,7 @@ import { ThumbsUp, ThumbsDown, Download, RefreshCw } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
 export default function Interests() {
-  const { leads, setLeads, saveLeads } = useCRM()
+  const { leads, loadFromRedis } = useCRM()
   const [tab, setTab]               = useState('not-interested')
   const [interested, setInterested] = useState([])
   const [notInterested, setNotInterested] = useState([])
@@ -47,16 +47,17 @@ export default function Interests() {
   async function resubscribe(lead) {
     if (!confirm('Re-subscribe this contact? They will be able to receive emails again.')) return
     try {
-      await fetch('/api/ops?type=resubscribe', {
+      const res = await fetch('/api/ops?type=resubscribe', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ email: lead.email }),
       })
-      const updated = leads.map(l => l.id === lead.id ? { ...l, status: 'VALID', pipelineStage: 'COLD' } : l)
-      setLeads(updated)
-      await saveLeads(updated)
-      setNotInterested(prev => prev.filter(l => l.id !== lead.id))
-      toast(`${lead.name} re-subscribed ✓`, 'success')
+      if (!res.ok) throw new Error(`the server answered ${res.status}`)
+      // The server has removed the opt-out AND restored the lead's status/stage. Reload from it
+      // instead of saving this tab's copy back (which may be out of date).
+      await loadFromRedis()
+      setNotInterested(prev => prev.filter(l => (l.email || '').toLowerCase() !== (lead.email || '').toLowerCase()))
+      toast(`${lead.name || lead.email} re-subscribed ✓`, 'success')
     } catch (e) {
       toast('Failed to re-subscribe: ' + e.message, 'error')
     }
@@ -181,7 +182,7 @@ export default function Interests() {
               <table className="w-full text-sm min-w-[550px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    {['Name', 'Email', 'Company', 'Last Sent', 'Actions'].map(h => (
+                    {['Name', 'Email', 'Company', 'Opted out', 'Actions'].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
                     ))}
                   </tr>
@@ -189,10 +190,10 @@ export default function Interests() {
                 <tbody>
                   {notInterested.map(l => (
                     <tr key={l.id + l.email} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="px-4 py-3 font-semibold text-slate-900">{l.name}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{l.name || '—'}</td>
                       <td className="px-4 py-3 text-slate-500 font-mono text-xs">{l.email}</td>
                       <td className="px-4 py-3 text-slate-600">{l.company || '—'}</td>
-                      <td className="px-4 py-3 text-slate-400 text-xs">{fmtDate(l.lastSent)}</td>
+                      <td className="px-4 py-3 text-slate-400 text-xs">{fmtDate(l.unsubscribedAt || l.lastSent)}</td>
                       <td className="px-4 py-3">
                         <Btn variant="ghost" size="sm" onClick={() => resubscribe(l)}>↩ Re-subscribe</Btn>
                       </td>

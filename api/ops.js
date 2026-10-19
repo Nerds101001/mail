@@ -15,6 +15,7 @@ const { get, set, del, getTrackingStats, getTrackingEvents, ensureTable } = requ
 const { getSql } = require("./_db");
 const nodemailer = require("nodemailer");
 const { internalFetch } = require("./_internal");
+const { optIn, listOptOuts, isOptedOut, ensureOptOutTable, isAdminSession } = require("./_optout");
 
 async function safeGet(key, fallback) {
   try { const v = await get(key); return v ? JSON.parse(v) : fallback; } catch(e) { return fallback; }
@@ -728,14 +729,14 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
   }
 
   // POST /api/ops?type=resubscribe  { email }
-  // Clears the unsub:{email} DB flag so the send APIs stop blocking this address
+  // Removes the address from the opt-out table (the one list every send checks) AND puts the lead's
+  // status / pipeline stage back to what they were before the opt-out. See _optout.js.
   if (type === "resubscribe" && req.method === "POST") {
     try {
-      const { email } = req.body;
+      const { email } = req.body || {};
       if (!email) return res.status(400).json({ error: "Missing email" });
-      await del(`unsub:${email}`);
-      console.log(`Re-subscribed: unsub:${email} cleared`);
-      return res.json({ ok: true, email });
+      const r = await optIn(email);
+      return res.json({ ok: true, ...r });
     } catch(e) {
       return res.status(500).json({ error: e.message });
     }
@@ -1094,6 +1095,14 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
             continue;
           }
 
+          // Opted out (any route) → stop this drip. The send endpoint would refuse anyway.
+          if (await isOptedOut(enroll.lead_email).catch(() => false)) {
+            await sql`UPDATE drip_enrollments SET status='paused' WHERE id=${enroll.id}`.catch(()=>{});
+            console.log(`[DRIP] Paused drip for ${enroll.lead_id} — opted out`);
+            skipped++;
+            continue;
+          }
+
           // Send the email
           const gmailUser = await require('./_redis').get('gmail:email');
           const payload   = {
@@ -1126,6 +1135,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
   if (type === "analytics") {
     try {
       await ensureTable();
+      await ensureOptOutTable();
       const sql = getSql();
 
       // Per-campaign stats — FILTERED BY USER
@@ -1142,7 +1152,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
           COUNT(*)                   FILTER (WHERE te.event_type = 'click' AND (te.is_bot IS NOT TRUE)) AS total_clicks,
           COUNT(DISTINCT cl.lead_id) FILTER (WHERE cl.status = 'REPLIED')      AS replies,
           COUNT(DISTINCT cl.lead_id) FILTER (WHERE cl.status = 'BOUNCED')      AS bounces,
-          COUNT(DISTINCT cl.lead_id) FILTER (WHERE cl.status = 'UNSUBSCRIBED') AS unsubscribes,
+          COUNT(DISTINCT cl.lead_id) FILTER (WHERE cl.status = 'UNSUBSCRIBED' OR EXISTS (SELECT 1 FROM opt_outs o WHERE o.email_lc = lower(trim(cl.lead_email)))) AS unsubscribes,
           COUNT(DISTINCT cl.lead_id) FILTER (WHERE cl.status = 'FAILED')       AS failed,
           MAX(cl.sent_at) AS last_sent_at,
           MIN(cl.subject) AS subject_preview
@@ -1327,48 +1337,12 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
     }
   }
 
-  // ── UNSUBSCRIBED LIST (fetch from campaign_leads) ─────────────────────────
+  // ── UNSUBSCRIBED LIST — read from the same opt-out table the send endpoints check ──────
+  // (a normal user sees their own contacts, an admin sees everyone's)
   if (type === "unsubscribed-list") {
     try {
-      await ensureTable();
-      const sql = getSql();
-
-      console.log(`📋 [UNSUBSCRIBED-LIST] Fetching for userId: ${userId}`);
-
-      // Get all unsubscribed leads from campaign_leads for this user's campaigns
-      const rows = await sql`
-        SELECT DISTINCT
-          cl.lead_id,
-          cl.lead_name as name,
-          cl.lead_email as email,
-          cl.lead_company as company,
-          MAX(cl.sent_at) as last_sent_at,
-          COUNT(*) as unsubscribe_count
-        FROM campaign_leads cl
-        WHERE cl.status = 'UNSUBSCRIBED'
-        GROUP BY cl.lead_id, cl.lead_name, cl.lead_email, cl.lead_company
-        ORDER BY MAX(cl.sent_at) DESC NULLS LAST
-        LIMIT 1000
-      `.catch((err) => {
-        console.error(`❌ [UNSUBSCRIBED-LIST] Query failed:`, err.message);
-        return [];
-      });
-
-      console.log(`📋 [UNSUBSCRIBED-LIST] Query returned ${rows.length} rows`);
-      if (rows.length > 0) {
-        console.log(`📋 [UNSUBSCRIBED-LIST] First row:`, JSON.stringify(rows[0], null, 2));
-      }
-
-      const unsubscribed = rows.map(r => ({
-        id: r.lead_id,
-        name: r.name || '',
-        email: r.email || '',
-        company: r.company || '',
-        lastSent: r.last_sent_at,
-        notes: '',
-      }));
-
-      console.log(`📋 [UNSUBSCRIBED-LIST] Found ${unsubscribed.length} unsubscribed contacts for user ${userId}`);
+      const isAdmin = userId === "admin" || await isAdminSession(token);
+      const unsubscribed = await listOptOuts({ userId, isAdmin });
       return res.json({ unsubscribed });
     } catch(err) {
       console.error("Unsubscribed list error:", err.message);

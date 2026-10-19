@@ -3,6 +3,7 @@ const nodemailer = require("nodemailer");
 const { get, set } = require("./_redis");
 const { pickSignature, resolveSignatureUser, placeSignature, signatureBlock, stripAttachmentIcon } = require("./_signature");
 const { classifySmtpError } = require("./_sendErrors");
+const { isOptedOut } = require("./_optout");
 
 // ─── Fetch real file data from Postgres for MIME attachments ────────────────
 async function fetchAttachmentData(attachments) {
@@ -101,9 +102,15 @@ module.exports = async (req, res) => {
 
   try {
     // Hard unsubscribe check
-    const isUnsub = await get(`unsub:${to}`);
-    if (isUnsub === "true")
-      return res.status(200).json({ success: false, skipped: true, reason: "UNSUBSCRIBED" });
+    // Opt-out check (case-insensitive, one shared table — see _optout.js). If the check itself
+    // can't be made we do NOT send: better a delayed email than one to someone who opted out.
+    let optedOut;
+    try { optedOut = await isOptedOut(to); }
+    catch (e) {
+      console.error("send-smtp: opt-out check failed — not sending:", e.message);
+      return res.status(503).json({ success: false, error: "Could not verify the opt-out list — email not sent", reason: "Opt-out check unavailable", kind: "transient" });
+    }
+    if (optedOut) return res.status(200).json({ success: false, skipped: true, reason: "UNSUBSCRIBED" });
 
     const { host, port, user, pass, secure } = smtpConfig;
     const msgId    =`<${Date.now()}.${Math.random().toString(36).slice(2)}@${host}>`;
