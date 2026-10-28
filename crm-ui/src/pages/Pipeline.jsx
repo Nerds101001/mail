@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useCRM } from '../store'
 import { PIPELINE_STAGES, STAGE_COLORS, fmtCurrency } from '../utils'
-import { PageHeader, Btn } from '../components/ui'
+import { PageHeader, Btn, toast } from '../components/ui'
 import { Flame, Eye, MousePointer, Search, RefreshCw, Filter, X, Trophy, IndianRupee } from 'lucide-react'
 
 const TABS = ['ALL', 'COLD', 'CONTACTED', 'OPENED', 'HOT', 'DEMO', 'QUOTED', 'WON', 'LOST', 'UNSUBSCRIBED']
@@ -261,6 +261,13 @@ export default function Pipeline() {
   const paginated  = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   function changeStage(id, stage) {
+    // An opted-out contact stays opted out: moving the card back would be undone by the server anyway
+    // (and a stale tab must never quietly start mailing someone again). Re-subscribe is deliberate.
+    const cur = leads.find(l => l.id === id)
+    if (cur && (cur.pipelineStage === 'UNSUBSCRIBED' || cur.status === 'UNSUBSCRIBED') && stage !== 'UNSUBSCRIBED') {
+      toast('This contact has opted out. To mail them again use "Re-subscribe" on the Interests page.', 'error')
+      return
+    }
     if (stage === 'WON') {
       const lead = leads.find(l => l.id === id)
       setDealLead({ ...lead, _pendingStage: 'WON' })
@@ -340,7 +347,7 @@ export default function Pipeline() {
       logActivity(`Deal won: ${dealLead.name || dealLead.email} — ₹${amount.toLocaleString()}`)
 
       // Persist to Redis right now (awaited) so refresh never loses data
-      await fetch('/api/crm?type=save', {
+      await fetch('/api/crm?type=save' + vaQ, {   // vaQ: save into the account whose data is on screen
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
         body: JSON.stringify({ leads, clients: updatedClients, deals: updatedDeals, profiles, settings, activity: newActivity }),

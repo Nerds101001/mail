@@ -54,6 +54,19 @@ function ensureOptOutTable() {
         FROM campaign_leads WHERE status = 'UNSUBSCRIBED' AND coalesce(trim(lead_email), '') <> ''
         ORDER BY lower(trim(lead_email))
         ON CONFLICT (email_lc) DO NOTHING`);
+      // 2b. leads somebody set to UNSUBSCRIBED by hand in the CRM (status or pipeline stage) — that is a
+      //     decision to stop mailing them, so make it a real opt-out (before this, only the e-mail
+      //     buttons / link / API created one and a hand-set stage did NOT stop sending)
+      await step("manual stage", () => sql`
+        INSERT INTO opt_outs (email_lc, email, lead_id, user_id, name, company, source, created_at)
+        SELECT DISTINCT ON (lower(trim(e->>'email'))) lower(trim(e->>'email')), trim(e->>'email'), e->>'id',
+               CASE WHEN k.key = 'crm:leads' THEN 'admin' ELSE substr(k.key, 11) END, e->>'name', e->>'company', 'manual-stage', ${now}
+        FROM kv_store k, jsonb_array_elements(k.value::jsonb) e
+        WHERE k.key LIKE 'crm:leads%' AND jsonb_typeof(k.value::jsonb) = 'array' AND coalesce(e->>'email', '') <> ''
+          AND (e->>'status' = 'UNSUBSCRIBED' OR e->>'pipelineStage' = 'UNSUBSCRIBED')
+          AND coalesce(e->>'deleted', 'false') <> 'true'
+        ORDER BY lower(trim(e->>'email'))
+        ON CONFLICT (email_lc) DO NOTHING`);
       // 3. fill in who they are (lead id / owner / name / company) from the CRM lead stores
       await step("attribute", () => sql`
         UPDATE opt_outs o SET lead_id = coalesce(o.lead_id, x.id), name = coalesce(o.name, x.name), company = coalesce(o.company, x.company),
@@ -206,6 +219,36 @@ async function listOptOuts({ userId, isAdmin }) {
   }));
 }
 
+// A lead the user set to UNSUBSCRIBED by hand (Pipeline) → a real opt-out ('manual-stage'), so every send
+// path refuses it, not only the campaign screen. Called on CRM save; returns how many were newly recorded.
+// To undo it use Re-subscribe on the Interests page (optIn) — dragging the lead back is not enough,
+// on purpose (a stale browser tab must not be able to quietly start mailing someone again).
+async function registerManualOptOuts(leads, userId) {
+  if (!Array.isArray(leads)) return 0;
+  const cand = new Map();
+  for (const l of leads) {
+    if (!l || !l.email || l.deleted) continue;
+    if (l.status !== "UNSUBSCRIBED" && l.pipelineStage !== "UNSUBSCRIBED") continue;
+    const lc = norm(l.email);
+    if (lc && !cand.has(lc)) cand.set(lc, l);
+  }
+  if (!cand.size) return 0;
+  await ensureOptOutTable();
+  const sql = getSql();
+  const have = new Set((await sql`SELECT email_lc FROM opt_outs WHERE email_lc = ANY(${[...cand.keys()]})`).map(r => r.email_lc));
+  const now = Date.now();
+  let added = 0;
+  for (const [lc, l] of cand) {
+    if (have.has(lc)) continue;
+    await sql`
+      INSERT INTO opt_outs (email_lc, email, lead_id, user_id, name, company, source, created_at)
+      VALUES (${lc}, ${String(l.email).trim()}, ${l.id || null}, ${userId || null}, ${l.name || null}, ${l.company || null}, 'manual-stage', ${now})
+      ON CONFLICT (email_lc) DO NOTHING`;
+    added++;
+  }
+  return added;
+}
+
 // Re-apply opt-outs to a lead array (used on CRM load and — crucially — on save, so an out-of-date
 // browser tab can never put an opted-out lead back into circulation).
 async function applyOptOuts(leads) {
@@ -231,4 +274,4 @@ async function isAdminSession(token) {
   } catch { return false; }
 }
 
-module.exports = { norm, ensureOptOutTable, isOptedOut, optOut, optIn, listOptOuts, applyOptOuts, isAdminSession };
+module.exports = { norm, ensureOptOutTable, isOptedOut, optOut, optIn, listOptOuts, applyOptOuts, registerManualOptOuts, isAdminSession };

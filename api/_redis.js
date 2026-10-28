@@ -146,6 +146,29 @@ async function set(key, value, exSeconds = null) {
   }
 }
 
+// ── Strict variants for read-modify-write callers ────────────────────────────────────────────────
+// get() above turns a database ERROR into "no data" (null). A caller that does
+//     list = get(); list.push(x); set(list)
+// would then replace the whole stored list with one item after a single hiccup. strictGet() throws
+// on a database error (or unparsable JSON) instead, so the caller can stop and report it; it
+// returns `fallback` only when the key genuinely does not exist. Values are JSON documents.
+async function strictGet(key, fallback = null) {
+  await ensureTable();
+  const rows = await getDb()`
+    SELECT value FROM kv_store
+    WHERE key = ${key} AND (expires_at IS NULL OR expires_at > ${Date.now()})
+    LIMIT 1
+  `;
+  const v = rows[0]?.value;
+  if (v === undefined || v === null || v === "") return fallback;
+  return JSON.parse(v);
+}
+
+// set() already rethrows on failure; this just JSON-encodes.
+async function strictSet(key, value) {
+  return set(key, JSON.stringify(value));
+}
+
 // Simplified tracking increment
 async function incr(key) {
   try {
@@ -644,8 +667,8 @@ async function trackClick(leadId, ip, userAgent, targetUrl, campaignId = null) {
   }
 }
 
-module.exports = { 
-  get, set, incr, del, hset, hgetall, logEvent, getDb, 
+module.exports = {
+  get, set, strictGet, strictSet, incr, del, hset, hgetall, logEvent, getDb,
   getTrackingStats, getTrackingEvents, withRetry, ensureTable,
   trackOpen, trackClick
 };

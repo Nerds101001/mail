@@ -73,7 +73,7 @@ module.exports = async (req, res) => {
   // ── LOGIN ─────────────────────────────────────────────────────────────
   if (req.method === "POST" && !type) {
     const { username, password } = req.body || {};
-    if (!username || !password)
+    if (!username || !password || typeof username !== "string" || typeof password !== "string")
       return res.status(400).json({ ok: false, error: "Username and password are required" });
 
     const uname = username.trim().toLowerCase();
@@ -123,8 +123,11 @@ module.exports = async (req, res) => {
   // ── USER MANAGEMENT (admin only) ──────────────────────────────────────
   if (type === "users") {
     // Verify admin
+    // Only a REAL admin session (looked up in the sessions table) passes. This used to also accept
+    // any string shaped like "sess_<digits>_<a-z0-9>" without checking it — which let anyone create
+    // an admin account (and then log in and send mail) with ?token=sess_1_a.
     const session = await validateSession(token || req.headers.authorization?.replace("Bearer ", ""));
-    const isAdmin = session?.role === "admin" || (token && /^sess_\d+_[a-z0-9]+$/.test(token));
+    const isAdmin = session?.role === "admin";
     if (!isAdmin) return res.status(403).json({ error: "Admin access required" });
 
     const sql = getDb();

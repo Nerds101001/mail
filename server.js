@@ -21,26 +21,45 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── Never let one bad request take the whole server down ─────────────────────
+// Every API handler is an `async` function. Express 4 ignores the promise it returns, so a thrown
+// error inside one (e.g. `username.trim is not a function` for a numeric username) became an
+// unhandled rejection and Node EXITED — one anonymous request could kill the CRM, cutting any send
+// in progress. safe() hands the error to Express instead (→ the JSON error handler at the bottom).
+// When there is no `next` (the server's own timers below call handlers directly) it rethrows so
+// their own `.catch` still sees it.
+function safe(handler) {
+  return (req, res, next) => {
+    const onErr = (e) => { if (typeof next === "function") return next(e); throw e; };
+    try { return Promise.resolve(handler(req, res, next)).catch(onErr); }
+    catch (e) { return Promise.resolve().then(() => onErr(e)); }
+  };
+}
+// A stray rejection elsewhere (a timer, a fire-and-forget call) is logged, not fatal. A genuine
+// uncaught exception leaves the process in an unknown state → log, then exit so PM2 restarts it clean.
+process.on("unhandledRejection", (reason) => console.error("⚠ [unhandledRejection]", (reason && reason.stack) || reason));
+process.on("uncaughtException",  (err) => { console.error("💥 [uncaughtException]", (err && err.stack) || err); setTimeout(() => process.exit(1), 200); });
+
 // ── Load API handlers ─────────────────────────────────────────────────────────
-const gmail       = require("./api/gmail");
-const crm         = require("./api/crm");
-const ops         = require("./api/ops");
-const auth        = require("./api/auth");
+const gmail       = safe(require("./api/gmail"));
+const crm         = safe(require("./api/crm"));
+const ops         = safe(require("./api/ops"));
+const auth        = safe(require("./api/auth"));
 const { requireSendAuth } = require("./api/_internal");
-const sendEmail   = require("./api/send-email");
-const sendSmtp    = require("./api/send-smtp");
-const attachments = require("./api/attachments");
-const trackOpen   = require("./api/track-open");
-const trackClick  = require("./api/track-click");
-const trackPixel  = require("./api/track-pixel");
-const sse         = require("./api/sse");
-const unsubscribe = require("./api/unsubscribe");
-const interest    = require("./api/interest");
-const dbCheck     = require("./api/db-check");
+const sendEmail   = safe(require("./api/send-email"));
+const sendSmtp    = safe(require("./api/send-smtp"));
+const attachments = safe(require("./api/attachments"));
+const trackOpen   = safe(require("./api/track-open"));
+const trackClick  = safe(require("./api/track-click"));
+const trackPixel  = safe(require("./api/track-pixel"));
+const sse         = safe(require("./api/sse"));
+const unsubscribe = safe(require("./api/unsubscribe"));
+const interest    = safe(require("./api/interest"));
+const dbCheck     = safe(require("./api/db-check"));
 
 // Helper: merge extra query params before handing off to a handler
 function withQuery(handler, params) {
-  return (req, res) => { Object.assign(req.query, params); handler(req, res); };
+  return (req, res, next) => { Object.assign(req.query, params); return handler(req, res, next); };
 }
 
 // ── API routes (mirrors vercel.json rewrites exactly) ────────────────────────
@@ -109,6 +128,16 @@ app.all("/api/db-check", dbCheck);
 app.use(express.static(path.join(__dirname, "public")));
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public/index.html"));
+});
+
+// ── Error handler (keep LAST) ─────────────────────────────────────────────────
+// Anything a handler throws (see safe() above) or Express itself rejects (e.g. malformed JSON body)
+// ends up here: a clean JSON error instead of a dead process or a stack-trace page.
+app.use((err, req, res, next) => {
+  const status = err && (err.status || err.statusCode) >= 400 && (err.status || err.statusCode) < 600 ? (err.status || err.statusCode) : 500;
+  if (status >= 500) console.error(`[HTTP ${status}] ${req.method} ${req.path} →`, (err && err.stack) || err);
+  if (res.headersSent) return next(err);
+  res.status(status).json({ error: status >= 500 ? "Server error — please try again." : "Bad request." });
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────

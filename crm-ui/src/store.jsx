@@ -1,5 +1,6 @@
 // Global state — simple React context + localStorage
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import { toast } from './components/ui'
 
 const CRMContext = createContext(null)
 
@@ -16,6 +17,7 @@ export function CRMProvider({ children }) {
   const [activity,   setActivity]   = useState(() => load('crm_activity', []))
   const [gmailStatus,setGmailStatus]= useState({ connected: false, email: null })
   const saveTimerRef = useRef(null)
+  const saveWarnRef  = useRef(0)   // last time we told the user a save failed
 
   // Admin "view as user" — stored in localStorage, never touches another user's localStorage cache
   const viewAsRef = useRef(localStorage.getItem('crm_viewAs') || '')
@@ -26,6 +28,30 @@ export function CRMProvider({ children }) {
     if (userId) localStorage.setItem('crm_viewAs', userId)
     else localStorage.removeItem('crm_viewAs')
   }, [])
+
+  // Every save goes to the account whose data is on screen. While an admin is "viewing as" someone,
+  // the screen holds THAT user's leads/clients/deals/profiles — saving without viewAs wrote them over
+  // the admin's own data. The server only honours viewAs for an admin session.
+  const postSave = async (body) => {
+    const token = localStorage.getItem('crm_token') || ''
+    const va    = viewAsRef.current
+    const url   = '/api/crm?type=save' + (va ? `&viewAs=${encodeURIComponent(va)}` : '')
+    const res   = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      // The server now answers 500 when the database refused the write (it used to say "success").
+      // Tell the user — at most once every 30 s so a long outage doesn't spam toasts.
+      const now = Date.now()
+      if (now - saveWarnRef.current > 30000) {
+        saveWarnRef.current = now
+        toast('Could not save your changes (server problem) — nothing was overwritten. Please try again in a moment.', 'error')
+      }
+      throw new Error(`save refused (HTTP ${res.status})`)
+    }
+  }
 
   // Refs so push/save callbacks always read the LATEST state (avoids stale closure bug)
   const leadsRef    = useRef(leads)
@@ -59,12 +85,7 @@ export function CRMProvider({ children }) {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(async () => {
       try {
-        const token = localStorage.getItem('crm_token') || ''
-        await fetch('/api/crm?type=save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify(buildPayload())
-        })
+        await postSave(buildPayload())
         console.log('✅ Data saved to database')
       } catch(e) { console.warn('❌ Database sync failed:', e) }
     }, 500)
@@ -74,12 +95,7 @@ export function CRMProvider({ children }) {
   const saveNow = useCallback(async () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     try {
-      const token = localStorage.getItem('crm_token') || ''
-      await fetch('/api/crm?type=save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(buildPayload())
-      })
+      await postSave(buildPayload())
       console.log('✅ Data saved immediately to database')
     } catch(e) { console.warn('❌ Database sync failed:', e) }
   }, []) // no deps — reads from refs, always current
@@ -92,18 +108,13 @@ export function CRMProvider({ children }) {
     leadsRef.current = newLeads
     localStorage.setItem('crm_leads', JSON.stringify(newLeads))
     try {
-      const token = localStorage.getItem('crm_token') || ''
-      await fetch('/api/crm?type=save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({
-          leads:    newLeads,
-          clients:  clientsRef.current,
-          deals:    dealsRef.current,
-          profiles: profilesRef.current,
-          settings: settingsRef.current,
-          activity: activityRef.current.slice(-200),
-        })
+      await postSave({
+        leads:    newLeads,
+        clients:  clientsRef.current,
+        deals:    dealsRef.current,
+        profiles: profilesRef.current,
+        settings: settingsRef.current,
+        activity: activityRef.current.slice(-200),
       })
       console.log('✅ Leads saved to database')
     } catch(e) { console.warn('❌ Database sync failed:', e) }

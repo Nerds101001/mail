@@ -42,7 +42,7 @@ function TokenTimer({ expiresAt }) {
 }
 
 export default function Settings() {
-  const { settings, setSettings, profiles, setProfiles, leads, clients, deals, activity, pushToRedis, gmailStatus } = useCRM()
+  const { settings, setSettings, profiles, setProfiles, leads, clients, deals, activity, pushToRedis, gmailStatus, viewAs } = useCRM()
   const [apiKey,    setApiKey]    = useState('')        // blank = no change; filled = update
   const [keyDirty,  setKeyDirty]  = useState(false)    // true once admin has typed a new key
   const [smtpOpen, setSmtpOpen] = useState(false)
@@ -190,7 +190,8 @@ export default function Settings() {
     setProfiles(updatedProfiles)
     // Save immediately — debounced pushToRedis() risks being overwritten by
     // loadFromRedis() (called on Dashboard mount) before the 500ms timer fires
-    await fetch('/api/crm?type=save', {
+    // (viewAs: save into the account whose data is on screen — see postSave in store.jsx)
+    const savedRes = await fetch('/api/crm?type=save' + (viewAs ? `&viewAs=${encodeURIComponent(viewAs)}` : ''), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${crmToken()}` },
       body: JSON.stringify({
@@ -199,7 +200,8 @@ export default function Settings() {
         settings,
         activity: (activity || []).slice(-200),
       }),
-    }).catch(e => console.warn('SMTP profile save failed', e))
+    }).catch(e => { console.warn('SMTP profile save failed', e); return null })
+    if (!savedRes || !savedRes.ok) { toast('Could not save the SMTP profile (server problem) — please try again', 'error'); return }
     toast('SMTP profile saved ✓', 'success')
     setSmtp({ name:'', host:'', port:'465', user:'', pass:'', secure:true, dailyCap:50 })
     setSmtpOpen(false)

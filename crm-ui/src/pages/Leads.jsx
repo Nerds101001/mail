@@ -154,6 +154,13 @@ export default function Leads() {
       tags: form.tags.split(',').map(t=>t.trim()).filter(Boolean),
       updatedAt: new Date().toISOString()
     }
+    // An opted-out contact stays opted out (the server would undo a change anyway). Re-subscribe is deliberate.
+    const stayedOptedOut = (editLead.status === 'UNSUBSCRIBED' || editLead.pipelineStage === 'UNSUBSCRIBED') && form.email.toLowerCase() === (editLead.email || '').toLowerCase()
+    if (stayedOptedOut) {
+      updatedLead.pipelineStage = 'UNSUBSCRIBED'
+      updatedLead.status = 'UNSUBSCRIBED'
+      if (form.pipelineStage !== 'UNSUBSCRIBED') toast('This contact has opted out — stage kept as UNSUBSCRIBED. Use "Re-subscribe" on the Interests page to mail them again.', 'info')
+    }
 
     const newLeads = leads.map(l => l.id === editLead.id ? updatedLead : l)
     save(newLeads)
@@ -448,9 +455,16 @@ export default function Leads() {
 
   function bulkChangeStage() {
     if (!selected.size || !bulkStage) { toast('Select leads and a stage', 'info'); return }
-    const newLeads = leads.map(l => selected.has(l.id) ? { ...l, pipelineStage: bulkStage } : l)
+    // opted-out contacts are left alone (unless the target IS "UNSUBSCRIBED") — see updateLead above
+    const lockedOut = l => bulkStage !== 'UNSUBSCRIBED' && (l.status === 'UNSUBSCRIBED' || l.pipelineStage === 'UNSUBSCRIBED')
+    let skippedOptedOut = 0
+    const newLeads = leads.map(l => {
+      if (!selected.has(l.id)) return l
+      if (lockedOut(l)) { skippedOptedOut++; return l }
+      return { ...l, pipelineStage: bulkStage }
+    })
     save(newLeads); setSelected(new Set()); setBulkStage('')
-    toast(`Updated ${selected.size} leads → ${bulkStage}`, 'success')
+    toast(`Updated ${selected.size - skippedOptedOut} leads → ${bulkStage}` + (skippedOptedOut ? ` (${skippedOptedOut} opted-out contact(s) left unchanged)` : ''), 'success')
   }
 
   async function openNotes(lead) {

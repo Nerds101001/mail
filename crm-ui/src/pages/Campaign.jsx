@@ -5,6 +5,7 @@ import { Btn, Card, PageHeader, toast } from '../components/ui'
 import RichEditor, { htmlToPlain, plainToHtml } from '../components/RichEditor'
 import { Play, Zap, RefreshCw, ChevronLeft, ChevronRight, Plus, X, Calendar, Pencil, Check } from 'lucide-react'
 import * as campaignRunner from '../campaignRunner'
+import { isSendable } from '../utils'
 
 // Build a clean signature string from a "Name - Company" display name
 function buildSignature(senderDisplayName) {
@@ -335,8 +336,10 @@ export default function Campaign() {
   const currentVariant = variants[variantIdx] || { subject: 'Subject will appear here', body: 'Fill the Campaign Brief and click Generate Variants...' }
 
   function getTargets() {
-    // Always exclude soft-deleted leads from campaign targeting
-    const activeLeads = leads.filter(l => !l.deleted)
+    // Always exclude soft-deleted leads — and anyone who must not be mailed (bad / bounced / duplicate
+    // address, unsubscribed, "not interested"): see isSendable() in utils.js. Every target mode below
+    // starts from this list, so none of them can pick such a lead.
+    const activeLeads = leads.filter(isSendable)
     if (followupIds) return activeLeads.filter(l => followupIds.has(l.id))
     if (followupCampaignLeads) return activeLeads.filter(l => followupCampaignLeads.has(l.id))
     const fv = cfg.filterVal.trim().toLowerCase()

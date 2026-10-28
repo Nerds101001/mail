@@ -4,7 +4,7 @@
 // GET  /api/gmail?type=status        → Check Gmail connection status for the calling user
 // POST /api/gmail?type=disconnect    → Disconnect a Gmail account for the calling user
 
-const { get, set } = require("./_redis");
+const { get, set, strictGet } = require("./_redis");
 const { getSql } = require("./_db");
 
 // ── Shared helpers (same as crm.js) ──────────────────────────────────────────
@@ -126,8 +126,9 @@ module.exports = async (req, res) => {
       // ── Save Gmail profile into THIS user's crm:profiles ──────────────
       try {
         const profilesKey = ns("crm:profiles", callbackUserId);
-        const profilesRaw = await get(profilesKey);
-        const crmProfiles = profilesRaw ? JSON.parse(profilesRaw) : [];
+        // strict read: a database hiccup must NOT look like "no profiles" (we would then save a
+        // list holding only this Gmail account and wipe the user's other senders)
+        const crmProfiles = await strictGet(profilesKey, []);
         const existingIdx = crmProfiles.findIndex(p => p.type === 'gmail' && p.user === profile.email);
         const gmailProfile = {
           id:       existingIdx >= 0 ? crmProfiles[existingIdx].id : `gmail_${Date.now()}`,
@@ -205,8 +206,7 @@ module.exports = async (req, res) => {
         ]);
         // Remove from THIS user's crm:profiles
         const profilesKey = ns("crm:profiles", userId);
-        const profilesRaw = await get(profilesKey);
-        const crmProfiles = profilesRaw ? JSON.parse(profilesRaw) : [];
+        const crmProfiles = await strictGet(profilesKey, []);   // strict: see the callback above
         const updated = crmProfiles.filter(p => !(p.type === 'gmail' && p.user === email));
         await set(profilesKey, JSON.stringify(updated));
         console.log(`✅ Gmail disconnected: ${email} from user: ${userId}`);

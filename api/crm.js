@@ -2,17 +2,25 @@
 // All data is namespaced by userId so each user sees only their own data
 // Admin (userId=admin) can see all users' data
 
-const { get, set } = require("./_redis");
+const { get, set, strictGet, strictSet } = require("./_redis");
 const { getSql } = require("./_db");
 const { nextRetryAt, retryEnabled, ensureRetryColumns } = require("./_retry");
-const { applyOptOuts } = require("./_optout");
+const { applyOptOuts, registerManualOptOuts } = require("./_optout");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+// safeGet/safeSet swallow database errors: fine for display-only reads, NOT for anything that
+// reads a list, changes it and writes it back (a hiccup would look like "empty list" and the
+// write-back would erase the real data). Those paths use strictGet/strictSet + dbFail below.
 async function safeGet(key, fallback) {
   try { const v = await get(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
 }
 async function safeSet(key, value) {
-  try { await set(key, JSON.stringify(value)); } catch(e) {} 
+  try { await set(key, JSON.stringify(value)); } catch(e) {}
+}
+// A database error on a read-modify-write path: change nothing, tell the caller the truth.
+function dbFail(res, e) {
+  console.error("[CRM] database error — request refused, nothing was changed:", e && e.message);
+  return res.status(500).json({ success: false, error: "Database temporarily unavailable — nothing was changed. Please try again." });
 }
 
 function sanitizeProfiles(profiles) {
@@ -80,16 +88,20 @@ module.exports = async (req, res) => {
 
   // ── LOAD ALL ─────────────────────────────────────────────────────────
   if (type === "load" && req.method === "GET") {
-    const [leadsRaw, settings, activity, clients, deals, apikey] = await Promise.all([
-      safeGet(ns("crm:leads", userId), []),
-      safeGet("crm:settings", {}),           // settings are global
-      safeGet(ns("crm:activity", userId), []),
-      safeGet(ns("crm:clients", userId), []),
-      safeGet(ns("crm:deals", userId), []),
-      safeGet("crm:apikey", null),
-    ]);
-    // Profiles are per-user (each user has their own email credentials)
-    const profiles = await safeGet(ns("crm:profiles", userId), []);
+    // Strict reads: if the database fails we answer 500 (the UI then keeps what it already shows).
+    // Answering "empty lists" would let the UI auto-save those empties over the real data.
+    let leadsRaw, settings, activity, clients, deals, apikey, profiles;
+    try {
+      [leadsRaw, settings, activity, clients, deals, apikey, profiles] = await Promise.all([
+        strictGet(ns("crm:leads", userId), []),
+        strictGet("crm:settings", {}),           // settings are global
+        strictGet(ns("crm:activity", userId), []),
+        strictGet(ns("crm:clients", userId), []),
+        strictGet(ns("crm:deals", userId), []),
+        strictGet("crm:apikey", null),
+        strictGet(ns("crm:profiles", userId), []),   // profiles are per-user (own email credentials)
+      ]);
+    } catch (e) { return dbFail(res, e); }
     const mergedSettings = apikey ? { ...settings, openaiKey: apikey } : settings;
 
     // ── Auto-sync pipeline stages from tracking data ───────────────────
@@ -161,7 +173,11 @@ module.exports = async (req, res) => {
 
     let leadsDirty = false;
     leads = leads.map(l => {
-      let { name = '', company = '', email = '' } = l;
+      if (!l || typeof l !== 'object') return l;
+      // a null / non-text name, company or email must not crash the whole load
+      let name    = typeof l.name    === 'string' ? l.name    : '';
+      let company = typeof l.company === 'string' ? l.company : '';
+      let email   = typeof l.email   === 'string' ? l.email   : '';
       let changed = false;
 
       // Fix name: clear any placeholder value
@@ -239,6 +255,15 @@ module.exports = async (req, res) => {
     }
     // ── END AUDIT LOGGING ────────────────────────────────────────────────
 
+    // A lead the user moved to UNSUBSCRIBED by hand (Pipeline) becomes a real opt-out, so every
+    // send path refuses it — not just the campaign screen. Never blocks the save.
+    if (Array.isArray(leads)) {
+      try {
+        const n = await registerManualOptOuts(leads, userId);
+        if (n) console.log(`🚫 [OPT-OUT] ${n} lead(s) set to UNSUBSCRIBED by hand → now blocked from all sending (user=${userId})`);
+      } catch (e) { console.warn('⚠ [CRM SAVE] manual opt-out registration skipped:', e.message); }
+    }
+
     // A browser tab holding an OLD copy of the leads must not be able to un-unsubscribe anyone:
     // re-apply the opt-out table to whatever it sends before storing it.
     let leadsToStore = leads;
@@ -250,60 +275,67 @@ module.exports = async (req, res) => {
       } catch (e) { console.warn('⚠ [CRM SAVE] opt-out overlay skipped:', e.message); }
     }
 
-    await Promise.all([
-      leads    !== undefined ? safeSet(ns("crm:leads",    userId), leadsToStore) : null,
-      profiles !== undefined ? safeSet(ns("crm:profiles", userId), sanitizeProfiles(profiles)) : null, // per-user
-      settings !== undefined ? safeSet("crm:settings", (({openaiKey,...s})=>s)(settings||{})) : null,
-      settings?.openaiKey    ? safeSet("crm:apikey", settings.openaiKey) : null,
-      activity !== undefined ? safeSet(ns("crm:activity", userId), activity) : null,
-      clients  !== undefined ? safeSet(ns("crm:clients",  userId), clients) : null,
-      deals    !== undefined ? safeSet(ns("crm:deals",    userId), deals) : null,
-    ].filter(Boolean));
+    // Strict writes: if any write fails the caller gets a 500 (it used to get {success:true}).
+    try {
+      await Promise.all([
+        leads    !== undefined ? strictSet(ns("crm:leads",    userId), leadsToStore) : null,
+        profiles !== undefined ? strictSet(ns("crm:profiles", userId), sanitizeProfiles(profiles)) : null, // per-user
+        settings !== undefined ? strictSet("crm:settings", (({openaiKey,...s})=>s)(settings||{})) : null,
+        settings?.openaiKey    ? strictSet("crm:apikey", settings.openaiKey) : null,
+        activity !== undefined ? strictSet(ns("crm:activity", userId), activity) : null,
+        clients  !== undefined ? strictSet(ns("crm:clients",  userId), clients) : null,
+        deals    !== undefined ? strictSet(ns("crm:deals",    userId), deals) : null,
+      ].filter(Boolean));
+    } catch (e) { return dbFail(res, e); }
     return res.json({ success: true });
   }
 
   // ── CLIENTS ───────────────────────────────────────────────────────────
   if (type === "clients") {
     const key = ns("crm:clients", userId);
-    const clients = await safeGet(key, []);
-    if (req.method === "GET") return res.json(clients);
-    if (req.method === "POST") {
-      const client = { id:"client_"+Date.now(), createdAt:new Date().toISOString(), paymentStatus:"PENDING", renewalStatus:"ACTIVE", ...req.body };
-      clients.push(client); await safeSet(key, clients);
-      return res.json({ ok:true, client });
-    }
-    if (req.method === "PUT") {
-      const idx = clients.findIndex(c=>c.id===id);
-      if (idx===-1) return res.status(404).json({error:"Not found"});
-      clients[idx]={...clients[idx],...req.body,id}; await safeSet(key, clients);
-      return res.json({ok:true,client:clients[idx]});
-    }
-    if (req.method === "DELETE") {
-      await safeSet(key, clients.filter(c=>c.id!==id));
-      return res.json({ok:true});
-    }
+    try {
+      const clients = await strictGet(key, []);
+      if (req.method === "GET") return res.json(clients);
+      if (req.method === "POST") {
+        const client = { id:"client_"+Date.now(), createdAt:new Date().toISOString(), paymentStatus:"PENDING", renewalStatus:"ACTIVE", ...req.body };
+        clients.push(client); await strictSet(key, clients);
+        return res.json({ ok:true, client });
+      }
+      if (req.method === "PUT") {
+        const idx = clients.findIndex(c=>c.id===id);
+        if (idx===-1) return res.status(404).json({error:"Not found"});
+        clients[idx]={...clients[idx],...req.body,id}; await strictSet(key, clients);
+        return res.json({ok:true,client:clients[idx]});
+      }
+      if (req.method === "DELETE") {
+        await strictSet(key, clients.filter(c=>c.id!==id));
+        return res.json({ok:true});
+      }
+    } catch (e) { return dbFail(res, e); }
   }
 
   // ── DEALS ─────────────────────────────────────────────────────────────
   if (type === "deals") {
     const key = ns("crm:deals", userId);
-    const deals = await safeGet(key, []);
-    if (req.method === "GET") return res.json(deals);
-    if (req.method === "POST") {
-      const deal = { id:"deal_"+Date.now(), createdAt:new Date().toISOString(), status:"OPEN", type:"QUOTATION", ...req.body };
-      deals.push(deal); await safeSet(key, deals);
-      return res.json({ok:true,deal});
-    }
-    if (req.method === "PUT") {
-      const idx = deals.findIndex(d=>d.id===id);
-      if (idx===-1) return res.status(404).json({error:"Not found"});
-      deals[idx]={...deals[idx],...req.body,id}; await safeSet(key, deals);
-      return res.json({ok:true,deal:deals[idx]});
-    }
-    if (req.method === "DELETE") {
-      await safeSet(key, deals.filter(d=>d.id!==id));
-      return res.json({ok:true});
-    }
+    try {
+      const deals = await strictGet(key, []);
+      if (req.method === "GET") return res.json(deals);
+      if (req.method === "POST") {
+        const deal = { id:"deal_"+Date.now(), createdAt:new Date().toISOString(), status:"OPEN", type:"QUOTATION", ...req.body };
+        deals.push(deal); await strictSet(key, deals);
+        return res.json({ok:true,deal});
+      }
+      if (req.method === "PUT") {
+        const idx = deals.findIndex(d=>d.id===id);
+        if (idx===-1) return res.status(404).json({error:"Not found"});
+        deals[idx]={...deals[idx],...req.body,id}; await strictSet(key, deals);
+        return res.json({ok:true,deal:deals[idx]});
+      }
+      if (req.method === "DELETE") {
+        await strictSet(key, deals.filter(d=>d.id!==id));
+        return res.json({ok:true});
+      }
+    } catch (e) { return dbFail(res, e); }
   }
 
   // ── CAMPAIGN TEMPLATES ────────────────────────────────────────────────
@@ -312,32 +344,34 @@ module.exports = async (req, res) => {
   // kv_store under crm:campaign-templates (namespaced like other CRM data).
   if (type === "campaign-templates") {
     const key = ns("crm:campaign-templates", userId);
-    const templates = await safeGet(key, []);
+    try {
+      const templates = await strictGet(key, []);
 
-    if (req.method === "GET") {
-      return res.json({ templates });
-    }
-    if (req.method === "POST") {
-      const { name, data } = req.body || {};
-      if (!name || !data) return res.status(400).json({ error: "Missing name or data" });
-      const tpl = {
-        id:        `tpl_${Date.now()}`,
-        name:      String(name).slice(0, 120),
-        createdAt: new Date().toISOString(),
-        data,
-      };
-      // Replace template with the same name (case-insensitive) — acts as "update"
-      const next = templates.filter(t => t.name.toLowerCase() !== tpl.name.toLowerCase());
-      next.unshift(tpl);
-      await safeSet(key, next.slice(0, 50)); // cap at 50 templates per user
-      return res.json({ ok: true, template: tpl });
-    }
-    if (req.method === "DELETE") {
-      if (!id) return res.status(400).json({ error: "Missing id" });
-      await safeSet(key, templates.filter(t => t.id !== id));
-      return res.json({ ok: true });
-    }
-    return res.status(405).json({ error: "Method not allowed" });
+      if (req.method === "GET") {
+        return res.json({ templates });
+      }
+      if (req.method === "POST") {
+        const { name, data } = req.body || {};
+        if (!name || !data) return res.status(400).json({ error: "Missing name or data" });
+        const tpl = {
+          id:        `tpl_${Date.now()}`,
+          name:      String(name).slice(0, 120),
+          createdAt: new Date().toISOString(),
+          data,
+        };
+        // Replace template with the same name (case-insensitive) — acts as "update"
+        const next = templates.filter(t => t.name.toLowerCase() !== tpl.name.toLowerCase());
+        next.unshift(tpl);
+        await strictSet(key, next.slice(0, 50)); // cap at 50 templates per user
+        return res.json({ ok: true, template: tpl });
+      }
+      if (req.method === "DELETE") {
+        if (!id) return res.status(400).json({ error: "Missing id" });
+        await strictSet(key, templates.filter(t => t.id !== id));
+        return res.json({ ok: true });
+      }
+      return res.status(405).json({ error: "Method not allowed" });
+    } catch (e) { return dbFail(res, e); }
   }
 
   // ── CAMPAIGNS (history) ───────────────────────────────────────────────

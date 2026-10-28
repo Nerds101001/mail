@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useCRM } from '../store'
 import { PageHeader, Btn, Modal, Input, Textarea, Empty, toast } from '../components/ui'
 import { Plus, Mail, Clock, Trash2, Play, Users, ChevronDown, ChevronUp, Edit2 } from 'lucide-react'
+import { isSendable } from '../utils'
 
 export default function Drip() {
   const { leads, viewAs } = useCRM()
@@ -90,7 +91,7 @@ export default function Drip() {
     setRunning(false)
   }
 
-  const eligibleLeads = leads.filter(l => l.email && !['UNSUBSCRIBED','WON','LOST'].includes(l.pipelineStage))
+  const eligibleLeads = leads.filter(l => isSendable(l) && !['WON','LOST'].includes(l.pipelineStage))
 
   return (
     <div className="space-y-6">

@@ -69,7 +69,10 @@ export default function Interests() {
     const h = isInterested
       ? ['Name', 'Email', 'Company', 'Last Sent']
       : ['Name', 'Email', 'Company', 'Unsubscribed Date']
-    const rows = list.map(l => [l.name, l.email, l.company || '', l.lastSent || ''].map(v => `"${v}"`).join(','))
+    // readable date (it used to print raw epoch milliseconds) and quotes inside values escaped
+    const csvCell = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`
+    const when = isInterested ? l => l.lastSent : l => l.unsubscribedAt || l.lastSent
+    const rows = list.map(l => [l.name, l.email, l.company || '', when(l) ? fmtDate(when(l)) : ''].map(csvCell).join(','))
     const blob = new Blob([[h.join(','), ...rows].join('\n')], { type: 'text/csv' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)

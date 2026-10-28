@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useCRM } from '../store'
 import { PageHeader, Empty, Btn, Card, toast } from '../components/ui'
-import { fmtDate } from '../utils'
+import { fmtDate, isSendable } from '../utils'
 import {
   History, ChevronDown, ChevronRight, Send, Eye, MousePointer,
   AlertCircle, Trash2, Calendar, Clock, Pencil, Check, Pause, Play, Zap,
@@ -825,8 +825,9 @@ export default function CampaignHistory() {
         : leads.filter(l => alreadySet.has(String(l.id)))
       else pool = leads.slice() // unknown target type — use all leads
 
-      // 3. Filter to only those not yet in campaign_leads (excludes the 30 already sent)
-      const unsent = pool.filter(l => !alreadySet.has(String(l.id)))
+      // 3. Filter to only those not yet in campaign_leads (excludes the 30 already sent) — and never
+      //    anyone who must not be mailed (deleted / bad address / unsubscribed / not interested)
+      const unsent = pool.filter(l => !alreadySet.has(String(l.id)) && isSendable(l))
 
       if (!unsent.length) {
         const poolDesc = filterVal ? `"${filterVal}" (${tgt})` : tgt

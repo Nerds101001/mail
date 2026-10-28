@@ -53,6 +53,21 @@ export const enrichLead = (l) => {
 
 export const PIPELINE_STAGES = ['COLD','CONTACTED','OPENED','HOT','DEMO','QUOTED','WON','LOST','UNSUBSCRIBED','NOT-INTERESTED']
 
+// Which leads may be e-mailed at all. KEEP IN STEP with api/_sendable.js (scheduled campaigns use that copy).
+// Not sendable: soft-deleted, no address, a status saying the address is bad/gone (INVALID, INVALID-LENGTH,
+// TYPO, DISPOSABLE, DUPLICATE, BOUNCED), or UNSUBSCRIBED (status/stage), or stage NOT-INTERESTED.
+// WON / LOST / REPLIED stay sendable on purpose. (The hard stop for opted-out addresses is the server's
+// opt-out table, checked inside the send endpoints.)
+const NOT_SENDABLE_STATUS = new Set(['INVALID','INVALID-LENGTH','TYPO','DISPOSABLE','DUPLICATE','BOUNCED','UNSUBSCRIBED'])
+const NOT_SENDABLE_STAGE  = new Set(['UNSUBSCRIBED','NOT-INTERESTED'])
+export function isSendable(l) {
+  if (!l || typeof l !== 'object' || l.deleted) return false
+  if (!String(l.email || '').trim()) return false
+  if (NOT_SENDABLE_STATUS.has(String(l.status || '').toUpperCase())) return false
+  if (NOT_SENDABLE_STAGE.has(String(l.pipelineStage || '').toUpperCase())) return false
+  return true
+}
+
 export const STAGE_COLORS = {
   COLD:     { bg: 'bg-slate-100',   text: 'text-slate-600',   dot: '#94a3b8' },
   CONTACTED:{ bg: 'bg-blue-100',    text: 'text-blue-700',    dot: '#3b82f6' },

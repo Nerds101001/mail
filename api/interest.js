@@ -4,6 +4,7 @@
 
 const { getSql }   = require('./_db');
 const { optOut }   = require('./_optout');
+const { confirmPage, donePage, errorPage } = require('./_optoutPages');
 
 // ── Find a lead across ALL user namespaces ────────────────────────────────────
 // First tries the campaign's own user_id (fastest), then scans all crm:leads* keys.
@@ -41,42 +42,51 @@ async function findLeadInStore(leadId, campaignId, sql) {
   return null; // lead not found in any namespace
 }
 
-// ── Confirmation page served to the lead's browser ───────────────────────────
+// ── Pages served to the lead's browser (see _optoutPages.js) ─────────────────
+// The link in the email only OPENS a confirmation page; the change is made by the page's button,
+// which POSTs back here. Mail-security scanners open every link in a message — before this they
+// clicked "Interested" and "Not Interested" within 0.13 s of each other and opted people out.
 function confirmationPage(action) {
   const isDemo = action === 'demo';
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${isDemo ? 'Thank you for your interest!' : 'Unsubscribed'}</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:Arial,Helvetica,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f8fafc;}
-  .card{background:#fff;border-radius:12px;padding:48px 40px;max-width:420px;width:90%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.08);}
-  .icon{font-size:52px;margin-bottom:18px;}
-  h2{color:#111827;font-size:22px;margin-bottom:10px;}
-  p{color:#6b7280;font-size:14px;line-height:1.6;}
-</style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon">${isDemo ? '🎉' : '✅'}</div>
-    <h2>${isDemo ? "Great! We'll be in touch." : "You've been unsubscribed"}</h2>
-    <p>${isDemo ? 'Our team will reach out to schedule a demo for you soon.' : "You won't receive any more emails from us. We respect your decision."}</p>
-  </div>
-</body>
-</html>`;
+  return donePage({
+    title: isDemo ? 'Thank you for your interest!' : 'Unsubscribed',
+    icon: isDemo ? '🎉' : '✅',
+    heading: isDemo ? "Great! We'll be in touch." : "You've been unsubscribed",
+    text: isDemo ? 'Our team will reach out to schedule a demo for you soon.' : "You won't receive any more emails from us. We respect your decision.",
+  });
+}
+
+function askPage(action, leadId, campaignId) {
+  const isDemo = action === 'demo';
+  const postTo = `/api/interest?action=${action}&lead=${encodeURIComponent(leadId)}${campaignId ? `&campaign=${encodeURIComponent(campaignId)}` : ''}`;
+  return confirmPage({
+    title: isDemo ? 'Confirm your interest' : 'Unsubscribe',
+    icon: isDemo ? '🙋' : '✉️',
+    heading: isDemo ? 'Would you like us to get in touch?' : 'Stop emails from us?',
+    text: isDemo ? 'Press the button and our team will contact you to arrange a demo.' : "Press the button and we won't send you any more emails.",
+    button: isDemo ? "Yes, I'm interested" : 'Yes, unsubscribe me',
+    color: isDemo ? '#059669' : '#475569',
+    postTo,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 module.exports = async (req, res) => {
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  res.set('Cache-Control', 'no-store');
+  if (!['GET', 'HEAD', 'POST'].includes(req.method)) return res.status(405).json({ error: 'Method not allowed' });
 
   const { action, lead: leadId, campaign: campaignId } = req.query;
 
   if (!leadId || !action) {
-    return res.status(400).send('<h2>Invalid request — missing parameters</h2>');
+    return res.status(400).send(errorPage('This link is incomplete.'));
+  }
+  if (action !== 'demo' && action !== 'unsub') {
+    return res.status(400).send(errorPage('Unknown action.'));
+  }
+
+  // Opening the link (a person OR a scanner): show the question, change nothing.
+  if (req.method !== 'POST') {
+    return res.send(askPage(action, String(leadId), campaignId ? String(campaignId) : ''));
   }
 
   try {
@@ -170,11 +180,11 @@ module.exports = async (req, res) => {
       return res.send(confirmationPage('unsub'));
 
     } else {
-      return res.status(400).send('<h2>Unknown action</h2>');
+      return res.status(400).send(errorPage('Unknown action.'));
     }
 
   } catch (err) {
     console.error('[Interest] Error:', err.message, err.stack);
-    return res.status(500).send('<h2>Error processing your request. Please try again.</h2>');
+    return res.status(500).send(errorPage());
   }
 };

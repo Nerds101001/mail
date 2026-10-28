@@ -16,6 +16,7 @@ const { getSql } = require("./_db");
 const nodemailer = require("nodemailer");
 const { internalFetch } = require("./_internal");
 const { optIn, listOptOuts, isOptedOut, ensureOptOutTable, isAdminSession } = require("./_optout");
+const { isSendable } = require("./_sendable");
 
 async function safeGet(key, fallback) {
   try { const v = await get(key); return v ? JSON.parse(v) : fallback; } catch(e) { return fallback; }
@@ -603,9 +604,9 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
     if (wordCount > 300) { checks.push({ label: `Body too long (${wordCount} words, aim for 80–180)`,  pass: false, impact: -1 }); score -= 1; }
     if (wordCount >= 40 && wordCount <= 200) checks.push({ label: `Good email length (${wordCount} words)`, pass: true, impact: 0 });
 
-    const hasUnsubscribe = /unsubscribe/i.test(body);
-    if (!hasUnsubscribe) { checks.push({ label: "No unsubscribe link (CAN-SPAM risk)", pass: false, impact: -2 }); score -= 2; }
-    else checks.push({ label: "Unsubscribe link present", pass: true, impact: 0 });
+    // No "unsubscribe link" check on purpose: the footer link was removed from every email by design
+    // (opt-out is the "Not Interested" button + replies), so this check could only ever lower the
+    // score — and a score under 5 BLOCKS sending — for a thing nobody can fix.
 
     const linkCount = (body.match(/https?:\/\//g)||[]).length;
     if (linkCount > 3) { checks.push({ label: `Too many links (${linkCount}) — max 3`, pass: false, impact: -1 }); score -= 1; }
@@ -801,6 +802,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
           else if (cfg.target === 'hot')      targets = allLeads.filter(l => l.pipelineStage === 'HOT');
           else if (cfg.target === 'group')    targets = allLeads.filter(l => (l.group||'').toLowerCase() === fv);
           else                                targets = allLeads.filter(l => l.status === 'VALID');
+          targets = targets.filter(isSendable);   // never bad / unsubscribed / deleted addresses
           targets = targets.slice(0, cfg.batch || 30);
 
           const senders = allProfiles.filter(p =>
@@ -1354,23 +1356,29 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
   if (type === "interested-list") {
     try {
       await ensureTable();
+      await ensureOptOutTable();
       const sql = getSql();
       await sql`ALTER TABLE campaign_leads ADD COLUMN IF NOT EXISTS interest_action TEXT`.catch(() => {});
 
+      // A normal user sees only their own campaigns' leads (an admin sees all) — this list used to
+      // show everyone's. One row per lead (not per campaign), and anyone who has since opted out
+      // is not "interested" any more.
+      const isAdmin = userId === "admin" || await isAdminSession(token);
       const rows = await sql`
-        SELECT DISTINCT
+        SELECT DISTINCT ON (cl.lead_id)
           cl.lead_id,
           cl.lead_name  AS name,
           cl.lead_email AS email,
           cl.lead_company AS company,
           cl.campaign_id,
-          MAX(cl.sent_at) AS last_sent_at
+          cl.sent_at AS last_sent_at
         FROM campaign_leads cl
+        LEFT JOIN campaigns c ON c.id = cl.campaign_id
         WHERE cl.interest_action = 'demo'
-        GROUP BY cl.lead_id, cl.lead_name, cl.lead_email, cl.lead_company, cl.campaign_id
-        ORDER BY MAX(cl.sent_at) DESC NULLS LAST
-        LIMIT 1000
-      `.catch(() => []);
+          AND (${isAdmin}::boolean OR coalesce(cl.user_id, c.user_id) = ${userId})
+          AND NOT EXISTS (SELECT 1 FROM opt_outs o WHERE o.email_lc = lower(trim(coalesce(cl.lead_email, ''))))
+        ORDER BY cl.lead_id, cl.sent_at DESC NULLS LAST
+      `;
 
       const interested = rows.map(r => ({
         id:        r.lead_id,
@@ -1379,7 +1387,7 @@ Return ONLY valid JSON. No markdown. No code fences. Exactly:
         company:   r.company   || '',
         campaignId: r.campaign_id || '',
         lastSent:  r.last_sent_at,
-      }));
+      })).sort((a, b) => (Number(b.lastSent) || 0) - (Number(a.lastSent) || 0)).slice(0, 1000);
 
       return res.json({ interested });
     } catch (err) {
