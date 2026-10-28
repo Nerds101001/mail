@@ -5,7 +5,7 @@ import {
   LayoutDashboard, CheckSquare, Users, GitBranch, Send,
   UserCheck, FileText, BarChart2, Settings, LogOut, Zap, Mail, UserX, History, Paperclip,
   Eye, Pause, X as XIcon, ChevronRight, Receipt, Layers, TrendingUp, Menu,
-  Home, MoreHorizontal,
+  Home, MoreHorizontal, Phone,
 } from 'lucide-react'
 import * as campaignRunner from '../campaignRunner'
 
@@ -20,6 +20,7 @@ const NAV = [
     { to: '/campaign',    icon: Send,        label: 'Campaign' },
     { to: '/drip',        icon: Layers,      label: 'Drip Sequences' },
     { to: '/history',     icon: History,     label: 'Cam. History' },
+    { to: '/calls',       icon: Phone,       label: 'AI Calls' },
     { to: '/attachments', icon: Paperclip,   label: 'Attachments' },
   ]},
   { label: 'Business', items: [

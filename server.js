@@ -9,7 +9,8 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 
 // ── Body parsing ──────────────────────────────────────────────────────────────
-app.use(express.json({ limit: "50mb" }));
+// Keep the raw bytes: Retell signs its webhook over the exact body it sent (api/calls.js).
+app.use(express.json({ limit: "50mb", verify: (req, _res, buf) => { if (req.path === "/api/calls" || req.path === "/api/retell-webhook") req.rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // ── CORS (same as vercel.json headers) ───────────────────────────────────────
@@ -56,6 +57,7 @@ const sse         = safe(require("./api/sse"));
 const unsubscribe = safe(require("./api/unsubscribe"));
 const interest    = safe(require("./api/interest"));
 const dbCheck     = safe(require("./api/db-check"));
+const calls       = safe(require("./api/calls"));
 
 // Helper: merge extra query params before handing off to a handler
 function withQuery(handler, params) {
@@ -119,6 +121,10 @@ app.all("/api/unsubscribe", unsubscribe);
 
 // Interest response (Interested / Not Interested from email buttons)
 app.all("/api/interest", interest);
+
+// AI voice calls (Retell). /api/retell-webhook is the public URL to paste into the Retell dashboard.
+app.all("/api/calls",          calls);
+app.post("/api/retell-webhook", withQuery(calls, { type: "webhook" }));
 
 // DB diagnostic (temporary)
 app.all("/api/db-check", dbCheck);

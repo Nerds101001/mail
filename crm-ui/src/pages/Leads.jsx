@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useCRM } from '../store'
 import { enrichLead, isValidEmail, PIPELINE_STAGES, STAGE_COLORS, STATUS_COLORS, fmtDate } from '../utils'
 import { Modal, Btn, Input, Select, Textarea, Badge, Empty, PageHeader, toast } from '../components/ui'
-import { Plus, Upload, CheckCircle, Zap, Trash2, UserCheck, Search, Filter, Flame, Users, Download, MessageSquare, RefreshCw, RotateCcw, AlertTriangle } from 'lucide-react'
+import { Plus, Upload, CheckCircle, Zap, Trash2, UserCheck, Search, Filter, Flame, Users, Download, MessageSquare, RefreshCw, RotateCcw, AlertTriangle, Phone } from 'lucide-react'
 
 export default function Leads() {
   const { leads, setLeads, profiles, settings, logActivity, pushToRedis, saveLeads } = useCRM()
@@ -36,6 +36,7 @@ export default function Leads() {
   const [noteText,   setNoteText]   = useState('')
   const [notesSaving,setNotesSaving]= useState(false)
   const [bulkStage,  setBulkStage]  = useState('')
+  const [callingId,  setCallingId]  = useState(null)   // lead whose AI call is being started
   const [checkReplies, setCheckReplies] = useState(false)
   const PAGE_SIZE = 75
   const [page, setPage] = useState(0)
@@ -453,6 +454,19 @@ export default function Leads() {
   const toggleSelect = (id) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const toggleAll = () => setSelected(selected.size === displayList.length ? new Set() : new Set(displayList.map(l => l.id)))
 
+  // AI voice call through Retell (api/calls.js). The server refuses opted-out / not-interested leads.
+  async function startCall(l) {
+    if (!confirm(`Start an AI call to ${l.name || l.email} at ${l.phone}?`)) return
+    setCallingId(l.id)
+    try {
+      const r = await fetch('/api/calls?type=start', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('crm_token') || ''}` }, body: JSON.stringify({ leadId: l.id }) })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`)
+      toast(`📞 Calling ${d.to} — result will appear under AI Calls`, 'success')
+    } catch (e) { toast('Call not started: ' + e.message, 'error') }
+    setCallingId(null)
+  }
+
   function bulkChangeStage() {
     if (!selected.size || !bulkStage) { toast('Select leads and a stage', 'info'); return }
     // opted-out contacts are left alone (unless the target IS "UNSUBSCRIBED") — see updateLead above
@@ -705,6 +719,9 @@ export default function Leads() {
                       </>) : (<>
                         <button className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors" title="Send Email" onClick={() => { setEmailLead(l); setEmailBody(''); setEmailSubject(''); setEmailOpen(true) }}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                        </button>
+                        <button className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors disabled:opacity-30" title={l.phone ? `AI call ${l.phone}` : 'No phone number'} disabled={!l.phone || callingId === l.id} onClick={() => startCall(l)}>
+                          <Phone size={14} />
                         </button>
                         <button className="p-1.5 rounded-lg hover:bg-green-50 text-green-500 transition-colors" title="Edit Lead" onClick={() => openEditLead(l)}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
