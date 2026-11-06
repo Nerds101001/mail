@@ -26,7 +26,7 @@ export const enrichLead = (l) => {
   const roles = ['info','admin','support','sales','contact','hr','office','hello','marketing','team','jobs','billing']
   if (roles.includes(user) && !['DISPOSABLE','TYPO'].includes(l.status)) l.emailType = l.emailType || 'ROLE-BASED'
   // Only block truly invalid emails — personal and role-based are sendable
-  if (!['SENT','REPLIED','FOLLOW-UP','INVALID','DUPLICATE','DISPOSABLE','TYPO','INVALID-LENGTH','UNSUBSCRIBED'].includes(l.status)) l.status = 'VALID'
+  if (!['SENT','REPLIED','FOLLOW-UP','INVALID','DUPLICATE','DISPOSABLE','TYPO','INVALID-LENGTH','UNSUBSCRIBED','BOUNCED','FAILED'].includes(l.status)) l.status = 'VALID'
 
   // Only auto-fill company from domain for real business domains.
   // Never derive a company name from free/personal providers (gmail, yahoo, etc.)
@@ -58,7 +58,9 @@ export const PIPELINE_STAGES = ['COLD','CONTACTED','OPENED','HOT','DEMO','QUOTED
 // TYPO, DISPOSABLE, DUPLICATE, BOUNCED), or UNSUBSCRIBED (status/stage), or stage NOT-INTERESTED.
 // WON / LOST / REPLIED stay sendable on purpose. (The hard stop for opted-out addresses is the server's
 // opt-out table, checked inside the send endpoints.)
-const NOT_SENDABLE_STATUS = new Set(['INVALID','INVALID-LENGTH','TYPO','DISPOSABLE','DUPLICATE','BOUNCED','UNSUBSCRIBED'])
+// FAILED / BOUNCED: an earlier email to this address failed — never mailed again (owner's rule; the server
+// enforces it too, see api/_sendable.js). To mail the person again, correct their e-mail address.
+const NOT_SENDABLE_STATUS = new Set(['INVALID','INVALID-LENGTH','TYPO','DISPOSABLE','DUPLICATE','BOUNCED','FAILED','UNSUBSCRIBED'])
 const NOT_SENDABLE_STAGE  = new Set(['UNSUBSCRIBED','NOT-INTERESTED'])
 export function isSendable(l) {
   if (!l || typeof l !== 'object' || l.deleted) return false
@@ -87,6 +89,8 @@ export const STATUS_COLORS = {
   REPLIED:     'bg-emerald-200 text-emerald-800',
   'FOLLOW-UP': 'bg-amber-100 text-amber-700',
   INVALID:     'bg-red-100 text-red-700',
+  BOUNCED:     'bg-red-100 text-red-700',
+  FAILED:      'bg-red-100 text-red-700',
   DUPLICATE:   'bg-orange-100 text-orange-700',
   PERSONAL:    'bg-slate-100 text-slate-600',
   'ROLE-BASED':'bg-blue-100 text-blue-600',

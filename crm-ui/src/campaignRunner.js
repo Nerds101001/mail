@@ -159,7 +159,7 @@ async function _sendOne(lead, subject, body, profile, campaignId, config) {
     const data = await res.json().catch(() => ({}))
     if (data.rateLimited) return { ok: false, rateLimited: true }
     if (data.bounced)     return { ok: false, bounced: true, reason: data.reason }
-    if (data.skipped)     return { ok: false, skipped: true }
+    if (data.skipped)     return { ok: false, skipped: true, reason: data.reason, detail: data.detail }
     if (res.ok)           return { ok: true }
     // A failure. `kind` (from the sender, see api/_sendErrors.js) says whether the mail may
     // have gone out: 'sender' = this account is broken · 'transient' = nothing was sent, safe to
@@ -446,16 +446,16 @@ export async function start(config) {
       leadStatus = 'BOUNCED'
       failureReason = result.reason || 'Address rejected'
     } else if (result.skipped) {
+      _addLog(`↷ Skipped ${l.email} — ${result.detail || (result.reason === 'FAILED_BEFORE' ? 'an earlier email to this address failed' : result.reason === 'UNSUBSCRIBED' ? 'opted out' : 'not sendable')}`, 'warn')
       _state.skipped++
       leadStatus = 'SKIPPED'
+      failureReason = result.reason || ''
     } else {
-      // A failed email is never re-sent today. If nothing was sent (temporary error) it is queued
-      // for tomorrow; if it MAY have been delivered (timeout, lost connection) it is left alone.
-      willRetry     = result.kind === 'transient'
+      // Owner's rule: a failed email is NEVER sent again to that address — not today, not tomorrow,
+      // not in the next campaign. The lead's status becomes FAILED (server side) so every audience skips it.
+      willRetry     = false
       failureReason = result.reason || 'Send failed'
-      const tail = willRetry ? ' → will be retried tomorrow'
-                 : result.kind === 'unknown' ? ' (may have been delivered — not retried automatically)' : ''
-      _addLog(`✗ Failed: ${l.email} — ${failureReason}${tail}`, 'error')
+      _addLog(`✗ Failed: ${l.email} — ${failureReason} (this address will not be mailed again)`, 'error')
       _state.failed++
       leadStatus = 'FAILED'
     }

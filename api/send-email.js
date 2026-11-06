@@ -3,6 +3,7 @@ const { get, set } = require("./_redis");
 const { pickSignature, resolveSignatureUser, placeSignature, signatureBlock, stripAttachmentIcon } = require("./_signature");
 const { classifyGmailApiError, classifyGmailThrown } = require("./_sendErrors");
 const { isOptedOut } = require("./_optout");
+const { hasFailedBefore } = require("./_sendable");
 
 // ─── Token refresh with better error handling ────────────────────────────────────
 async function getValidAccessToken(accountEmail = null) {
@@ -275,6 +276,9 @@ module.exports = async (req, res) => {
       return res.status(503).json({ success: false, error: "Could not verify the opt-out list — email not sent", reason: "Opt-out check unavailable", kind: "transient" });
     }
     if (optedOut) return res.status(200).json({ success: false, skipped: true, reason: "UNSUBSCRIBED" });
+    // Never again to an address whose e-mail once FAILED or BOUNCED (owner's rule — see _sendable.js).
+    const failedBefore = await hasFailedBefore(to).catch(e => { console.warn("send-email: failed-history check skipped:", e.message); return false; });
+    if (failedBefore) return res.status(200).json({ success: false, skipped: true, reason: "FAILED_BEFORE", detail: `An earlier email to this address ${failedBefore === "BOUNCED" ? "bounced" : "failed"} — not sent again` });
 
     // Use per-account token if gmailUser specified (multi-Gmail round-robin)
     const accessToken  = await getValidAccessToken(gmailUser || null);

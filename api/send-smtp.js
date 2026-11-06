@@ -4,6 +4,7 @@ const { get, set } = require("./_redis");
 const { pickSignature, resolveSignatureUser, placeSignature, signatureBlock, stripAttachmentIcon } = require("./_signature");
 const { classifySmtpError } = require("./_sendErrors");
 const { isOptedOut } = require("./_optout");
+const { hasFailedBefore } = require("./_sendable");
 
 // ─── Fetch real file data from Postgres for MIME attachments ────────────────
 async function fetchAttachmentData(attachments) {
@@ -111,6 +112,8 @@ module.exports = async (req, res) => {
       return res.status(503).json({ success: false, error: "Could not verify the opt-out list — email not sent", reason: "Opt-out check unavailable", kind: "transient" });
     }
     if (optedOut) return res.status(200).json({ success: false, skipped: true, reason: "UNSUBSCRIBED" });
+    const failedBefore = await hasFailedBefore(to).catch(e => { console.warn("send-smtp: failed-history check skipped:", e.message); return false; });
+    if (failedBefore) return res.status(200).json({ success: false, skipped: true, reason: "FAILED_BEFORE", detail: `An earlier email to this address ${failedBefore === "BOUNCED" ? "bounced" : "failed"} — not sent again` });
 
     const { host, port, user, pass, secure } = smtpConfig;
     const msgId    =`<${Date.now()}.${Math.random().toString(36).slice(2)}@${host}>`;

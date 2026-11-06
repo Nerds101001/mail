@@ -562,7 +562,7 @@ function CampaignRow({ c, isScheduled, isPaused, isInterrupted, expanded, detail
                                       </div>
                                     )}
                                   </div>
-                                  {['FAILED','BOUNCED','failed','bounced'].includes(l.status) && l.failure_reason && (
+                                  {['FAILED','BOUNCED','SKIPPED','failed','bounced'].includes(l.status) && l.failure_reason && (
                                     <span className="text-[10px] text-red-500 italic" title={l.failure_reason}>
                                       ⚠ {l.failure_reason.length > 50 ? l.failure_reason.slice(0,50)+'…' : l.failure_reason}
                                     </span>

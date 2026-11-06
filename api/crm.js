@@ -4,8 +4,9 @@
 
 const { get, set, strictGet, strictSet } = require("./_redis");
 const { getSql } = require("./_db");
-const { nextRetryAt, retryEnabled, ensureRetryColumns } = require("./_retry");
+const { ensureRetryColumns } = require("./_retry");
 const { applyOptOuts, registerManualOptOuts } = require("./_optout");
+const { applyFailedOverlay } = require("./_sendable");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 // safeGet/safeSet swallow database errors: fine for display-only reads, NOT for anything that
@@ -151,6 +152,9 @@ module.exports = async (req, res) => {
     //    lead record is out of date (see _optout.js). Display only — never blocks the load.
     try { leads = (await applyOptOuts(leads)).leads; }
     catch (e) { console.warn('⚠ [CRM LOAD] opt-out overlay skipped:', e.message); }
+    // Addresses whose e-mail once failed/bounced show FAILED/BOUNCED (never mailed again — _sendable.js).
+    try { leads = (await applyFailedOverlay(leads)).leads; }
+    catch (e) { console.warn('⚠ [CRM LOAD] failed-send overlay skipped:', e.message); }
 
     // ── Data cleanup (name + company) ────────────────────────────────────
     // Fixes leads stored before the enrichLead guards were added.
@@ -272,6 +276,9 @@ module.exports = async (req, res) => {
         const o = await applyOptOuts(leads);
         leadsToStore = o.leads;
         if (o.changed) console.log(`🚫 [OPT-OUT] kept ${o.changed} opted-out lead(s) UNSUBSCRIBED in a save from user=${userId}`);
+        const f = await applyFailedOverlay(leadsToStore);
+        leadsToStore = f.leads;
+        if (f.changed) console.log(`✗ [FAILED] kept ${f.changed} failed/bounced address(es) blocked in a save from user=${userId}`);
       } catch (e) { console.warn('⚠ [CRM SAVE] opt-out overlay skipped:', e.message); }
     }
 
@@ -469,9 +476,9 @@ module.exports = async (req, res) => {
         if (update_lead) {
           const { leadId, status: ls, subject, body, sentAt, variantIndex, failureReason, retry, senderEmail } = update_lead;
           const finalStatus = ls || 'SENT';
-          // A FAILED email the runner flagged as safe to retry (nothing was sent) is scheduled for
-          // tomorrow. Never the same day, and never for "outcome unknown" failures (could duplicate).
-          const retryAt = (finalStatus === 'FAILED' && retry === true && retryEnabled()) ? nextRetryAt() : null;
+          // Owner's rule (2026-11-06): a FAILED or BOUNCED address is never mailed again — so no
+          // next-day retry is scheduled any more (the `retry` flag from older UI builds is ignored).
+          const retryAt = null;
 
           // Update the individual lead row
           await sql`
@@ -489,6 +496,24 @@ module.exports = async (req, res) => {
               AND lead_id     = ${leadId}
               AND status      = 'PENDING'
           `;
+
+          // The LEAD record follows: FAILED / BOUNCED becomes its status (never mailed again — see
+          // _sendable.js). Done in the campaign owner's lead list; a note says why.
+          if (finalStatus === 'FAILED' || finalStatus === 'BOUNCED') {
+            try {
+              const own = await sql`SELECT user_id FROM campaigns WHERE id = ${id}`;
+              const ownerKey = ns("crm:leads", (own[0] && own[0].user_id) || userId);
+              const arr = await strictGet(ownerKey, []);
+              let hit = false;
+              const out = (Array.isArray(arr) ? arr : []).map(l => {
+                if (!l || l.id !== leadId) return l;
+                hit = true;
+                if (l.status === 'UNSUBSCRIBED') return l;
+                return { ...l, status: finalStatus, notes: (l.notes || '') + `\n[${new Date().toISOString()}] Email ${finalStatus === 'BOUNCED' ? 'bounced' : 'failed'}${failureReason ? ' — ' + String(failureReason).slice(0, 160) : ''}. Not sent again.` };
+              });
+              if (hit) await strictSet(ownerKey, out);
+            } catch (e) { console.warn('[CRM] could not mark lead as ' + finalStatus + ':', e.message); }
+          }
 
           // Atomically increment campaign-level counters so history shows live stats
           if (finalStatus === 'SENT') {
